@@ -686,6 +686,13 @@ Files: `locales/<lang>/_meta.js` (`{ name, intl, dir, yes }`) and `locales/<lang
 `reader`, `viewer`, `catalog` (P4), `search` (P5), `calendar`, `holidays`, `weather`, `notify` (P6),
 `vault` (P7), `editor`, `notes`, `todo`, `calc`, `kit` (P8), `terminal` (P9), `media` (P10), `fortune`
 (P11). A module lists its namespaces in `i18n: [...]`. Adding a language: `locales/README.md`.
+A module can bring its namespaces in its own folder instead (descriptor field `locales`, §8): its
+`i18n` namespaces are then read from `<locales>/<lang>/<ns>.js` next to its `index.js` — same file
+format, same fallback chain (a missing language falls back like any other file). A namespace that the
+core or another module already uses is not redirected (warning; the existing source stays). The module
+loader registers these folders through `addSource(i18n, ns, dirUrl)` from `src/core/i18n.js` before it
+loads the namespaces; this is not part of `Desk.i18n`. `npm run i18n:check` checks
+`site/modules/*/locales/` against the languages in `locales/`.
 
 ```ts
 Desk.t('ns.key', params?) → string     // unqualified key → 'core'

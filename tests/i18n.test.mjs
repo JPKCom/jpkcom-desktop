@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createI18n, splitKey } from '../src/core/i18n.js';
+import { createI18n, splitKey, addSource } from '../src/core/i18n.js';
 import { createRegistry } from '../src/core/registry.js';
 
 const DICTS = {
@@ -300,4 +300,64 @@ test('registry.nameLang(): an app name that fell back to another language report
 	assert.equal(reg.nameLang(reg.get('keyed')), 'en', 'a locale key missing in the language falls back with its language');
 	/* Without R (tests, other hosts) nothing is marked */
 	assert.equal(createRegistry().nameLang({ name: { en: 'X' } }), null);
+});
+
+/* ---------- Namespaces from a module's own folder (descriptor field locales) ---------- */
+
+const MOD = 'https://x.test/site/modules/hello/locales/';
+const FILES = {
+	[`${MOD}en/hello.js`]: { hi: 'Hi {name}', opens: { one: 'Opened once', other: 'Opened {n} times' } },
+	[`${MOD}de/hello.js`]: { hi: 'Hallo {name}' }
+};
+
+function withFiles({ languages = ['de', 'en'], defaultLang = 'en' } = {}) {
+	const asked = [];
+	const i18n = createI18n({
+		languages, defaultLang,
+		load: async (code, ns) => {
+			if (!DICTS[code]?.[ns]) throw new Error('missing');
+			return DICTS[code][ns];
+		},
+		importFile: async url => {
+			asked.push(url);
+			if (!FILES[url]) throw new Error('404');
+			return FILES[url];
+		},
+		warn: () => {}
+	});
+	return { i18n, asked };
+}
+
+test('addSource(): a namespace from a module folder loads along the fallback chain', async () => {
+	const { i18n, asked } = withFiles();
+	i18n.init('de');
+	assert.equal(addSource(i18n, 'hello', MOD), true);
+	await i18n.use('hello');
+	assert.equal(i18n.t('hello.hi', { name: 'Alex' }), 'Hallo Alex');
+	assert.equal(i18n.t('hello.opens', { n: 3 }), 'Opened 3 times', 'a key missing in de comes from en');
+	assert.deepEqual(asked.sort(), [`${MOD}de/hello.js`, `${MOD}en/hello.js`]);
+	await i18n.setLang('en');
+	assert.equal(i18n.t('hello.hi', { name: 'Alex' }), 'Hi Alex');
+	assert.equal(i18n.t('hello.opens', { n: 1 }), 'Opened once');
+});
+
+test('addSource(): a missing language file falls back without throwing', async () => {
+	const { i18n } = withFiles({ languages: ['fr', 'en'] });
+	i18n.init('fr');
+	assert.equal(addSource(i18n, 'hello', MOD), true);
+	await i18n.use('hello');
+	assert.equal(i18n.t('hello.hi', { name: 'A' }), 'Hi A');
+});
+
+test('addSource(): refuses namespaces in use, a second folder and invalid input', async () => {
+	const { i18n } = withFiles();
+	await i18n.use('notes');
+	assert.equal(addSource(i18n, 'notes', MOD), false, 'already loaded from locales/');
+	assert.equal(addSource(i18n, 'hello', MOD), true);
+	assert.equal(addSource(i18n, 'hello', MOD), true, 'the same folder again is fine');
+	assert.equal(addSource(i18n, 'hello', 'https://x.test/other/locales/'), false, 'a second folder is refused');
+	assert.equal(addSource(i18n, 'Bad NS', MOD), false);
+	assert.equal(addSource(i18n, 'x', 'https://x.test/no-slash'), false);
+	assert.equal(addSource(i18n, 'x', 7), false);
+	assert.equal(addSource({}, 'x', MOD), false, 'not an i18n instance');
 });

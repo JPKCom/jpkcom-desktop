@@ -2,7 +2,10 @@
 
    Strings live in locales/<lang>/<namespace>.js (ES modules, export default
    { key: 'text' | { one, other, … } }), one file per namespace; the language's
-   metadata in locales/<lang>/_meta.js. Nothing here assumes two languages:
+   metadata in locales/<lang>/_meta.js.
+   A module can keep its namespaces in its own folder (descriptor field locales):
+   addSource(i18n, ns, dirUrl) — then <dirUrl><lang>/<ns>.js is read instead.
+   Nothing here assumes two languages:
 
    - Lookup chain per key: lang → its base language (de-AT → de) →
      config.defaultLang → 'en' → the key itself (warned once in debug mode).
@@ -31,6 +34,10 @@ const PLURAL = new Set(['zero', 'one', 'two', 'few', 'many', 'other']);
 const META_DEFAULT = Object.freeze({ dir: 'ltr', yes: '^(y|yes)$' });
 /* A language code as a map key ('de', 'de-AT', 'zh-Hant') */
 const LANG_KEY = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
+/* A namespace name ('notes', 'my-app') */
+const NS = /^[a-z][a-z0-9-]*$/;
+/* The loader-only parts of each instance (addSource below) — not in the returned API */
+const INTERNAL = new WeakMap();
 
 const isObj = V.isObj;
 const isPluralForm = v => isObj(v) && typeof v.other === 'string'
@@ -48,14 +55,16 @@ export const splitKey = key => {
  *   defaultLang   fallback after the base language
  *   load(code, ns)    → Promise<dict> (rejects or resolves null when missing)
  *   loadMeta(code)    → Promise<meta>
+ *   importFile(url)   → Promise<dict> — a namespace file from a module folder (default: import())
  *   onChange({ lang, prev })  called after setLang() switched
  */
-export function createI18n({ languages, defaultLang, debug = false, load, loadMeta = async () => null, onChange = () => {}, warn = console.warn }) {
+export function createI18n({ languages, defaultLang, debug = false, load, loadMeta = async () => null, importFile = url => import(url).then(m => m.default), onChange = () => {}, warn = console.warn }) {
 	const known = new Set([...languages, 'en']);
 	const dicts = new Map();      // 'code/ns' → dict
 	const pending = new Map();    // 'code/ns' → Promise
 	const metas = new Map();      // code → meta
 	const namespaces = new Set(); // every namespace loaded so far (reloaded on setLang)
+	const sources = new Map();    // namespace → folder URL of a module (descriptor field locales)
 	const warned = new Set();
 	const cache = new Map();      // Intl instances
 	let lang = languages.includes(defaultLang) ? defaultLang : languages[0];
@@ -95,11 +104,13 @@ export function createI18n({ languages, defaultLang, debug = false, load, loadMe
 		const id = `${code}/${ns}`;
 		if (dicts.has(id)) return Promise.resolve();
 		if (pending.has(id)) return pending.get(id);
+		const dir = sources.get(ns);
+		const where = dir ? `${dir}${id}.js` : `locales/${id}.js`;
 		const p = Promise.resolve()
-			.then(() => load(code, ns))
-			.then(d => sanitize(d, `locales/${id}.js`))
+			.then(() => (dir ? importFile(where) : load(code, ns)))
+			.then(d => sanitize(d, where))
 			.catch(err => {
-				note(`locales/${id}.js could not be loaded (${err?.message ?? err})`);
+				note(`${where} could not be loaded (${err?.message ?? err})`);
 				return {};
 			})
 			.then(d => {
@@ -110,9 +121,19 @@ export function createI18n({ languages, defaultLang, debug = false, load, loadMe
 		return p;
 	}
 
+	/* A namespace read from a module's own folder; refused when it is already in use or has another folder */
+	function source(ns, dirUrl) {
+		if (typeof ns !== 'string' || !NS.test(ns) || typeof dirUrl !== 'string' || !dirUrl.endsWith('/')) return false;
+		if (sources.has(ns)) return sources.get(ns) === dirUrl;
+		const inUse = namespaces.has(ns) || [...dicts.keys(), ...pending.keys()].some(id => id.endsWith(`/${ns}`));
+		if (inUse) return false;
+		sources.set(ns, dirUrl);
+		return true;
+	}
+
 	/** Loads namespaces for the whole chain of a language (default: current). */
 	async function use(nsList, code = lang) {
-		const list = (Array.isArray(nsList) ? nsList : [nsList]).filter(ns => typeof ns === 'string' && /^[a-z][a-z0-9-]*$/.test(ns));
+		const list = (Array.isArray(nsList) ? nsList : [nsList]).filter(ns => typeof ns === 'string' && NS.test(ns));
 		for (const ns of list) namespaces.add(ns);
 		await Promise.all(chain(code).flatMap(c => list.map(ns => loadDict(c, ns))));
 	}
@@ -369,8 +390,15 @@ export function createI18n({ languages, defaultLang, debug = false, load, loadMe
 			return { firstDay: 1, weekend: [6, 7], minimalDays: 4 };
 		}
 	};
+	INTERNAL.set(api, { source });
 	return api;
 }
+
+/**
+ * Reads a namespace from a module's own folder: <dirUrl><lang>/<ns>.js (dirUrl absolute, ending in '/').
+ * For the module loader (descriptor field locales); false when the namespace is in use or taken.
+ */
+export const addSource = (instance, ns, dirUrl) => INTERNAL.get(instance)?.source(ns, dirUrl) ?? false;
 
 /* ---------- The desktop's instance ---------- */
 
