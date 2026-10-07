@@ -30,7 +30,9 @@ test('hello: en and de have the same keys, placeholders and plural forms', () =>
 	assert.deepEqual(Object.keys(de).sort(), Object.keys(en).sort());
 	assert.match(en.greeting, /\{name\}/);
 	assert.match(de.greeting, /\{name\}/);
+	assert.deepEqual(Object.keys(de.opens).sort(), Object.keys(en.opens).sort());
 	for (const d of [en, de]) {
+		assert.equal(typeof d.opens['=0'], 'string', 'a sentence of its own for a counter at 0 (after a reset)');
 		assert.equal(typeof d.opens.one, 'string');
 		assert.match(d.opens.other, /\{n\}/);
 	}

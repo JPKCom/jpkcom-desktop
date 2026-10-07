@@ -8,7 +8,7 @@ export default {
 	greet: 'Greet',
 	greeting: 'Hello, {name}!',
 	greetingAnon: 'Hello! What is your name?',
-	opens: { one: 'You have opened this app once.', other: 'You have opened this app {n} times.' },
+	opens: { '=0': 'You have not opened this app yet.', one: 'You have opened this app once.', other: 'You have opened this app {n} times.' },
 	resetHint: 'The name and the counter',
 	cmd: 'a greeting from the Hello app',
 	cmdMan: 'Prints a greeting. A name after the command is used for it; without one, the name saved in the Hello app.'
