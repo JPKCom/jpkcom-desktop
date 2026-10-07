@@ -8,9 +8,16 @@
 
    Make it your own app
      1. Copy the folder: site/modules/hello/ → site/modules/<id>/ (id: a–z, 0–9 and '-', starting with a letter).
-     2. Replace 'hello' with your id: the id below, the namespace in i18n and in every t('hello.…'), the
-        files locales/<lang>/hello.js, the storage key and reset group, the CSS prefix 'hello-' in
-        hello.css (rename the file as well and list it in styles).
+     2. Replace every `hello` / `Hello` in the folder with your id / name (a search-and-replace over the
+        folder does it). That covers:
+          - the id, the i18n namespace and every 'hello.…' / '@hello.…' key (also in the descriptor below);
+          - the files locales/<lang>/hello.js and their texts (names, greetings, help of the command);
+          - the storage key, the reset group (also in the storage:reset listener) and win.state.hello;
+          - the terminal command `hello` and its usage: a second command of the same name is refused
+            (the first registration wins), so your copy would silently lose its command;
+          - the CSS classes 'hello', 'hello-input', … here and in hello.css (rename that file too and
+            list the new name in styles), and the '-hello-name' suffix of the field id;
+          - the helper cleanHello in model.js (optional, but keeps the names consistent).
      3. List it in site/config.js: apps: [ …, { id: '<id>', src: 'site/modules/<id>/index.js' } ].
      4. A new Tabler icon ('ti-…'): npm run icons. Then npm run i18n:check (each language of locales/
         needs its file in your locales/<lang>/) and npm run validate.
