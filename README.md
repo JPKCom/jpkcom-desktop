@@ -370,20 +370,18 @@ wallpaper: {
   Otherwise its id is shown.
 
 **CSS tokens.** Every colour, radius, font and size is a custom property in `src/css/tokens.css` (the
-groups are listed in [ARCHITECTURE §17](docs/ARCHITECTURE.md#17-css-conventions-and-tokens)). To
-override tokens without touching `src/`, use a small site module that only brings a stylesheet. The
-`themes` layer wins over every other layer:
+groups are listed in [ARCHITECTURE §17](docs/ARCHITECTURE.md#17-css-conventions-and-tokens)).
 
-```js
-/* site/modules/look/index.js — listed in config.modules as { id: 'look', src: 'site/modules/look/index.js' } */
-export default { id: 'look', kind: 'module', styles: ['look.css'] };
-```
+**Your own theme.** Put token overrides into `site/theme.css` inside `@layer themes`. It is loaded before the
+first paint and kept offline, and the `themes` layer wins over every other layer. Families such as
+`--radius-control` or `--glass-backdrop` change every part at once. All tokens and the rules (light and
+dark, dark islands, phones) are in [docs/theming.md](docs/theming.md).
 
 ```css
-/* site/modules/look/look.css */
+/* site/theme.css */
 @layer themes {
-	:root { --radius-win: 6px; }
-	:root[data-theme="light"] { --win-bg: #fbfaf7; }
+	:root { --radius-control: 2px; --radius-panel: 4px; --radius-win: 4px; }
+	body.compact { --radius-win: 4px; }
 }
 ```
 

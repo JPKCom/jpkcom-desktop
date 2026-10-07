@@ -61,7 +61,7 @@ manifest.webmanifest
 sw.js
 assets/        the favicon and the app icons
 locales/       the texts of every language
-site/          your configuration, manifest and content
+site/          your configuration, manifest, theme (site/theme.css) and content
 src/           the desktop itself
 LICENSE        (please keep it with the files)
 CREDITS.md

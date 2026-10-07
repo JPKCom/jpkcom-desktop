@@ -111,6 +111,8 @@ you may not use them as your own logo. For your own identity, replace them every
    apple-mobile-web-app-title, `<noscript>`). [deploy.md §11](deploy.md#11-offline-use-and-installation-pwa)
    lists every line. Please keep the `author` and `generator` meta tags.
 
+Colours, corners, glass and shadows: `site/theme.css` (see [theming.md](theming.md)).
+
 ## 3. Your content
 
 The shipped `site/` is an example site: About, Docs, Changelog, Imprint, Privacy, Bookmarks and a

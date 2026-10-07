@@ -953,7 +953,7 @@ merged. Rules and part tokens that use `--shade`, `--ink`, `--line-strong`, `--w
 `--pressed-edge`, `--warn` or `--cal-weekend` are declared on `:root, [data-island="dark"]` so dark islands recompute
 them; all others on plain `:root`. Outside `tokens.css`, `border-radius`, `box-shadow`, `text-shadow`,
 `filter: drop-shadow()` and `backdrop-filter` use these tokens — literals only for the documented structural
-exceptions (`tests/theming.test.mjs`). The full list of every token is `docs/theming.md`.
+exceptions (`tests/theming.test.mjs`). The full list of every token is `docs/theming.md`. A site's own theme is `site/theme.css` (linked in `index.html` after the core CSS, a shell file of the service worker); see `docs/theming.md`.
 
 `html[data-theme]` is always `dark` or `light` (resolved). Site theme presets override tokens in
 `@layer themes`. Pre-paint attributes from `theme.js`: `html[data-wp-dir=glow|down|diag|radial]` (the

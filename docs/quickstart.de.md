@@ -115,6 +115,8 @@ aber nicht als dein eigenes Logo verwenden. Für deinen eigenen Auftritt ersetzt
    [deploy.md §11](deploy.md#11-offline-use-and-installation-pwa) listet jede Zeile auf. Behalte bitte
    die Meta-Tags `author` und `generator`.
 
+Farben, Rundungen, Glas und Schatten: `site/theme.css` (siehe [theming.md](theming.md), auf Englisch).
+
 ## 3. Deine Inhalte
 
 Das mitgelieferte `site/` ist eine Beispiel-Website: Über das Projekt, Handbuch, Versionshinweise,

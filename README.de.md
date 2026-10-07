@@ -392,19 +392,18 @@ wallpaper: {
 
 **CSS-Tokens.** Jede Farbe, jeder Radius, jede Schrift und jede Größe ist eine Custom Property in
 `src/css/tokens.css` (die Gruppen stehen in [ARCHITECTURE §17](docs/ARCHITECTURE.md#17-css-conventions-and-tokens)).
-Um Tokens zu überschreiben, ohne `src/` anzufassen, nimmst du ein kleines Website-Modul, das nur ein
-Stylesheet mitbringt. Die Ebene `themes` gewinnt gegen jede andere Ebene:
 
-```js
-/* site/modules/look/index.js — in config.modules als { id: 'look', src: 'site/modules/look/index.js' } */
-export default { id: 'look', kind: 'module', styles: ['look.css'] };
-```
+**Eigenes Theme.** Trage Token-Überschreibungen in `site/theme.css` innerhalb von `@layer themes` ein. Die Datei
+wird vor dem ersten Paint geladen und offline vorgehalten, und die Ebene `themes` gewinnt gegen jede andere
+Ebene. Familien wie `--radius-control` oder `--glass-backdrop` ändern alle zugehörigen Teile auf einmal. Alle
+Tokens und die Regeln (hell und dunkel, dunkle Inseln, Handy) stehen in [docs/theming.md](docs/theming.md)
+(auf Englisch).
 
 ```css
-/* site/modules/look/look.css */
+/* site/theme.css */
 @layer themes {
-	:root { --radius-win: 6px; }
-	:root[data-theme="light"] { --win-bg: #fbfaf7; }
+	:root { --radius-control: 2px; --radius-panel: 4px; --radius-win: 4px; }
+	body.compact { --radius-win: 4px; }
 }
 ```
 

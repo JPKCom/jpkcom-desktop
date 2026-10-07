@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ### Added
 
+- **House theme** — `site/theme.css` in `@layer themes`, loaded before the first paint and kept offline; radius, glass and shadow tokens (families and part tokens) with unchanged defaults; full token reference in `docs/theming.md`.
 - **Live demo on GitHub Pages** — `.github/workflows/pages.yml` publishes the shipped example site, as
   it is and without a build step, to <https://jpkcom.github.io/jpkcom-desktop/> on every push to `main`
   (or when started by hand). GitHub Pages cannot send response headers, so the workflow adds the

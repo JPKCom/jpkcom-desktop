@@ -39,7 +39,7 @@ deployen, anpassen und wiederverwenden — alles, was ein Site-Betreiber ändert
 ```
 index.html, manifest.webmanifest, sw.js   Shell-Markup, PWA (Root wegen Scope)
 site/            ALLES, was ein Betreiber anpasst: config.js (window.DESKTOP_CONFIG), apps.js (Manifest),
-                 content/<lang>/, data/, vault/, wallpapers/, modules/ (Site-Apps, Beispiel hello/) — neutral
+                 theme.css (Haus-Theme), content/<lang>/, data/, vault/, wallpapers/, modules/ (Site-Apps, Beispiel hello/) — neutral
 locales/<lang>/  _meta.js + ein Namespace pro Datei; en = Referenz, de mitgeliefert
 src/boot/        theme.js (klassisch, vor dem ersten Paint), main.js (Einstieg)
 src/core/        config env store bus i18n dom icons a11y registry router net consent storage-registry
@@ -83,6 +83,7 @@ Neue Config-Keys → `DEFAULTS` in `src/core/config.js` **und** kommentiert in `
    Kolb — all rights reserved, not MIT (brand asset, see CREDITS.md)`.
 5. **CSS-Layer**: alles in den eigenen Layer (`@layer modules`/`apps`/…), Phone-Overrides in
    `@layer compact { body.compact … }`, Präfixe aus §17, Tokens statt Farbliteralen, logische Properties.
+   Rundungen, Schatten, Glas nur über Tokens (`tests/theming.test.mjs` prüft das).
 6. **Markennamen-Glossar** (§4): keine fremden Produkt-/Markennamen für eigene Features
    (Search, Overview, Catalog, All apps, window controls `wc-*` …). Nominative Nennung von
    Datenprovidern/Servern ist erlaubt.

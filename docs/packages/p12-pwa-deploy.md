@@ -7,6 +7,7 @@
 | File | Purpose |
 |---|---|
 | `sw.js` | service worker (classic script at the installation root): offline copy of the desktop and of Reader pages |
+| `site/theme.css` | the site's own theme (token overrides in `@layer themes`, `docs/theming.md`): linked in `index.html` after the core CSS and a shell file of the worker, so it is cached for offline use |
 | `manifest.webmanifest` | web app manifest: relative `start_url`/`scope`, neutral English name, icons |
 | `assets/icons/` | `favicon.svg` (any), `maskable.svg`, `icon-192.png`, `icon-512.png`, `maskable-192.png`, `maskable-512.png`, `apple-touch-icon.png` (180 px) — all from the JPK monogram (brand assets, not MIT: `CREDITS.md`) |
 | `tools/build-pwa-icons.mjs` | renders the PNG icons from `favicon.svg` / `maskable.svg` (`npm run icons:pwa`, playwright-core) |

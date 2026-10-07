@@ -201,3 +201,15 @@ test('theming: site/theme.css is linked after the core CSS, kept offline, and sh
 	assert.equal(rules, '', 'the shipped theme has comments only');
 	assert.match(read('site/theme.css'), /@layer themes/, 'the example shows @layer themes');
 });
+
+test('theming: docs/theming.md lists every token of tokens.css, and only those', () => {
+	const tokens = new Set(declared(readCss('src/css/tokens.css')).keys());
+	const doc = read('docs/theming.md');
+	const inDoc = new Set([...doc.matchAll(/`(--[a-z0-9-]+)`/g)].map(m => m[1]));
+	const PATTERNS = ['--accent-<id>', '--t-<id>'];
+	for (const p of PATTERNS) assert.ok(doc.includes(`\`${p}\``), `pattern ${p} documented`);
+	const notDocumented = [...tokens].filter(t => !inDoc.has(t) && !/^--(accent|t)-/.test(t));
+	const unknown = [...inDoc].filter(t => !tokens.has(t) && !/^--(accent|t)-/.test(t) && !['--accent', '--on-accent', '--accent-ring', '--wallpaper-from', '--wallpaper-to', '--anim', '--c', '--tint'].includes(t));
+	assert.deepEqual(notDocumented, [], 'tokens missing in docs/theming.md');
+	assert.deepEqual(unknown, [], 'docs/theming.md names tokens tokens.css does not declare');
+});
