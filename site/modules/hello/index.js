@@ -7,17 +7,19 @@
    command `hello`.
 
    Make it your own app
-     1. Copy the folder: site/modules/hello/ → site/modules/<id>/ (id: a–z, 0–9 and '-', starting with a letter).
-     2. Replace every `hello` / `Hello` in the folder with your id / name (a search-and-replace over the
-        folder does it). That covers:
+     1. Copy the folder: site/modules/hello/ → site/modules/<id>/ (id: a–z, 0–9 and '-', starting with a
+        letter, at most 32 characters — e.g. my-app).
+     2. Replace every `hello` in the folder with your id, in the file names as well (a search-and-replace
+        over the folder does it): the id only ever stands in strings, never in a JavaScript name, so an id
+        with '-' works too. `Hello` is the display name: it only stands in texts and comments — replace it
+        with your app's name. That covers:
           - the id, the i18n namespace and every 'hello.…' / '@hello.…' key (also in the descriptor below);
+          - KEY below: the storage key, the reset group, win.state[KEY] and the terminal command `hello`
+            (and its usage 'hello [name]') — a second command of the same name is refused (the first
+            registration wins), so your copy would have its command refused with a warning;
           - the files locales/<lang>/hello.js and their texts (names, greetings, help of the command);
-          - the storage key, the reset group (also in the storage:reset listener) and win.state.hello;
-          - the terminal command `hello` and its usage: a second command of the same name is refused
-            (the first registration wins), so your copy would silently lose its command;
-          - the CSS classes 'hello', 'hello-input', … here and in hello.css (rename that file too and
-            list the new name in styles), and the '-hello-name' suffix of the field id;
-          - the helper cleanHello in model.js (optional, but keeps the names consistent).
+          - the CSS classes 'hello', 'hello-input', … here and in hello.css (renamed with the file, which
+            styles lists) and the '-hello-name' suffix of the field id.
      3. List it in site/config.js: apps: [ …, { id: '<id>', src: 'site/modules/<id>/index.js' } ].
      4. A new Tabler icon ('ti-…'): npm run icons. Then npm run i18n:check (each language of locales/
         needs its file in your locales/<lang>/) and npm run validate.
@@ -25,12 +27,12 @@
    docs/ARCHITECTURE.md §8 (module descriptor) and §21 (how to add …). */
 
 import Desk from '../../../src/core/api.js';
-import { cleanHello, clip, EMPTY, MAX_NAME } from './model.js';
+import { clean, clip, EMPTY, MAX_NAME } from './model.js';
 
 const { h, t, store } = Desk;
-const KEY = 'hello';
+const KEY = 'hello';            // the id wherever it is data: storage key, reset group, command, win.state
 
-const load = () => store.getJson(KEY, cleanHello, null) ?? { ...EMPTY };
+const load = () => store.getJson(KEY, clean, null) ?? { ...EMPTY };
 /* false when the browser keeps nothing (private window, full storage): the app works on regardless */
 const save = data => store.setJson(KEY, data);
 
@@ -82,15 +84,15 @@ function mount(win, body) {
 	const offs = [
 		Desk.on('store:change', ({ name, external } = {}) => { if (name === KEY && external) refresh(); }),
 		Desk.on('storage:restore', ({ names } = {}) => { if (names?.includes(KEY)) refresh(); }),
-		Desk.on('storage:reset', ({ groups } = {}) => { if (groups?.includes('hello')) refresh(); })
+		Desk.on('storage:reset', ({ groups } = {}) => { if (groups?.includes(KEY)) refresh(); })
 	];
 
-	win.state.hello = { draw, field, off: () => offs.forEach(off => off()) };
+	win.state[KEY] = { draw, field, off: () => offs.forEach(off => off()) };
 	draw();
 }
 
 /* `hello [name]` in the terminal — a name given here wins over the saved one */
-function helloCommand(args, io) {
+function command(args, io) {
 	io.say(greeting(clip(args.join(' ')) || load().name));
 }
 
@@ -104,16 +106,16 @@ export default {
 	app: { icon: 'ti-mood-smile', tint: 'green', size: [420, 360], name: '@hello.appName', desc: '@hello.appDesc' },
 
 	storage: {
-		hello: { type: 'json', backup: true, reset: 'hello', label: '@hello.appName', validate: cleanHello }
+		[KEY]: { type: 'json', backup: true, reset: KEY, label: '@hello.appName', validate: clean }
 	},
-	resetGroups: [{ id: 'hello', label: '@hello.appName', hint: '@hello.resetHint', order: 60 }],
+	resetGroups: [{ id: KEY, label: '@hello.appName', hint: '@hello.resetHint', order: 60 }],
 
 	terminal: {
-		hello: { run: helloCommand, help: '@hello.cmd', usage: 'hello [name]', man: '@hello.cmdMan' }
+		[KEY]: { run: command, help: '@hello.cmd', usage: 'hello [name]', man: '@hello.cmdMan' }
 	},
 
 	mount,
-	focus: win => win.state.hello.field.focus({ preventScroll: true }),
-	relabel: win => win.state.hello.draw(),
-	unmount: win => win.state.hello.off()
+	focus: win => win.state[KEY].field.focus({ preventScroll: true }),
+	relabel: win => win.state[KEY].draw(),
+	unmount: win => win.state[KEY].off()
 };
