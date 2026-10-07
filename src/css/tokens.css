@@ -112,6 +112,101 @@
 		--radius-win: 12px;
 		--radius-menu: 8px;
 
+		/* ---------- Radius: families (theme knobs) and parts (aliases or own value) — docs/theming.md ---------- */
+		--radius-panel: 12px;
+		--radius-item: 8px;
+		--radius-field: 7px;
+		--radius-control: 6px;
+		--radius-control-sm: 5px;
+		--radius-small: 4px;
+		--radius-mark: 3px;
+		--radius-hair: 2px;
+		--radius-pill: 999px;
+		--radius-round: 50%;
+
+		--radius-tile: 23%;
+		--radius-tile-title: var(--radius-small);
+		--radius-tile-mini: var(--radius-control-sm);
+		--radius-term-swatch: var(--radius-mark);
+		--radius-wc-dot: var(--radius-round);
+		--radius-wc: var(--radius-control);
+		--radius-tool-btn: var(--radius-control);
+		--radius-notes-back: 8px;
+		--radius-btn: var(--radius-control);
+		--radius-btn-lg: var(--radius-field);
+		--radius-btn-xs: var(--radius-small);
+		--radius-ed-status-btn: var(--radius-control-sm);
+		--radius-btn-round: var(--radius-round);
+		--radius-calc-key: var(--radius-pill);
+		--radius-input: var(--radius-field);
+		--radius-field-sm: var(--radius-control);
+		--radius-seg: var(--radius-field);
+		--radius-seg-item: var(--radius-control-sm);
+		--radius-todo-filters: 8px;
+		--radius-todo-filter: var(--radius-control);
+		--radius-switch: var(--radius-pill);
+		--radius-switch-knob: var(--radius-round);
+		--radius-swatch: var(--radius-round);
+		--radius-sheet: var(--radius-panel);
+		--radius-kbd: var(--radius-small);
+		--radius-inset: var(--radius-item);
+		--radius-scroll-thumb: 12px;
+		--radius-menu-item: var(--radius-control-sm);
+		--radius-menu-sheet: 14px;
+		--radius-menu-sheet-item: 9px;
+		--radius-menu-sheet-tile: 7px;
+		--radius-tilemenu: 10px;
+		--radius-overview-label: var(--radius-pill);
+		--radius-dock: 20px;
+		--radius-dock-label: var(--radius-control);
+		--radius-label: var(--radius-small);
+		--radius-dropzone: var(--radius-panel);
+		--radius-popover: var(--radius-panel);
+		--radius-notif: var(--radius-panel);
+		--radius-boot-bar: var(--radius-hair);
+		--radius-item-row: var(--radius-item);
+		--radius-row: var(--radius-control);
+		--radius-nav-item: var(--radius-control);
+		--radius-catalog-chip: var(--radius-pill);
+		--radius-wp-preview: var(--radius-item);
+		--radius-cal-day: var(--radius-round);
+		--radius-reader-code: var(--radius-small);
+		--radius-reader-block: var(--radius-item);
+		--radius-reader-media: var(--radius-control);
+		--radius-reader-mark: var(--radius-mark);
+		--radius-search-mark: var(--radius-small);
+		--radius-ed-mark: var(--radius-hair);
+		--radius-term-link: var(--radius-hair);
+		--radius-term-code: var(--radius-mark);
+		--radius-fortune-card: var(--radius-panel);
+		--radius-media-cover: var(--radius-panel);
+
+		/* ---------- Backdrops (glass): each replaces the -webkit-backdrop-filter / backdrop-filter pair ---------- */
+		--chrome-backdrop: blur(24px) saturate(1.6);
+		--glass-backdrop: blur(30px) saturate(1.8);
+		--menubar-backdrop: var(--chrome-backdrop);
+		--dock-backdrop: var(--chrome-backdrop);
+		--sheet-backdrop: blur(24px) saturate(1.4);
+		--overlay-backdrop: blur(30px) saturate(1.4);
+		--snap-backdrop: blur(6px);
+		--calc-hist-backdrop: blur(20px);
+
+		/* ---------- Shadows and rings with fixed parts (the ones using --shade/--ink … live in the theme block) ---------- */
+		--tile-box-shadow: inset 0 1px 0 var(--tile-highlight), inset 0 -1px 0 var(--tile-edge), 0 3px 8px var(--tile-shadow);
+		--tile-glyph-filter: drop-shadow(0 1px 1.5px var(--tile-glyph-shadow));
+		--tile-mark-shadow: 0 1px 2px var(--tile-shadow);
+		--shadow-swatch: inset 0 0 0 0.5px var(--swatch-edge);
+		--ring-focus: 0 0 0 2px var(--accent-ring);
+		--ring-focus-halo: 0 0 0 4px rgb(0 0 0 / 0.6);
+		--about-logo-filter: drop-shadow(0 2rem 1rem var(--logo-glow-off));
+		--about-logo-filter-hover: drop-shadow(0 2rem 1rem var(--logo-glow));
+		--shadow-wp-swatch-edge: inset 0 0 0 1px var(--swatch-edge);
+		--shadow-ed-tab-current: inset 0 2px 0 var(--accent-ring);
+
+		/* ---------- Colours that do not follow --shade ---------- */
+		--menubar-dim: rgb(0 0 0 / 0.35);
+		--icon-label-plate: rgb(0 0 0 / 0.55);
+
 		/* Window controls: hit box and dot (compact mode enlarges them) */
 		--wc-box-w: 20px;
 		--wc-box-h: 24px;
@@ -211,6 +306,43 @@
 		/* Search hits in excerpts */
 		--highlight: rgb(143 192 255 / 0.24);
 
+		/* ---------- Shadows and rings (recomputed in dark islands: they use --shade, --ink, --line-strong …) ---------- */
+		--shadow-popup: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 12px 32px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		--shadow-popover: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 14px 36px rgb(0 0 0 / calc(0.5 * var(--shade)));
+		--shadow-win: 0 0 0 0.5px rgb(0 0 0 / calc(0.7 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 24px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		--shadow-win-active: 0 0 0 0.5px rgb(0 0 0 / calc(0.8 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 24px 64px rgb(0 0 0 / calc(0.55 * var(--shade)));
+		--shadow-win-bar: inset 0 -1px 0 rgb(0 0 0 / calc(0.35 * var(--shade)));
+		--shadow-pressed: inset 0 0 0 1px var(--pressed-edge);
+		--shadow-snap-preview: inset 0 0 0 1px rgb(var(--ink) / 0.35);
+		--shadow-tilemenu: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 26px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		--shadow-hairline: inset 0 0 0 0.5px var(--line-strong);
+		--shadow-btn: inset 0 0.5px 0 rgb(var(--ink) / 0.25);
+		--shadow-switch-knob: 0 1px 3px rgb(0 0 0 / calc(0.4 * var(--shade)));
+		--shadow-switch-knob-off: 0 0 0 1px var(--control-edge), var(--shadow-switch-knob);
+		--shadow-control-edge: inset 0 0 0 1px var(--control-edge);
+		--ring-selected: 0 0 0 2px var(--win-bg), 0 0 0 4px var(--accent-ring);
+		--shadow-sheet: inset 0 0 0 0.5px var(--line-strong), 0 16px 40px rgb(0 0 0 / calc(0.5 * var(--shade)));
+		--shadow-calendar: var(--shadow-popover);
+		--shadow-cal-holiday: inset 0 0 0 1px color-mix(in srgb, var(--cal-weekend) 60%, transparent);
+		--shadow-cal-today: 0 0 0 2px rgb(var(--ink) / 0.25);
+		--shadow-search-palette: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 18px 48px rgb(0 0 0 / calc(0.55 * var(--shade)));
+		--shadow-about-logo: 0 1px 0 rgb(var(--ink) / 0.1), 0 8px 18px rgb(0 0 0 / calc(0.35 * var(--shade)));
+		--shadow-wp-preview: 0 0 0 1px var(--line-strong), 0 4px 10px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		--shadow-wp-swatch: var(--shadow-wp-swatch-edge), 0 2px 6px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		--icon-label-shadow: 0 1px 3px rgb(0 0 0 / calc(0.8 * var(--shade)));
+		--shadow-dock: 0 0 0 0.5px rgb(0 0 0 / calc(0.4 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 30px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		--shadow-dock-label: inset 0 0 0 0.5px var(--line-strong), 0 4px 12px rgb(0 0 0 / calc(0.35 * var(--shade)));
+		--shadow-dropzone: var(--shadow-popover);
+		--shadow-menubar: 0 1px 0 rgb(var(--ink) / 0.06);
+		--shadow-menu: var(--shadow-popup);
+		--shadow-notif: var(--shadow-popup);
+		--shadow-notif-close: 0 0 0 0.5px var(--line-strong), 0 2px 6px rgb(0 0 0 / calc(0.4 * var(--shade)));
+		--shadow-power-on: inset 0 0 0 1px rgb(var(--ink) / 0.25);
+		--shadow-ed-match-current: 0 0 0 1.5px var(--warn);
+		--shadow-media-cover: 0 8px 24px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		--shadow-todo-drag: 0 6px 16px rgb(0 0 0 / calc(0.4 * var(--shade)));
+		--wc-ring: rgb(var(--ink) / 0.5);
+
 		color-scheme: dark;
 	}
 
@@ -279,6 +411,7 @@
 		   5px padding twice, 6px above the edge, the home indicator, a little air */
 		--dock-space: calc(var(--tile) + 10px + 6px + env(safe-area-inset-bottom) + 4px);
 		--radius-win: 14px;
+		--radius-dock: 18px;
 		--bounce: -4px;
 		--wc-box-w: 34px;
 		--wc-box-h: 42px;

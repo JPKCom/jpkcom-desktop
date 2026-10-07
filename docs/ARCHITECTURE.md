@@ -941,6 +941,20 @@ Tokens (`src/css/tokens.css`):
 | Motion | `--ease`, `--anim` (= `config.ui.animMs`, set by `theme.js` before the first paint), `--dur: var(--anim)` (window transitions — JS timers and CSS use the same duration) |
 | WM | `--win-min-w --win-min-h` (from `config.wm.minSize`, set by `initWM()`) |
 
+**Radius, glass and shadow tokens (two levels).** Families are the knobs of a theme: `--radius-panel`
+(12px), `--radius-item` (8px), `--radius-field` (7px), `--radius-control` (6px), `--radius-control-sm` (5px),
+`--radius-small` (4px), `--radius-mark` (3px), `--radius-hair` (2px), `--radius-pill` (999px), `--radius-round` (50%),
+next to the existing `--radius-win` and `--radius-menu`; `--glass-backdrop`, `--chrome-backdrop`; `--shadow-hairline`,
+`--shadow-control-edge`, `--shadow-pressed`, `--ring-focus`, `--ring-selected`, `--shadow-popup`, `--shadow-popover`.
+Part tokens name one role (`--radius-<role>`, `--shadow-<role>`, `--ring-<role>`, `<surface>-backdrop`, part prefixes of
+this section for single-part roles) and either alias their family (`--radius-btn: var(--radius-control)`) or carry
+their own value where today's value differs from every family. Defaults are today's values; differing values are never
+merged. Rules and part tokens that use `--shade`, `--ink`, `--line-strong`, `--win-bg`, `--control-edge`,
+`--pressed-edge`, `--warn` or `--cal-weekend` are declared on `:root, [data-island="dark"]` so dark islands recompute
+them; all others on plain `:root`. Outside `tokens.css`, `border-radius`, `box-shadow`, `text-shadow`,
+`filter: drop-shadow()` and `backdrop-filter` use these tokens — literals only for the documented structural
+exceptions (`tests/theming.test.mjs`). The full list of every token is `docs/theming.md`.
+
 `html[data-theme]` is always `dark` or `light` (resolved). Site theme presets override tokens in
 `@layer themes`. Pre-paint attributes from `theme.js`: `html[data-wp-dir=glow|down|diag|radial]` (the
 default gradient's direction; `base.css` paints the same gradient as the wallpaper renderer, P3) and
