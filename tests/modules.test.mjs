@@ -255,3 +255,16 @@ test('modules: an invalid locales value is reported and ignored, the module load
 	assert.equal(modules.isLoaded('bad-locales'), true);
 	assert.equal(modules.get('bad-locales').locales, undefined);
 });
+
+test('modules: a locales value JSON cannot write (BigInt, circular) is reported too, the module loads', async () => {
+	const out = await warnings(() => modules.loadAll([{ kind: 'module', refs: [
+		ref('big-locales', "export default { id: 'big-locales', locales: 1n };"),
+		ref('loop-locales', "const o = {}; o.o = o; export default { id: 'loop-locales', locales: o };")
+	] }], {}));
+	for (const id of ['big-locales', 'loop-locales']) {
+		assert.ok(out.some(w => w.includes(`'${id}'`) && w.includes('locales')), out.join('\n'));
+		assert.equal(modules.isLoaded(id), true, id);
+		assert.equal(modules.get(id).locales, undefined, id);
+	}
+	assert.ok(out.some(w => w.includes('bigint')), 'the type names the value');
+});

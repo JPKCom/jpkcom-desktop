@@ -217,7 +217,9 @@ function validate(mod, ref, url) {
 		if (dir) out.locales = dir;
 		else {
 			delete out.locales;
-			console.warn(`[modules] '${d.id}': locales ${JSON.stringify(d.locales)} must be a relative folder inside the module's folder, ending in '/' — ignored`);
+			/* a string quoted; anything else only by its type (JSON throws for BigInt and circular values) */
+			const shown = typeof d.locales === 'string' ? JSON.stringify(d.locales) : typeof d.locales;
+			console.warn(`[modules] '${d.id}': locales ${shown} must be a relative folder inside the module's folder, ending in '/' — ignored`);
 		}
 	}
 	return out;
