@@ -19,7 +19,7 @@
 		background: var(--dock-bg);
 		-webkit-backdrop-filter: var(--dock-backdrop);
 		backdrop-filter: var(--dock-backdrop);
-		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.4 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 30px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		box-shadow: var(--shadow-dock);
 
 		/* Empty (nothing registered yet): no glass pill */
 		&:not(:has(.dock-item)) {
@@ -63,7 +63,7 @@
 			padding: 3px 10px;
 			border-radius: var(--radius-dock-label);
 			background: var(--glass-strong);
-			box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 4px 12px rgb(0 0 0 / calc(0.35 * var(--shade)));
+			box-shadow: var(--shadow-dock-label);
 			color: var(--text);
 			font-size: 12px;
 			white-space: nowrap;

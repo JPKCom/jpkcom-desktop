@@ -147,3 +147,45 @@ test('theming: the three colours that do not follow --shade are tokens', () => {
 	assert.doesNotMatch(readCss('src/shell/menubar.css'), /rgb\(0 0 0 \/ 0\.35\)/);
 	assert.doesNotMatch(readCss('src/shell/desktop-icons.css'), /rgb\(0 0 0 \/ 0\.55\)/);
 });
+
+EXCEPTIONS.push(
+	['src/wm/wm.css', 'box-shadow', 'none', 'structural reset'],
+	['src/modules/catalog/catalog.css', 'box-shadow', 'none', 'structural reset'],
+	['src/panels/settings.css', 'box-shadow', 'none', 'structural reset'],
+	['src/shell/menus.css', 'box-shadow', 'none', 'structural reset (tile, compact inline submenu)'],
+	['src/apps/terminal/terminal.css', 'box-shadow', 'none', 'structural reset'],
+	['src/modules/calendar/calendar.css', 'box-shadow', 'none', 'structural reset'],
+	['src/css/components.css', 'box-shadow', 'none', 'forced colours'],
+	['src/panels/wallpaper.css', 'box-shadow', 'none', 'forced colours (forced-color-adjust: none swatch)'],
+	['src/shell/desktop-icons.css', 'text-shadow', 'none', 'reset'],
+	['src/shell/launcher.css', 'text-shadow', 'none', 'reset, conditional on the theme']
+);
+
+test('theming: shadows and rings outside tokens.css only via tokens (or a documented exception)', () => {
+	assert.deepEqual(literals(['box-shadow', 'text-shadow']), []);
+	const drop = [];
+	for (const f of cssFiles()) {
+		if (f === 'src/css/tokens.css') continue;
+		for (const m of readCss(f).matchAll(/filter\s*:\s*([^;{}]*drop-shadow[^;{}]*);/g)) if (!/^var\(/.test(m[1].trim())) drop.push(`${f}: ${m[1].trim()}`);
+	}
+	assert.deepEqual(drop, []);
+});
+
+/* literals() lets any value containing var(…) pass; shadows must be a pure token list, bar the kept per-element sites */
+test('theming: box-shadow/text-shadow values are token references only', () => {
+	const kept = new Set([
+		'src/css/components.css: 0 0 0 2px var(--win-bg), 0 0 0 4px var(--c)',
+		'src/css/components.css: var(--tile-shadow-sm)'
+	]);
+	const bad = [];
+	for (const f of cssFiles()) {
+		if (f === 'src/css/tokens.css') continue;
+		for (const m of readCss(f).matchAll(/(?:^|[;{\s])(?:box|text)-shadow\s*:\s*([^;{}]+);/g)) {
+			const v = m[1].trim();
+			if (/^var\(--[a-z0-9-]+\)(,\s*var\(--[a-z0-9-]+\))*$/.test(v) || v === 'none') continue;
+			if (/^inset 0 0 0 1px var\(--wc-ring, /.test(v) || kept.has(`${f}: ${v}`)) continue;
+			bad.push(`${f}: ${v}`);
+		}
+	}
+	assert.deepEqual(bad, []);
+});

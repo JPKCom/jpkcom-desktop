@@ -28,7 +28,7 @@
 		height: var(--tile);
 		border-radius: var(--radius-tile);
 		background: linear-gradient(180deg, var(--tint));
-		box-shadow: inset 0 1px 0 var(--tile-highlight), inset 0 -1px 0 var(--tile-edge), 0 3px 8px var(--tile-shadow);
+		box-shadow: var(--tile-box-shadow);
 		color: var(--tile-fg);
 		font-size: calc(var(--tile) * 0.5);
 
@@ -47,13 +47,13 @@
 		/* White glyphs on the light top of a tint: a shadow edge keeps them apart from it
 		   (WCAG 1.4.11 — the tile is the only visual identifier in the Dock) */
 		&:not(.tile-logo) > svg {
-			filter: drop-shadow(0 1px 1.5px var(--tile-glyph-shadow));
+			filter: var(--tile-glyph-filter);
 		}
 
 		.tile-mark {
 			font: 800 calc(var(--tile) * 0.38) / 1 var(--font-mono);
 			letter-spacing: -0.04em;
-			text-shadow: 0 1px 2px var(--tile-shadow);
+			text-shadow: var(--tile-mark-shadow);
 		}
 	}
 
@@ -63,7 +63,7 @@
 		padding: 4px 14px;
 		border-radius: var(--radius-btn);
 		background: rgb(var(--ink) / 0.14);
-		box-shadow: inset 0 0.5px 0 rgb(var(--ink) / 0.25);
+		box-shadow: var(--shadow-btn);
 		color: var(--text);
 		font-size: 13px;
 
@@ -141,7 +141,7 @@
 			height: 22px;
 			border-radius: var(--radius-swatch);
 			background: var(--c);
-			box-shadow: inset 0 0 0 0.5px var(--swatch-edge);
+			box-shadow: var(--shadow-swatch);
 		}
 
 		input:checked + span {
@@ -177,16 +177,16 @@
 			height: 16px;
 			border-radius: var(--radius-switch-knob);
 			background: var(--switch-knob);
-			box-shadow: 0 1px 3px rgb(0 0 0 / calc(0.4 * var(--shade)));
+			box-shadow: var(--shadow-switch-knob);
 			transition: translate var(--dur) var(--ease);
 		}
 
 		/* Off: the track and the knob get a 3:1 edge (WCAG 1.4.11) — the light track alone is not enough */
 		&:not(:checked) {
-			box-shadow: inset 0 0 0 1px var(--control-edge);
+			box-shadow: var(--shadow-control-edge);
 
 			&::before {
-				box-shadow: 0 0 0 1px var(--control-edge), 0 1px 3px rgb(0 0 0 / calc(0.4 * var(--shade)));
+				box-shadow: var(--shadow-switch-knob-off);
 			}
 		}
 
@@ -228,14 +228,14 @@
 		padding: 0 8px;
 		border-radius: var(--radius-input);
 		background: rgb(var(--ink) / 0.08);
-		box-shadow: inset 0 0 0 1px var(--control-edge);
+		box-shadow: var(--shadow-control-edge);
 		color: var(--text-3);
 		font-size: 14px;
 
 		/* The ring keeps the edge; the transparent outline shows in forced colours, where shadows go */
 		&:focus-within {
 			outline: 2px solid transparent;
-			box-shadow: inset 0 0 0 1px var(--control-edge), 0 0 0 2px var(--accent-ring);
+			box-shadow: var(--shadow-control-edge), var(--ring-focus);
 		}
 	}
 
@@ -282,7 +282,7 @@
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: var(--sheet-backdrop);
 		backdrop-filter: var(--sheet-backdrop);
-		box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 16px 40px rgb(0 0 0 / calc(0.5 * var(--shade)));
+		box-shadow: var(--shadow-sheet);
 
 		h3 {
 			margin: 0 0 6px;
@@ -410,7 +410,7 @@
 		padding: 12px 14px;
 		border-radius: var(--radius-inset);
 		background: var(--line);
-		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+		box-shadow: var(--shadow-hairline);
 
 		p {
 			margin: 0;

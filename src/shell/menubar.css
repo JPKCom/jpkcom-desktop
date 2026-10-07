@@ -21,7 +21,7 @@
 		background: var(--menubar-bg);
 		-webkit-backdrop-filter: var(--menubar-backdrop);
 		backdrop-filter: var(--menubar-backdrop);
-		box-shadow: 0 1px 0 rgb(var(--ink) / 0.06);
+		box-shadow: var(--shadow-menubar);
 		font-size: 13px;
 	}
 

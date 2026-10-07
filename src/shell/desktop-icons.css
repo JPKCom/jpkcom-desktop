@@ -52,7 +52,7 @@
 			font-weight: 500;
 			line-height: 1.3;
 			text-align: center;
-			text-shadow: 0 1px 3px rgb(0 0 0 / calc(0.8 * var(--shade)));
+			text-shadow: var(--icon-label-shadow);
 			/* Words break at hyphenation points (html[lang] is set), never mid-word unless one alone is too wide */
 			overflow-wrap: break-word;
 			-webkit-hyphens: auto;
@@ -65,7 +65,7 @@
 
 			.icon-label {
 				outline: 2px solid var(--focus);
-				box-shadow: 0 0 0 4px rgb(0 0 0 / 0.6);
+				box-shadow: var(--ring-focus-halo);
 			}
 		}
 

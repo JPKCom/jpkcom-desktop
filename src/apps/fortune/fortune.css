@@ -129,7 +129,7 @@
 		padding-inline: 64px 22px;
 		border-radius: var(--radius-fortune-card);
 		background: rgb(var(--ink) / 0.06);
-		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+		box-shadow: var(--shadow-hairline);
 	}
 
 	.fortune-mark {

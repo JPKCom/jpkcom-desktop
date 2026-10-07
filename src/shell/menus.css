@@ -22,7 +22,7 @@
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: var(--glass-backdrop);
 		backdrop-filter: var(--glass-backdrop);
-		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 12px 32px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		box-shadow: var(--shadow-menu);
 		color: var(--text);
 		font-size: 13px;
 	}

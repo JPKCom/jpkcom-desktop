@@ -30,7 +30,7 @@
 		user-select: text;
 
 		&:focus {
-			box-shadow: 0 0 0 2px var(--accent-ring);
+			box-shadow: var(--ring-focus);
 		}
 
 		&::placeholder {
@@ -114,7 +114,7 @@
 
 		&.is-dragging {
 			background: rgb(var(--ink) / 0.12);
-			box-shadow: 0 6px 16px rgb(0 0 0 / calc(0.4 * var(--shade)));
+			box-shadow: var(--shadow-todo-drag);
 		}
 
 		&.is-done .todo-text {
