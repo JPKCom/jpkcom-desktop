@@ -9,15 +9,25 @@
       for [data-island="dark"] — the menu bar, desktop icons, terminal, calculator, code blocks and boot
       screen stay dark in both modes and read their tokens there.
    2. Families change every part at once (--radius-control → buttons, tool buttons, rows …); part tokens
-      (--radius-btn, --shadow-menu …) fine-tune one role. Set families on :root.
+      (--radius-btn, --shadow-menu …) fine-tune one role. Set families on :root (with or without
+      [data-theme=…]): the parts resolve there and everything below inherits the finished value, so a
+      family set on body.compact or on an island does not reach them — override the part tokens there.
+      Radius and glass tokens set on :root already reach the islands; shadow and ring tokens need
+      :root, [data-island="dark"] because the islands re-declare them.
    3. Phones: --radius-win and --radius-dock have their own values on body.compact.
    4. Not possible here: the active accent, the accents and tints of site/config.js and the wallpaper
       gradient are set inline by the desktop and win over every layer — change accents and tints in
       site/config.js. For focus and selection rings override --ring-focus / --ring-selected.
-   5. In forced-colours (high contrast) mode browsers drop shadows; that is intended.
+   5. In forced-colours (high contrast) mode browsers drop box-shadow and text-shadow; that is intended.
+      filter: drop-shadow() tokens (--tile-glyph-filter, --about-logo-filter*) stay. Keep --ring-focus,
+      --ring-selected, --shadow-control-edge and --shadow-pressed visible: focus indicators and control
+      edges need 3:1 contrast (WCAG 1.4.11).
 
-   Example — square and flat (remove the comment markers to try it):
+   Example — square and flat: the block below this comment. To try it, delete exactly its two comment
+   markers: the opening one in front of @layer and the closing one after its last brace.
+*/
 
+/*
 @layer themes {
 	:root {
 		--radius-panel: 4px;
@@ -28,6 +38,7 @@
 		--radius-small: 2px;
 		--radius-win: 4px;
 		--radius-menu: 3px;
+		--radius-dock: 6px;
 		--glass-backdrop: blur(12px) saturate(1.2);
 		--chrome-backdrop: blur(10px) saturate(1.1);
 	}
