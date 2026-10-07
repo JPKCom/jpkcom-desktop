@@ -155,7 +155,8 @@ docs/          architecture, package documentation, deployment guide, server con
 ```
 
 The rule: **`site/` is yours, `src/` is the project.** Changing `site/` (and `locales/` for a new
-language) adapts the desktop. If you keep `src/` unchanged, you can update by replacing it.
+language) adapts the desktop. If you keep `src/` unchanged, you can update by replacing it. `index.html` links `site/theme.css`: when you update an existing site, copy
+that file into your `site/` (an empty file is fine) and do not delete it.
 
 ## Configuration and content
 

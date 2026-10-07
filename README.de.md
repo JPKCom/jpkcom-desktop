@@ -167,7 +167,8 @@ docs/          Architektur, Paketdokumentation, Deployment-Anleitung, Server-Kon
 
 Die Regel: **`site/` gehört dir, `src/` ist das Projekt.** Mit Änderungen in `site/` (und in `locales/`
 für eine neue Sprache) passt du den Desktop an. Lässt du `src/` unverändert, aktualisierst du, indem du
-den Ordner ersetzt.
+den Ordner ersetzt. `index.html` verlinkt `site/theme.css`: Kopiere die Datei beim Update einer bestehenden
+Website in dein `site/` (eine leere Datei genügt) und lösche sie nicht.
 
 ## Konfiguration und Inhalte
 

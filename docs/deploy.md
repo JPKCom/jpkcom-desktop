@@ -67,6 +67,10 @@ LICENSE        (please keep it with the files)
 CREDITS.md
 ```
 
+`index.html` links `site/theme.css`. When you update an existing site, copy that file into your `site/`
+(an empty file is fine) and do not delete it; otherwise every page load requests a missing stylesheet
+(404) that blocks rendering.
+
 Do **not** upload `node_modules/`, `tools/`, `tests/`, `docs/`, `.git/`, `package.json` or
 `package-lock.json` — the desktop does not need them, and the configurations below do not hide them
 for you (only dotfiles are refused everywhere). `site/vault/` holds sealed bookmark files only when you
