@@ -4,6 +4,9 @@
    Usage
      node tools/i18n-check.mjs            check every folder in locales/
      node tools/i18n-check.mjs fr de      check these languages only
+   Site modules: every site/modules/<id>/locales/ folder (descriptor field locales) is checked the same
+   way — its en/ is the reference, every checked language of locales/ needs its files there. A namespace
+   that locales/en/ has as well is an error (the desktop would ignore the module's copy).
 
    Reports per language and namespace:
      missing      keys in en that the language lacks (error)
@@ -68,6 +71,32 @@ function checkPlurals(lang, ns, dict, cats) {
 	}
 }
 
+/* One namespace file of a language against the reference: keys, plural shape, placeholders, extras */
+function compare(lang, where, refDict, dict) {
+	for (const [key, value] of Object.entries(refDict)) {
+		if (!Object.hasOwn(dict, key)) {
+			report('error', lang, where, `missing '${key}'`);
+			continue;
+		}
+		const mine = dict[key];
+		if (isPlural(value) !== isPlural(mine)) {
+			report('error', lang, where, `'${key}' must be ${isPlural(value) ? 'a plural object { one, other, … }' : 'a string'}`);
+			continue;
+		}
+		if (isPlural(mine) && typeof mine.other !== 'string') report('error', lang, where, `'${key}' needs an 'other' form`);
+		const a = placeholders(value);
+		const b = placeholders(mine);
+		const lost = [...a].filter(p => !b.has(p));
+		const added = [...b].filter(p => !a.has(p));
+		if (lost.length || added.length) report('error', lang, where, `'${key}' placeholders differ (missing ${lost.join(' ') || '-'}, unknown ${added.join(' ') || '-'})`);
+	}
+	for (const key of Object.keys(dict)) {
+		if (!Object.hasOwn(refDict, key)) report('warn', lang, where, `extra '${key}' (not in ${REF})`);
+	}
+}
+
+const catsOf = new Map(); // language → plural categories (from its _meta.js)
+
 const refNs = namespaces(REF);
 const ref = {};
 for (const ns of refNs) ref[ns] = await load(join(LOCALES, REF, `${ns}.js`));
@@ -92,6 +121,7 @@ for (const lang of [REF, ...langs]) {
 		}
 	}
 	const cats = pluralCategories(typeof meta?.intl === 'string' ? meta.intl : lang);
+	catsOf.set(lang, cats);
 	if (lang === REF) {
 		for (const ns of refNs) checkPlurals(lang, ns, ref[ns], cats);
 		continue;
@@ -105,29 +135,43 @@ for (const lang of [REF, ...langs]) {
 		}
 		const dict = await load(file);
 		checkPlurals(lang, ns, dict, cats);
-		for (const [key, value] of Object.entries(ref[ns])) {
-			if (!Object.hasOwn(dict, key)) {
-				report('error', lang, ns, `missing '${key}'`);
-				continue;
-			}
-			const mine = dict[key];
-			if (isPlural(value) !== isPlural(mine)) {
-				report('error', lang, ns, `'${key}' must be ${isPlural(value) ? 'a plural object { one, other, … }' : 'a string'}`);
-				continue;
-			}
-			if (isPlural(mine) && typeof mine.other !== 'string') report('error', lang, ns, `'${key}' needs an 'other' form`);
-			const a = placeholders(value);
-			const b = placeholders(mine);
-			const lost = [...a].filter(p => !b.has(p));
-			const added = [...b].filter(p => !a.has(p));
-			if (lost.length || added.length) report('error', lang, ns, `'${key}' placeholders differ (missing ${lost.join(' ') || '-'}, unknown ${added.join(' ') || '-'})`);
-		}
-		for (const key of Object.keys(dict)) {
-			if (!Object.hasOwn(ref[ns], key)) report('warn', lang, ns, `extra '${key}' (not in ${REF})`);
-		}
+		compare(lang, ns, ref[ns], dict);
 	}
 	for (const ns of namespaces(lang)) {
 		if (!refNs.includes(ns)) report('warn', lang, ns, `namespace not in ${REF}`);
+	}
+}
+
+/* ---------- Site modules: site/modules/<id>/locales/<lang>/<ns>.js ---------- */
+
+const SITE_MODULES = join(ROOT, 'site', 'modules');
+const siteDirs = existsSync(SITE_MODULES)
+	? readdirSync(SITE_MODULES).sort().map(m => join(SITE_MODULES, m, 'locales')).filter(d => existsSync(join(d, REF)))
+	: [];
+for (const dir of siteDirs) {
+	const label = dir.slice(ROOT.length + 1).split(/[\\/]/).join('/');
+	const nsList = readdirSync(join(dir, REF)).filter(f => f.endsWith('.js')).map(f => f.slice(0, -3)).sort();
+	for (const ns of nsList) {
+		const where = `${label}/${ns}`;
+		if (refNs.includes(ns)) {
+			report('error', REF, where, `namespace '${ns}' is also a core namespace (locales/${REF}/${ns}.js) — the desktop keeps the core one`);
+			continue;
+		}
+		const refDict = await load(join(dir, REF, `${ns}.js`));
+		checkPlurals(REF, where, refDict, catsOf.get(REF) ?? ['one', 'other']);
+		for (const lang of langs) {
+			const file = join(dir, lang, `${ns}.js`);
+			if (!existsSync(file)) {
+				report('error', lang, where, `missing file ${label}/${lang}/${ns}.js`);
+				continue;
+			}
+			const dict = await load(file);
+			checkPlurals(lang, where, dict, catsOf.get(lang) ?? ['other']);
+			compare(lang, where, refDict, dict);
+		}
+		/* its keys take part in the unused check below */
+		refNs.push(ns);
+		ref[ns] = refDict;
 	}
 }
 
