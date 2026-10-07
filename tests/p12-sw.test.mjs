@@ -208,6 +208,13 @@ test('cleanConfig validates every value it uses', () => {
 	assert.ok(c.extra.files.includes(`${ORIGIN}/desk/site/apps.js`));
 });
 
+test('cleanConfig: a site app ({ id, src } under apps) is kept with its folder, locales included', () => {
+	const c = loadSW().run('cleanConfig')({ apps: ['notes', { id: 'hello', src: 'site/modules/hello/index.js' }] });
+	const dir = `${ORIGIN}/desk/site/modules/hello/`;
+	assert.ok(c.extra.dirs.includes(dir), JSON.stringify(c.extra.dirs));
+	assert.ok(`${dir}locales/de/hello.js`.startsWith(dir), 'its locales/ files are below the kept folder');
+});
+
 test('vault.dir and fortune.dir follow the folder rule of src/core/config.js', () => {
 	const clean = loadSW().run('cleanConfig');
 	for (const bad of ['site/secret', '../x/', 'site/../vault/', 'site/va ult/', 'site/v?x/', 'https://cdn.example/v/', '//cdn/v/', 'site\\v/', '', 7]) {

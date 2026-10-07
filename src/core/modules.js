@@ -12,6 +12,8 @@
    CSP allows style-src 'self') → per module: register apps, storage keys,
    reset groups, trash types, consent services and contributions → setup().
    A module that fails at any step is reported and skipped; the rest load.
+   A descriptor with `locales` (a folder inside its own folder) has its namespaces read from
+   there (i18n addSource), unless the core or another module already uses the namespace.
    When setup() throws, what the loader registered for it is withdrawn (apps,
    storage keys, reset groups, trash types, consent services, contributions,
    its config section), and so is what setup() registered through the shared
@@ -23,7 +25,7 @@
 
 import { ROOT } from './env.js';
 import { config } from './config.js';
-import { i18n } from './i18n.js';
+import { i18n, addSource } from './i18n.js';
 import { registry } from './registry.js';
 import { emit } from './bus.js';
 import { registerKey, registerGroup, registerTrash, removeModule as dropStorage } from './storage-registry.js';
@@ -38,7 +40,7 @@ const KINDS = new Set(['core', 'module', 'app']);
 export const HOOKS = ['mount', 'render', 'focus', 'relabel', 'menu', 'unmount', 'reopen', 'serialize', 'restore',
 	'locationOf', 'acceptUrl', 'reload', 'popOut', 'canPopOut', 'canLink', 'beforeClose'];
 /* Descriptor fields the loader handles itself; any other array/object field is a contribution */
-const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'styles', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
+const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'locales', 'styles', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
 	'setup', 'stub', 'version', 'description', 'configKey', 'validateConfig', ...HOOKS]);
 
 const loaded = new Map();       // id → descriptor (frozen view)
@@ -188,12 +190,37 @@ function injectStyle(href) {
 	});
 }
 
+/**
+ * Descriptor field locales → the absolute URL of the folder, or null: only a relative path that ends in '/'
+ * and stays inside the module's own folder (no scheme, no leading '/', no '\' or control character).
+ */
+export function localesDir(value, url) {
+	if (typeof value !== 'string' || !value.endsWith('/')) return null;
+	if (/^[a-z][a-z0-9+.-]*:|^\/|\\|[\u0000-\u001f\u007f]/i.test(value)) return null;
+	try {
+		const base = new URL('./', url).href;
+		const dir = new URL(value, url).href;
+		return dir.startsWith(base) ? dir : null;
+	} catch {
+		return null;
+	}
+}
+
 function validate(mod, ref, url) {
 	const d = mod?.default;
 	if (!d || typeof d !== 'object') throw new Error('the default export must be a descriptor object');
 	if (d.id !== ref) throw new Error(`descriptor id '${d.id}' does not match '${ref}'`);
 	if (!ID.test(d.id)) throw new Error(`invalid id '${d.id}'`);
-	return { ...d, kind: KINDS.has(d.kind) ? d.kind : 'module', url };
+	const out = { ...d, kind: KINDS.has(d.kind) ? d.kind : 'module', url };
+	if (d.locales !== undefined) {
+		const dir = localesDir(d.locales, url);
+		if (dir) out.locales = dir;
+		else {
+			delete out.locales;
+			console.warn(`[modules] '${d.id}': locales ${JSON.stringify(d.locales)} must be a relative folder inside the module's folder, ending in '/' — ignored`);
+		}
+	}
+	return out;
 }
 
 /**
@@ -239,7 +266,17 @@ export async function loadAll(groups, desk) {
 	/* 2. dependency order */
 	const ordered = orderByRequires(descs, console.warn, new Set(loaded.keys()));
 
-	/* 3. strings and styles of all modules at once */
+	/* 3. strings and styles of all modules at once — first the namespaces that a module keeps in its own
+	   folder (locales); one the core or another module already uses keeps its source */
+	for (const d of ordered) {
+		if (!d.locales) continue;
+		for (const ns of Array.isArray(d.i18n) ? d.i18n : []) {
+			const other = ordered.find(o => o !== d && !o.locales && Array.isArray(o.i18n) && o.i18n.includes(ns));
+			if (other || !addSource(i18n, ns, d.locales)) {
+				console.warn(`[modules] '${d.id}': namespace '${ns}' is already taken${other ? ` by '${other.id}'` : ''} — its strings are not read from ${d.locales}`);
+			}
+		}
+	}
 	const namespaces = [...new Set(ordered.flatMap(d => (Array.isArray(d.i18n) ? d.i18n : [])))];
 	await Promise.all([
 		i18n.use(namespaces),

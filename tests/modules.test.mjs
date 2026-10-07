@@ -2,7 +2,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modules, HOOKS } from '../src/core/modules.js';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { i18n } from '../src/core/i18n.js';
+import { modules, HOOKS, localesDir } from '../src/core/modules.js';
 import { registry, createRegistry } from '../src/core/registry.js';
 import { consent } from '../src/core/consent.js';
 import { storage } from '../src/core/storage-registry.js';
@@ -19,6 +24,30 @@ const quiet = async fn => {
 		Object.assign(console, { warn, error, info });
 	}
 };
+
+/* A site module as real files (a data: URL has no folder for locales/) → { ref, dir } */
+function siteModule(id, files) {
+	const dir = mkdtempSync(join(tmpdir(), 'jpkdesk-mod-'));
+	for (const [rel, text] of Object.entries(files)) {
+		mkdirSync(dirname(join(dir, rel)), { recursive: true });
+		writeFileSync(join(dir, rel), text);
+	}
+	return { ref: { id, src: pathToFileURL(join(dir, 'index.js')).href }, dir };
+}
+
+/* Runs fn and returns what it printed with console.warn */
+async function warnings(fn) {
+	const out = [];
+	const { warn, error, info } = console;
+	console.warn = (...a) => out.push(a.join(' '));
+	console.error = console.info = () => {};
+	try {
+		await fn();
+	} finally {
+		Object.assign(console, { warn, error, info });
+	}
+	return out;
+}
 
 test('modules: window hooks of a panel (render, reopen, acceptUrl, …) go to the implementation', async () => {
 	for (const k of ['render', 'reopen', 'acceptUrl', 'reload', 'popOut', 'canPopOut', 'canLink']) assert.ok(HOOKS.includes(k), k);
@@ -177,4 +206,52 @@ test('registry: the kind check hides apps nobody can open', () => {
 	assert.equal(reg.available('site'), true);
 	assert.deepEqual(reg.list().map(a => a.id), ['demo', 'site']);
 	assert.deepEqual(reg.list({ unavailable: true }).map(a => a.id), ['about', 'demo', 'site']);
+});
+
+test('localesDir(): only a relative folder inside the module folder, ending in /', () => {
+	const url = 'https://x.test/site/modules/hello/index.js';
+	assert.equal(localesDir('locales/', url), 'https://x.test/site/modules/hello/locales/');
+	assert.equal(localesDir('./lang/', url), 'https://x.test/site/modules/hello/lang/');
+	assert.equal(localesDir('a/../locales/', url), 'https://x.test/site/modules/hello/locales/', '.. inside the folder is fine');
+	for (const bad of ['locales', '/locales/', '//cdn.test/l/', 'https://x.test/l/', 'data:x/', '../locales/',
+		'a/../../x/', 'lo\\c/', 'lo\u0000c/', 'lo\u007fc/', '', 7, null, undefined]) {
+		assert.equal(localesDir(bad, url), null, JSON.stringify(bad));
+	}
+	assert.equal(localesDir('locales/', 'data:text/javascript,x'), null, 'a data: module has no folder');
+});
+
+test('modules: a site module brings its strings in its own locales folder', async () => {
+	const { ref } = siteModule('site-hello-t', {
+		'index.js': "export default { id: 'site-hello-t', kind: 'app', i18n: ['site-hello-t'], locales: 'locales/' };",
+		'locales/en/site-hello-t.js': "export default { hi: 'Hi {name}', n: { one: '{n} time', other: '{n} times' } };"
+	});
+	await modules.loadAll([{ kind: 'app', refs: [ref] }], {});
+	assert.equal(modules.isLoaded('site-hello-t'), true);
+	assert.equal(i18n.t('site-hello-t.hi', { name: 'Alex' }), 'Hi Alex');
+	assert.equal(i18n.t('site-hello-t.n', { n: 2 }), '2 times');
+	assert.equal(modules.get('site-hello-t').locales.endsWith('/locales/'), true, 'stored as an absolute URL');
+});
+
+test('modules: a namespace another module already uses is not redirected', async () => {
+	const thief = siteModule('ns-thief', {
+		'index.js': "export default { id: 'ns-thief', i18n: ['ns-shared'], locales: 'locales/' };",
+		'locales/en/ns-shared.js': "export default { x: 'stolen' };"
+	});
+	const out = await warnings(() => modules.loadAll([{ kind: 'module', refs: [
+		ref('ns-owner', "export default { id: 'ns-owner', i18n: ['ns-shared'] };"),
+		thief.ref
+	] }], {}));
+	assert.ok(out.some(w => w.includes("'ns-thief'") && w.includes("'ns-shared'") && w.includes("'ns-owner'")), out.join('\n'));
+	assert.equal(i18n.t('ns-shared.x'), 'ns-shared.x', 'the strings are not read from the thief');
+	assert.equal(modules.isLoaded('ns-thief'), true, 'the module itself still loads');
+});
+
+test('modules: an invalid locales value is reported and ignored, the module loads', async () => {
+	const { ref } = siteModule('bad-locales', {
+		'index.js': "export default { id: 'bad-locales', i18n: ['bad-locales'], locales: '../../escape/' };"
+	});
+	const out = await warnings(() => modules.loadAll([{ kind: 'module', refs: [ref] }], {}));
+	assert.ok(out.some(w => w.includes("'bad-locales'") && w.includes('locales')), out.join('\n'));
+	assert.equal(modules.isLoaded('bad-locales'), true);
+	assert.equal(modules.get('bad-locales').locales, undefined);
 });

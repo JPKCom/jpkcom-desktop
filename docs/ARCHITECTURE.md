@@ -391,6 +391,9 @@ export default {
 	kind: 'app',                       // 'core' | 'module' | 'app'
 	requires: [],                      // module ids that must be set up first (missing → this one is skipped)
 	i18n: ['notes'],                   // locale namespaces: locales/<lang>/notes.js (loaded for the whole chain)
+	locales: 'locales/',               // optional: the i18n namespaces come from <this folder>/<locales>/<lang>/<ns>.js
+	                                   //   (a relative folder inside the module's folder, ending in '/'; §12) —
+	                                   //   for site modules ({ id, src }) that keep their texts next to their code
 	styles: ['notes.css'],             // relative to this file; injected as <link>, awaited before setup()
 
 	/* Apps: one (app + top-level hooks) or several (apps: [...], hooks inside each) */
@@ -449,6 +452,11 @@ export default {
 The hook names are `HOOKS` in `src/core/modules.js` (`mount render focus relabel menu unmount reopen
 serialize restore locationOf acceptUrl reload popOut canPopOut canLink beforeClose`): in an app definition they go
 to the implementation (`registry.impl(app)`, `win.impl`), every other field is manifest.
+
+`locales` is checked when the module is imported: only a relative path that ends in `/` and stays inside
+the module's own folder (no scheme, no leading `/`, no `\` or control character, no `..` out of the
+folder). Anything else is reported with `console.warn` and ignored; the module still loads and its
+namespaces are then read from `locales/` as usual.
 
 ### Contribution shapes
 
