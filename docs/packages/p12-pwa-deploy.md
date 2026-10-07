@@ -62,9 +62,13 @@ keep their caches.
   a small safety list (boot scripts, core CSS, manifest, icons), `src/<core part>/index.js`, every configured
   module/app, `site.data`, data files. It follows static/dynamic imports with literal specifiers,
   descriptor `styles: [...]` and `i18n: [...]`, CSS `@import`/`url()`, then adds `_meta`, `core` and every
-  found namespace for the language chain. Each file is fetched once with `cache: 'no-cache'`, put under its
+  found namespace for the language chain — from `locales/<lang>/<ns>.js`, or, for a file whose descriptor
+  declares `locales: '<folder>/'` (same rule as `src/core/modules.js`: relative, ends in `/`, stays inside
+  the module's folder; anything else is ignored), from `<folder><lang>/<ns>.js` next to it instead (a site
+  app like Hello keeps its texts offline; no request for a core `locales/<lang>/<ns>.js` that does not
+  exist). Each file is fetched once with `cache: 'no-cache'`, put under its
   path (query dropped) and scanned from a clone; `Promise.allSettled` per level, 20 s per file, at most 800
-  files. Against this project with the shipped config: 190 files (exactly the configured modules; the
+  files. Against this project with the shipped config: 199 files (exactly the configured modules; the
   disabled holidays/weather/vault are left out); no misses. The crawl does not skip comments, so a
   descriptor example in a comment must not quote file names (that is why the one in `modules.js` writes
   `styles: [<own .css files>]`).

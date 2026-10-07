@@ -27,7 +27,9 @@
    Starting from index.html, the boot scripts and the index.js of every core part,
    module and app, it follows static and dynamic imports, the descriptor fields
    styles: [...] and i18n: [...], stylesheet url()s, and adds locales/<lang>/<ns>.js
-   for every offered language. Each entry is fetched on its own (Promise.allSettled):
+   for every offered language — or, for a module that keeps its namespaces in its own
+   folder (descriptor field locales, same rule as src/core/modules.js), <that folder>
+   <lang>/<ns>.js instead. Each entry is fetched on its own (Promise.allSettled):
    a missing optional file never breaks the install. Whatever the crawl misses is
    cached the first time the page loads it.
 
@@ -245,18 +247,35 @@ function precacheRoots(cfg) {
 	return [...new Set(urls.filter(Boolean))];
 }
 
-/** Locale files: _meta and every namespace, for the whole language chain */
-function localeUrls(cfg, namespaces) {
+/** Locale files: _meta and every namespace, for the whole language chain; sources: [[ns, folder URL]] of
+    the namespaces a module keeps in its own folder (descriptor field locales) — read from there instead */
+function localeUrls(cfg, namespaces, sources = []) {
 	const out = [];
 	for (const code of localeChain(cfg)) {
 		for (const ns of ['_meta', 'core', ...namespaces]) out.push(local(`locales/${code}/${ns}.js`));
+		for (const [ns, dir] of sources) out.push(local(`${code}/${ns}.js`, dir));
 	}
 	return [...new Set(out.filter(Boolean))];
 }
 
+/** The descriptor field locales → absolute folder URL, or null (the rule of src/core/modules.js localesDir:
+    relative, ends in '/', stays inside the module's folder) */
+function localesDir(value, fileUrl) {
+	if (typeof value !== 'string' || !value.endsWith('/')) return null;
+	if (/^[a-z][a-z0-9+.-]*:|^\/|\\|[\u0000-\u001f\u007f]/i.test(value)) return null;
+	try {
+		const base = new URL('./', fileUrl).href;
+		const dir = new URL(value, fileUrl).href;
+		return dir.startsWith(base) ? dir : null;
+	} catch {
+		return null;
+	}
+}
+
 const strings = text => [...text.matchAll(/(['"])([^'"\n]{1,256}?)\1/g)].map(m => m[2]);
 
-/** References inside a JavaScript file: { urls: [absolute], namespaces: [ns] } */
+/** References inside a JavaScript file: { urls: [absolute], namespaces: [ns], sources: [[ns, folder URL]] }
+    (a file that declares locales: '<folder>/' keeps its namespaces there, not in the core locales/) */
 function scanJs(text, fileUrl) {
 	const specs = [];
 	for (const m of text.matchAll(/\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(['"])([^'"\n]+?)\1/g)) specs.push(m[2]);
@@ -265,7 +284,13 @@ function scanJs(text, fileUrl) {
 	for (const m of text.matchAll(/\bstyles\s*:\s*\[([^\]]*)\]/g)) urls.push(...strings(m[1]).map(s => local(s, fileUrl)));
 	const namespaces = [];
 	for (const m of text.matchAll(/\bi18n\s*:\s*\[([^\]]*)\]/g)) namespaces.push(...strings(m[1]).filter(s => ID.test(s)));
-	return { urls: urls.filter(u => u && /\.(?:m?js|css|json)$/.test(new URL(u).pathname)), namespaces };
+	const own = text.match(/\blocales\s*:\s*(['"])([^'"\n]{1,256}?)\1/);
+	const dir = own ? localesDir(own[2], fileUrl) : null;
+	return {
+		urls: urls.filter(u => u && /\.(?:m?js|css|json)$/.test(new URL(u).pathname)),
+		namespaces: dir ? [] : namespaces,
+		sources: dir ? namespaces.map(ns => [ns, dir]) : []
+	};
 }
 
 /** References inside a stylesheet: @import and url() */
@@ -329,6 +354,7 @@ async function precache(cfg, cacheName) {
 	const cache = await caches.open(cacheName);
 	const seen = new Set();
 	const namespaces = new Set();
+	const sources = new Map();
 	const failed = [];
 	const run = async list => {
 		let level = list.filter(u => !seen.has(shellKey(u)));
@@ -340,13 +366,14 @@ async function precache(cfg, cacheName) {
 			results.forEach((r, i) => {
 				if (r.status === 'rejected') return failed.push(level[i]);
 				r.value.namespaces.forEach(ns => namespaces.add(ns));
+				for (const [ns, dir] of r.value.sources ?? []) sources.set(`${dir}\n${ns}`, [ns, dir]);
 				for (const u of r.value.urls) if (isShellUrl(u, cfg) && !seen.has(shellKey(u))) next.push(u);
 			});
 			level = [...new Set(next)];
 		}
 	};
 	await run(precacheRoots(cfg));
-	await run(localeUrls(cfg, [...namespaces]));
+	await run(localeUrls(cfg, [...namespaces], [...sources.values()]));
 	if (failed.length) console.info(`[sw] ${seen.size - failed.length} files kept offline; not available: ${failed.length}`, failed);
 	return { files: seen.size - failed.length, failed };
 }

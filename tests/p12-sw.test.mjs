@@ -208,11 +208,25 @@ test('cleanConfig validates every value it uses', () => {
 	assert.ok(c.extra.files.includes(`${ORIGIN}/desk/site/apps.js`));
 });
 
-test('cleanConfig: a site app ({ id, src } under apps) is kept with its folder, locales included', () => {
+test('cleanConfig: a site app ({ id, src } under apps) is kept with its folder', () => {
 	const c = loadSW().run('cleanConfig')({ apps: ['notes', { id: 'hello', src: 'site/modules/hello/index.js' }] });
-	const dir = `${ORIGIN}/desk/site/modules/hello/`;
-	assert.ok(c.extra.dirs.includes(dir), JSON.stringify(c.extra.dirs));
-	assert.ok(`${dir}locales/de/hello.js`.startsWith(dir), 'its locales/ files are below the kept folder');
+	assert.ok(c.extra.dirs.includes(`${ORIGIN}/desk/site/modules/hello/`), JSON.stringify(c.extra.dirs));
+});
+
+test('install: a site app with its own locales/ is precached from there, for the whole language chain', async () => {
+	const app = { id: 'hello', src: 'site/modules/hello/index.js' };
+	const config = CONFIG({ languages: ['de-AT'], defaultLang: 'en', modules: [], apps: ['notes', app] });
+	const sw = loadSW({ base: '/desk/', serveDisk: true, config });
+	await sw.install();
+	const cache = await sw.caches.open(sw.run('NAMES.shell'));
+	const keys = new Set([...cache.map.keys()].map(k => k.slice(`${ORIGIN}/desk/`.length)));
+	for (const code of ['de', 'en']) {
+		assert.ok(keys.has(`site/modules/hello/locales/${code}/hello.js`), `precached: site/modules/hello/locales/${code}/hello.js`);
+		assert.ok(keys.has(`locales/${code}/notes.js`), `core namespaces stay in locales/: ${code}/notes.js`);
+	}
+	const fetched = sw.state.fetched.map(u => u.slice(`${ORIGIN}/desk/`.length));
+	assert.ok(fetched.includes('site/modules/hello/locales/de-AT/hello.js'), 'every code of the chain is tried');
+	assert.ok(!fetched.some(f => /^locales\/[^/]+\/hello\.js$/.test(f)), `no request for a core locales/<code>/hello.js: ${fetched.filter(f => f.endsWith('/hello.js'))}`);
 });
 
 test('vault.dir and fortune.dir follow the folder rule of src/core/config.js', () => {
@@ -300,6 +314,23 @@ test('scanJs finds static, re-exported and dynamic imports, styles and i18n name
 		`${ORIGIN}/desk/src/core/api.js`
 	].sort());
 	assert.deepEqual([...namespaces], ['notes', 'kit']);
+});
+
+test('scanJs: a descriptor with locales reads its namespaces from that folder (the rule of src/core/modules.js)', () => {
+	const scanJs = loadSW().run('scanJs');
+	const file = `${ORIGIN}/desk/site/modules/hello/index.js`;
+	const own = scanJs(`export default { id: 'hello', i18n: ['hello', 'extra'], locales: 'locales/' };`, file);
+	assert.deepEqual([...own.namespaces], []);
+	assert.deepEqual(JSON.parse(JSON.stringify(own.sources)), [['hello', `${ORIGIN}/desk/site/modules/hello/locales/`],
+		['extra', `${ORIGIN}/desk/site/modules/hello/locales/`]]);
+	assert.deepEqual(JSON.parse(JSON.stringify(scanJs(`export default { i18n: ['x'], locales: "texts/own/" };`, file).sources)),
+		[['x', `${ORIGIN}/desk/site/modules/hello/texts/own/`]]);
+	/* anything else is ignored, as the page does: the namespaces come from the core locales/ */
+	for (const bad of ['locales', '../locales/', 'a/../../b/', '/desk/locales/', 'https://cdn.example/l/', '//cdn/l/', 'a\\b/']) {
+		const r = scanJs(`export default { i18n: ['hello'], locales: '${bad}' };`, file);
+		assert.deepEqual([...r.namespaces], ['hello'], bad);
+		assert.deepEqual([...r.sources], [], bad);
+	}
 });
 
 test('scanCss and scanHtml find local references only', () => {
