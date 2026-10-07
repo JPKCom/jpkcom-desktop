@@ -24,6 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
   ([`docs/quickstart.de.md`](docs/quickstart.de.md)).
 - **Template repository** — the repository is a GitHub template; the READMEs start with
   "Use this template" and link the live demo and the quickstart.
+- **Site apps with their own texts**: a module or app in `site/modules/<id>/` can keep its translations
+  next to its code (descriptor field `locales`); `npm run i18n:check` checks them like the desktop's own.
+- **Example app "Hello"** (`site/modules/hello/`): a template for your own apps — window, texts with
+  placeholder and plural, CSS, stored value with backup and reset, terminal command `hello`.
 
 ## [1.0.0] — 2026-10-06
 

@@ -263,7 +263,22 @@ Prüfe dein Manifest, bevor du es veröffentlichst:
 npm run validate          # Ids, Arten, Verweise, URLs (existieren lokale Dateien?), Icons, ein Text für jede Sprache
 ```
 
-### Seiten für den Reader
+### Deine eigene App
+
+Eine eigene App liegt in `site/`, neben deinen Inhalten — in `src/` ändert sich nichts, Updates des
+Desktops lassen sie also in Ruhe. Starte mit der Beispiel-App **Hallo** in `site/modules/hello/`: ein
+Fenster mit eigenen Texten in jeder Sprache (`locales/<sprache>/hello.js`), eigenem CSS, einem gespeicherten
+Wert mit Sicherung und Zurücksetzen und einem Terminal-Befehl. Kopiere den Ordner, benenne ihn um, wie es
+der Kommentar oben in seiner `index.js` beschreibt, und trag ihn in `site/config.js` ein:
+
+```js
+apps: [ …, { id: 'meine-app', src: 'site/modules/meine-app/index.js' } ],
+```
+
+`npm run i18n:check` prüft ihre Texte wie die des Desktops. Die vollständige Referenz steht in
+[docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-module-descriptor) und
+[§21](docs/ARCHITECTURE.md#21-how-to-add-).
+
 
 Schlichte HTML-Dateien in `site/content/<sprache>/`. Die Standardregel (`config.reader.rules`) nimmt das
 erste `main article`, `article` oder `main` als Inhalt, dessen `h1` als Titel und einen Absatz mit der

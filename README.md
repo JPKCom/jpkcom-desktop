@@ -245,7 +245,22 @@ your manifest before you publish:
 npm run validate          # ids, kinds, references, urls (local files exist), icons, a text for every language
 ```
 
-### Pages for the Reader
+### Your own app
+
+An app of your own lives in `site/`, next to your content — nothing in `src/` changes, so updates of the
+desktop do not touch it. Start from the example app **Hello** in `site/modules/hello/`: a window with its
+own texts in every language (`locales/<lang>/hello.js`), its own CSS, a stored value with backup and reset,
+and a terminal command. Copy the folder, rename it as the comment at the top of its `index.js` explains,
+and list it in `site/config.js`:
+
+```js
+apps: [ …, { id: 'my-app', src: 'site/modules/my-app/index.js' } ],
+```
+
+`npm run i18n:check` checks its texts like the desktop's own. The full descriptor reference is in
+[docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-module-descriptor) and
+[§21](docs/ARCHITECTURE.md#21-how-to-add-).
+
 
 Plain HTML files in `site/content/<lang>/`. The default rule (`config.reader.rules`) takes the first
 `main article`, `article` or `main` as the content, its `h1` as the title and a `.lead` paragraph as the

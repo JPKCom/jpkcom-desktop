@@ -1251,8 +1251,13 @@ CSS in `@layer apps` (+ `@layer compact`), add `'<id>'` to `apps` in `site/confi
 `Desk.toTrash(type, …)` + `trash: { type: { restore } }`.
 
 **A module** — same under `src/modules/<id>/`, `kind: 'module'`, CSS in `@layer modules`, listed in
-`modules`. Provide a service if others use it; contribute through extension points. A site-only
-module lives in `site/modules/<id>/index.js` and is listed as `{ id, src }`.
+`modules`. Provide a service if others use it; contribute through extension points.
+A site-only module or app lives in `site/modules/<id>/` and is listed as `{ id, src }` in `modules` or
+`apps` of `site/config.js`. It imports the API with `import Desk from '../../../src/core/api.js'`, keeps
+its texts next to its code (`locales: 'locales/'`, files `locales/<lang>/<ns>.js`, §12) and its CSS in its
+folder (`styles`). The shipped example is `site/modules/hello/` (window, texts with placeholder and plural,
+CSS, stored value with validation, backup and reset, a terminal command); the comment at the top of its
+`index.js` explains how to turn a copy into your own app. `npm run i18n:check` checks its `locales/`.
 
 **A language** — see `locales/README.md` (copy `locales/en`, edit `_meta.js`, translate, add the code
 to `languages`, `npm run i18n:check -- <code>`).

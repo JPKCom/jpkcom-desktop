@@ -167,6 +167,10 @@ Showcase. Replace it bit by bit.
   it, or remove `'notify'` from `modules` in `site/config.js`. **Fortunes**: `site/data/fortunes/<lang>.json`.
 - **Wallpapers**: put pictures in `site/wallpapers/` and list them in `wallpaper.images`. Set the default
   with `wallpaper.default`. See [site/wallpapers/README.md](../site/wallpapers/README.md).
+- **An app of your own**: copy `site/modules/hello/` (the example app "Hello") to `site/modules/<id>/`,
+  rename it as the comment at the top of its `index.js` explains, and list it in `apps` in
+  `site/config.js`. Its texts live in its own `locales/<lang>/` folder; `npm run i18n:check` checks them.
+  Don't want the example? Remove `{ id: 'hello', … }` from `apps` and delete the folder.
 
 ## 4. Check it locally
 

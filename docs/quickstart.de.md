@@ -174,6 +174,10 @@ Impressum, Datenschutz, Lesezeichen und ein Schaufenster. Ersetze sie nach und n
   `site/data/fortunes/<lang>.json`.
 - **Hintergrundbilder**: Leg Bilder in `site/wallpapers/` und trag sie in `wallpaper.images` ein. Den
   Standard setzt du mit `wallpaper.default`. Siehe [site/wallpapers/README.md](../site/wallpapers/README.md).
+- **Eine eigene App**: kopiere `site/modules/hello/` (die Beispiel-App „Hallo“) nach `site/modules/<id>/`,
+  benenne sie um, wie es der Kommentar oben in ihrer `index.js` beschreibt, und trag sie unter `apps` in
+  `site/config.js` ein. Ihre Texte liegen in ihrem eigenen Ordner `locales/<sprache>/`; `npm run i18n:check`
+  prüft sie. Du willst das Beispiel nicht? Entferne `{ id: 'hello', … }` aus `apps` und lösche den Ordner.
 
 ## 4. Lokal prüfen
 

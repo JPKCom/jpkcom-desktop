@@ -39,7 +39,7 @@ deployen, anpassen und wiederverwenden — alles, was ein Site-Betreiber ändert
 ```
 index.html, manifest.webmanifest, sw.js   Shell-Markup, PWA (Root wegen Scope)
 site/            ALLES, was ein Betreiber anpasst: config.js (window.DESKTOP_CONFIG), apps.js (Manifest),
-                 content/<lang>/, data/, vault/, wallpapers/ — Beispielinhalte, neutral
+                 content/<lang>/, data/, vault/, wallpapers/, modules/ (Site-Apps, Beispiel hello/) — neutral
 locales/<lang>/  _meta.js + ein Namespace pro Datei; en = Referenz, de mitgeliefert
 src/boot/        theme.js (klassisch, vor dem ersten Paint), main.js (Einstieg)
 src/core/        config env store bus i18n dom icons a11y registry router net consent storage-registry
@@ -59,7 +59,8 @@ docs/            ARCHITECTURE.md (Vertrag), packages/p01–p12, deploy.md, serve
 
 Default-Export von `src/modules/<id>/index.js` bzw. `src/apps/<id>/index.js`:
 
-- `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `styles: ['<id>.css']`
+- `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `locales: 'locales/'` (nur
+  Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`
 - `app: {…}` oder `apps: [...]` (Manifest-Felder: `icon`, `tint`, `size`, `name: '@ns.key'` …)
 - `storage` (Keys mit `validate`), `resetGroups`, `trash`, `consent: [{ id, hosts, label, hint }]`
 - Beiträge: `files`, `settingsSections`, `settings`, `shortcuts`, `terminal`, `search`, `calendar`, `contextMenu`
