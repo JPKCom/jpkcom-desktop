@@ -1,0 +1,75 @@
+/* JPKCom Desktop — example site app "Hello": layout — © Jean Pierre Kolb — MIT License
+
+   Everything in @layer apps (the desktop's cascade order: src/css/layers.css), the phone overrides in
+   @layer compact. Colours come from the tokens (src/css/tokens.css); sides are logical (inline/block),
+   so right-to-left languages work as well. */
+
+@layer apps {
+
+	.hello {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		height: 100%;
+		padding-block: 18px;
+		padding-inline: 20px;
+		overflow-y: auto;
+		color: var(--text);
+	}
+
+	.hello-form {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.hello-label {
+		font-weight: 600;
+	}
+
+	.hello-row {
+		display: flex;
+		gap: 8px;
+	}
+
+	.hello-input {
+		flex: 1;
+		min-width: 0;
+		padding-block: 6px;
+		padding-inline: 10px;
+		border: 1px solid rgb(var(--ink) / 0.2);
+		border-radius: 6px;
+		background: rgb(var(--ink) / 0.05);
+		color: inherit;
+		font: inherit;
+	}
+
+	.hello-input:focus-visible {
+		outline: 2px solid var(--accent-ring);
+		outline-offset: 1px;
+	}
+
+	.hello-greeting {
+		display: block;
+		min-block-size: 1.6em;
+		font-size: 1.4em;
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+
+	.hello-opens {
+		margin: 0;
+		color: var(--text-2);
+	}
+}
+
+@layer compact {
+
+	body.compact .hello {
+		padding-inline: 14px;
+	}
+
+	body.compact .hello-row {
+		flex-direction: column;
+	}
+}

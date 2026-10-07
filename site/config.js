@@ -217,7 +217,10 @@ window.DESKTOP_CONFIG = {
 	   Own modules: { id: 'mine', src: 'site/modules/mine/index.js' } */
 	modules: ['reader', 'viewer', 'catalog', 'search', 'calendar', 'notify'],
 	/* Apps in src/apps/<id>/: editor, notes, todo, calc, terminal, media (audio + video), fortune */
-	apps: ['editor', 'notes', 'todo', 'calc', 'terminal', 'media', 'fortune'],
+	apps: ['editor', 'notes', 'todo', 'calc', 'terminal', 'media', 'fortune',
+		/* A site app: lives in site/modules/hello/ with its own texts and CSS — a template for your own
+		   (copy the folder, see the comment at the top of its index.js); remove the line to drop it */
+		{ id: 'hello', src: 'site/modules/hello/index.js' }],
 
 	/* ---------- Online services ---------- */
 	/* Features that contact other servers. false = not offered on this site at all; true = offered,
