@@ -66,3 +66,23 @@ test('i18n-check: a site module namespace that the core has is an error', () => 
 	assert.equal(run.status, 1, run.stdout);
 	assert.match(run.stdout, /namespace 'core' is also a core namespace/);
 });
+
+test('i18n-check: a namespace two site modules bring names the module that has it first', () => {
+	const root = mkdtempSync(join(tmpdir(), 'jpkdesk-i18n-'));
+	const put = (rel, text) => {
+		mkdirSync(dirname(join(root, rel)), { recursive: true });
+		writeFileSync(join(root, rel), text);
+	};
+	mkdirSync(join(root, 'tools'));
+	copyFileSync(join(ROOT, 'tools/i18n-check.mjs'), join(root, 'tools/i18n-check.mjs'));
+	put('locales/en/_meta.js', "export default { name: 'English', intl: 'en-GB', dir: 'ltr', yes: '^(y|yes)$' };");
+	put('locales/en/core.js', "export default { hi: 'Hi' };");
+	put('src/x.js', "t('hi'); t('shared.x');");
+	put('site/modules/one/locales/en/shared.js', "export default { x: 'One' };");
+	put('site/modules/two/locales/en/shared.js', "export default { x: 'Two' };");
+	const run = spawnSync(process.execPath, [join(root, 'tools/i18n-check.mjs')], { encoding: 'utf8' });
+	rmSync(root, { recursive: true, force: true });
+	assert.equal(run.status, 1, run.stdout);
+	assert.match(run.stdout, /site\/modules\/two\/locales\/shared.*namespace 'shared' is already used by site\/modules\/one/);
+	assert.doesNotMatch(run.stdout, /also a core namespace/);
+});

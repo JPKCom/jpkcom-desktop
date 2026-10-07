@@ -6,7 +6,7 @@
      node tools/i18n-check.mjs fr de      check these languages only
    Site modules: every site/modules/<id>/locales/ folder (descriptor field locales) is checked the same
    way — its en/ is the reference, every checked language of locales/ needs its files there. A namespace
-   that locales/en/ has as well is an error (the desktop would ignore the module's copy).
+   that locales/en/ or another site module has as well is an error (the desktop would ignore one copy).
 
    Reports per language and namespace:
      missing      keys in en that the language lacks (error)
@@ -148,15 +148,21 @@ const SITE_MODULES = join(ROOT, 'site', 'modules');
 const siteDirs = existsSync(SITE_MODULES)
 	? readdirSync(SITE_MODULES).sort().map(m => join(SITE_MODULES, m, 'locales')).filter(d => existsSync(join(d, REF)))
 	: [];
+const siteNs = new Map(); // namespace → the site module that brought it first ('site/modules/<id>')
 for (const dir of siteDirs) {
 	const label = dir.slice(ROOT.length + 1).split(/[\\/]/).join('/');
 	const nsList = readdirSync(join(dir, REF)).filter(f => f.endsWith('.js')).map(f => f.slice(0, -3)).sort();
 	for (const ns of nsList) {
 		const where = `${label}/${ns}`;
+		if (siteNs.has(ns)) {
+			report('error', REF, where, `namespace '${ns}' is already used by ${siteNs.get(ns)} — only one module can bring it (the first one loaded keeps it)`);
+			continue;
+		}
 		if (refNs.includes(ns)) {
 			report('error', REF, where, `namespace '${ns}' is also a core namespace (locales/${REF}/${ns}.js) — the desktop keeps the core one`);
 			continue;
 		}
+		siteNs.set(ns, label.replace(/\/locales$/, ''));
 		const refDict = await load(join(dir, REF, `${ns}.js`));
 		checkPlurals(REF, where, refDict, catsOf.get(REF) ?? ['one', 'other']);
 		for (const lang of langs) {
