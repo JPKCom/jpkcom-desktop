@@ -1,0 +1,169 @@
+/* JPKCom Desktop — notification banners under the menu bar — © Jean Pierre Kolb — MIT License
+
+   Markup: div.notifs[role=region] > div.notif(.is-in | .is-out) >
+             button.notif-main > .tile + .notif-text > .notif-meta (span + time), .notif-title, .notif-sum
+             button.notif-close
+   Banners slide in from the end side (right in left-to-right languages). They never cover the
+   desktop icons: on wide screens they sit next to the first icon column (96px wide at the
+   end, desktop-icons.css); on phones the icon grid moves below them (body.has-notifs,
+   --notifs-h set by notifications.js — desktop-icons.css). */
+
+@layer shell {
+
+	.notifs {
+		--notif-from: 28px;
+		position: absolute;
+		top: calc(var(--mb-total) + 8px);
+		inset-inline-end: max(8px, env(safe-area-inset-right));
+		z-index: var(--z-notification);
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		width: min(344px, calc(100% - 16px));
+		pointer-events: none;
+	}
+
+	:root[dir="rtl"] .notifs {
+		--notif-from: -28px;
+	}
+
+	/* Next to the icon column, not over it (and not over the clicks meant for its icons) */
+	body:not(.icons-hidden) .notifs {
+		inset-inline-end: calc(max(10px, env(safe-area-inset-right)) + 96px + 12px);
+		width: min(344px, calc(100% - 134px));
+	}
+
+	.notif {
+		position: relative;
+		border-radius: 12px;
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: blur(30px) saturate(1.8);
+		backdrop-filter: blur(30px) saturate(1.8);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 12px 32px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		color: var(--text);
+		opacity: 0;
+		translate: var(--notif-from) 0;
+		transition: opacity var(--dur) var(--ease), translate var(--dur) var(--ease);
+
+		&.is-in {
+			opacity: 1;
+			translate: 0 0;
+			pointer-events: auto;
+		}
+
+		&:hover .notif-close,
+		&:focus-within .notif-close {
+			opacity: 1;
+		}
+	}
+
+	.notif-main {
+		display: grid;
+		grid-template-columns: 32px 1fr;
+		align-items: start;
+		gap: 10px;
+		width: 100%;
+		padding: 10px 12px 11px;
+		border-radius: inherit;
+		text-align: start;
+
+		.tile {
+			--tile: 32px;
+			box-shadow: var(--tile-shadow-sm);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	.notif-text {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+	}
+
+	.notif-meta {
+		display: flex;
+		justify-content: space-between;
+		gap: 8px;
+		color: var(--text-2);
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.notif-title,
+	.notif-sum {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+	}
+
+	.notif-title {
+		font-weight: 700;
+	}
+
+	.notif-sum {
+		color: var(--text-2);
+		font-size: 12.5px;
+	}
+
+	.notif-close {
+		position: absolute;
+		top: -7px;
+		inset-inline-start: -7px;
+		display: grid;
+		place-items: center;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--win-bar);
+		box-shadow: 0 0 0 0.5px var(--line-strong), 0 2px 6px rgb(0 0 0 / calc(0.4 * var(--shade)));
+		color: var(--text);
+		font-size: 11px;
+		opacity: 0;
+		transition: opacity var(--dur) var(--ease);
+
+		&:focus-visible {
+			opacity: 1;
+			outline: 2px solid var(--focus);
+		}
+	}
+
+	/* Without hover (touch screens) the close button always shows — with a 44px hit area
+	   around the drawn 20px circle (WCAG 2.5.8); it lies over the banner, which it
+	   follows in the markup, so the overlap closes instead of opening */
+	@media (hover: none) {
+
+		.notif-close {
+			opacity: 1;
+
+			&::before {
+				content: "";
+				position: absolute;
+				inset: -12px;
+				border-radius: 50%;
+			}
+		}
+	}
+}
+
+@layer compact {
+
+	body.compact .notifs {
+		inset-inline-end: max(8px, env(safe-area-inset-right));
+		width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+	}
+
+	/* Phones: the same 44px hit area, whatever the pointer reports */
+	body.compact .notif-close::before {
+		content: "";
+		position: absolute;
+		inset: -12px;
+		border-radius: 50%;
+	}
+}

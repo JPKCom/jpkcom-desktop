@@ -1,0 +1,161 @@
+/* JPKCom Desktop — All apps: blurred overlay between the windows and the dock, search, grid — © Jean Pierre Kolb — MIT License
+
+   Markup: div.launcher[role=dialog] (.is-open) > .launcher-inner >
+             label.field.launcher-search > svg + input.field-input.launcher-input
+             ul.launcher-grid > li > button.icon.launcher-item (+ li.launcher-empty, li.launcher-more-row > button.launcher-more)
+   The items reuse the desktop icon look (.icon, .icon-label in desktop-icons.css). */
+
+@layer shell {
+
+	.launcher {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-launcher);
+		display: flex;
+		justify-content: center;
+		padding-block: calc(var(--mb-total) + 28px) calc(110px + env(safe-area-inset-bottom));
+		padding-inline: max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right));
+		background: var(--overlay);
+		-webkit-backdrop-filter: blur(30px) saturate(1.4);
+		backdrop-filter: blur(30px) saturate(1.4);
+		color: var(--text);
+		opacity: 0;
+		transition: opacity var(--dur) var(--ease);
+
+		&.is-open {
+			opacity: 1;
+		}
+
+		/* While fading out, clicks already go to what lies beneath */
+		&:not(.is-open) {
+			pointer-events: none;
+		}
+
+		&:focus {
+			outline: none;
+		}
+	}
+
+	.launcher-inner {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 28px;
+		width: min(100%, 980px);
+		min-height: 0;
+		scale: 1.04;
+		transition: scale var(--dur) var(--ease);
+
+		.is-open > & {
+			scale: 1;
+		}
+	}
+
+	.launcher-search {
+		flex: none;
+		width: min(100%, 280px);
+		max-width: none;
+		background: rgb(var(--ink) / 0.12);
+		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+
+		&:focus-within {
+			box-shadow: 0 0 0 2px var(--accent-ring);
+		}
+
+		svg {
+			font-size: 15px;
+		}
+	}
+
+	.launcher-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+		align-content: start;
+		gap: 22px 8px;
+		width: 100%;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 4px;
+	}
+
+	.launcher-item {
+		width: 100%;
+
+		.tile {
+			--tile: 64px;
+		}
+	}
+
+	/* The light theme's backdrop is light: no halo under dark labels */
+	:root[data-theme="light"] .launcher-item .icon-label {
+		text-shadow: none;
+	}
+
+	.launcher-empty {
+		grid-column: 1 / -1;
+		padding-block: 40px;
+		color: var(--text-2);
+		text-align: center;
+	}
+
+	.launcher-more-row {
+		grid-column: 1 / -1;
+	}
+
+	.launcher-more {
+		display: block;
+		margin: 4px auto 0;
+		padding: 6px 14px;
+		border-radius: 7px;
+		background: rgb(var(--ink) / 0.12);
+		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+		color: var(--text);
+
+		&:hover,
+		&:focus-visible {
+			background: var(--accent);
+			color: var(--on-accent);
+		}
+
+		/* Invisible here, but forced colours draw it (the filled background is dropped there) */
+		&:focus-visible {
+			outline: 2px solid transparent;
+			outline-offset: 2px;
+		}
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		.launcher {
+			padding-block: calc(var(--mb-total) + 14px) calc(96px + env(safe-area-inset-bottom));
+			padding-inline: 10px;
+		}
+
+		.launcher-inner {
+			gap: 18px;
+		}
+
+		.launcher-search {
+			width: 100%;
+			height: 36px;
+		}
+
+		/* 16px keeps iOS from zooming into the field */
+		.launcher-input {
+			font-size: 16px;
+		}
+
+		.launcher-grid {
+			grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+			gap: 16px 4px;
+		}
+
+		.launcher-item .tile {
+			--tile: 58px;
+		}
+	}
+}

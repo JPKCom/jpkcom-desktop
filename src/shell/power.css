@@ -1,0 +1,94 @@
+/* JPKCom Desktop — boot screen, restart and shut-down screens — © Jean Pierre Kolb — MIT License
+
+   Markup: div.boot[data-island=dark] > svg.boot-glyph + .boot-bar > .boot-fill + p.boot-credit
+           (.is-hidden: fading out; .power-off: switched off, with p.power-text and button.power-on)
+   Dark by design in both themes (--boot-bg, --boot-fg), above everything. */
+
+@layer shell {
+
+	.boot {
+		position: absolute;
+		inset: 0;
+		z-index: var(--z-boot);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 44px;
+		background: var(--boot-bg);
+		color: var(--boot-fg);
+		transition: opacity 0.45s ease;
+
+		.boot-glyph {
+			width: 76px;
+			height: 76px;
+		}
+
+		.boot-bar {
+			width: 180px;
+			height: 4px;
+			overflow: hidden;
+			border-radius: 2px;
+			background: rgb(var(--ink) / 0.22);
+		}
+
+		.boot-fill {
+			width: 0;
+			height: 100%;
+			border-radius: 2px;
+			background: var(--boot-fg);
+		}
+
+		/* The author credit under the bar: quiet, it must not compete with the glyph */
+		.boot-credit {
+			position: absolute;
+			inset-block-end: calc(28px + env(safe-area-inset-bottom));
+			margin: 0;
+			color: rgb(var(--ink) / 0.5);
+			font-size: 12px;
+			letter-spacing: 0.02em;
+		}
+
+		&.is-hidden {
+			opacity: 0;
+			pointer-events: none;
+		}
+	}
+
+	/* Switched off: the glyph dims, a power button starts the desktop again */
+	.boot.power-off {
+		gap: 28px;
+
+		.boot-glyph {
+			opacity: 0.18;
+		}
+	}
+
+	.power-text {
+		margin: 0;
+		color: rgb(var(--ink) / 0.6);
+		font-size: 14px;
+	}
+
+	.power-on {
+		display: grid;
+		place-items: center;
+		width: 56px;
+		height: 56px;
+		border-radius: 50%;
+		background: rgb(var(--ink) / 0.1);
+		box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.25);
+		color: var(--boot-fg);
+		font-size: 26px;
+		cursor: pointer;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.18);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 3px;
+		}
+	}
+}

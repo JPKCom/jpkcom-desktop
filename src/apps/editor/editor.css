@@ -1,0 +1,589 @@
+/* JPKCom Desktop — Editor app: tabs, find bar, gutter, wrap mode, highlight layers, status bar — © Jean Pierre Kolb — MIT License
+
+   The text area (.ed-main) stays left-to-right in every language: the gutter,
+   the match layer and the invisible-character layer are positioned from the
+   textarea's scroll offsets, which only line up in one direction. The tab bar
+   and the status bar follow the page direction. */
+
+@layer apps {
+
+	.ed {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+
+	/* ---------- Tabs: one per document; the current one sits flush with the text ---------- */
+
+	.ed-tabs {
+		display: flex;
+		flex: none;
+		align-items: stretch;
+		height: 32px;
+		border-bottom: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--gutter-bg);
+	}
+
+	/* Only the tabs scroll; "+" beside the tablist stays in view */
+	.ed-tablist {
+		display: flex;
+		flex: 0 1 auto;
+		align-items: stretch;
+		min-width: 0;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+
+	.ed-tab {
+		position: relative;
+		display: flex;
+		flex: 0 1 190px;
+		align-items: center;
+		min-width: 90px;
+		border-inline-end: 1px solid var(--line);
+
+		&.is-current {
+			background: var(--win-bg);
+			box-shadow: inset 0 2px 0 var(--accent-ring);
+		}
+
+		&:hover .ed-tab-close,
+		&.is-current .ed-tab-close,
+		&:focus-within .ed-tab-close {
+			opacity: 1;
+		}
+
+		/* A changed tab shows its dot until the pointer or the focus brings the close button */
+		&.is-dirty:not(:hover, :focus-within) .ed-tab-close {
+			opacity: 0;
+		}
+	}
+
+	.ed-tab-btn {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		height: 100%;
+		padding-block: 0;
+		padding-inline: 12px 4px;
+		color: var(--text-2);
+		font-size: 12.5px;
+		text-align: start;
+
+		.is-current & {
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -3px;
+		}
+	}
+
+	.ed-tab-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* The dot sits in the close button's slot (end margin + half of its size - 7px), so the two
+	   swap in place; --ed-close and --ed-close-end are set larger for touch in @layer compact */
+	.ed-tab-dot {
+		position: absolute;
+		top: 50%;
+		inset-inline-end: calc(var(--ed-close-end, 6px) + (var(--ed-close, 20px) - 7px) / 2);
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--text-2);
+		translate: 0 -50%;
+		pointer-events: none;
+
+		.ed-tab:is(:hover, :focus-within) & {
+			visibility: hidden;
+		}
+	}
+
+	.ed-tab-close {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: var(--ed-close, 20px);
+		height: var(--ed-close, 20px);
+		margin-inline-end: var(--ed-close-end, 6px);
+		border-radius: 4px;
+		color: var(--text-2);
+		font-size: 11px;
+		opacity: 0;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.1);
+			color: var(--text);
+		}
+	}
+
+	.ed-tab-add {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 32px;
+		color: var(--text-2);
+		font-size: 13px;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.08);
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -3px;
+		}
+	}
+
+	/* Touch has no hover: close buttons always show */
+	@media (hover: none) {
+
+		.ed-tab .ed-tab-close,
+		.ed-tab.is-dirty:not(:hover, :focus-within) .ed-tab-close {
+			opacity: 1;
+		}
+
+		/* With the close button always there, the dot moves back in front of it */
+		.ed-tab .ed-tab-dot,
+		.ed-tab:is(:hover, :focus-within) .ed-tab-dot {
+			position: static;
+			flex: none;
+			margin-inline-start: auto;
+			translate: none;
+			visibility: visible;
+		}
+	}
+
+	/* ---------- Find and replace ---------- */
+
+	.ed-find {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px 10px;
+		border-bottom: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: rgb(var(--ink) / 0.03);
+	}
+
+	.ed-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.ed-field {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		height: 28px;
+		padding: 0 8px;
+		border-radius: 6px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text-3);
+		font-size: 13px;
+
+		&:focus-within {
+			box-shadow: 0 0 0 2px var(--accent-ring);
+		}
+	}
+
+	.ed-input {
+		flex: 1;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: none;
+		color: var(--text);
+		font: 13px var(--font-mono);
+		-webkit-user-select: text;
+		user-select: text;
+
+		&::placeholder {
+			color: var(--text-3);
+		}
+
+		&[aria-invalid="true"] {
+			color: var(--warn);
+		}
+	}
+
+	.ed-count {
+		flex: none;
+		color: var(--text-2);
+		font-size: 12px;
+		white-space: nowrap;
+
+		&.is-warn {
+			color: var(--warn);
+		}
+	}
+
+	.ed-btn,
+	.ed-toggle {
+		display: grid;
+		flex: none;
+		place-items: center;
+		min-width: 28px;
+		height: 28px;
+		padding: 0 6px;
+		border-radius: 6px;
+		color: var(--text-2);
+		font-size: 14px;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.1);
+			color: var(--text);
+		}
+	}
+
+	.ed-btn-text {
+		padding: 0 10px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text);
+		font-size: 12.5px;
+		white-space: nowrap;
+	}
+
+	.ed-toggle {
+		font: 600 12px var(--font-mono);
+
+		&[aria-pressed="true"] {
+			background: var(--accent);
+			color: var(--on-accent);
+			box-shadow: inset 0 0 0 1px var(--pressed-edge);   /* 3:1 shape edge in the dark theme (tokens.css) */
+		}
+	}
+
+	/* ---------- Text with gutter ---------- */
+
+	.ed-main {
+		position: relative;
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		direction: ltr;
+		font: 13px/20px var(--font-mono);
+	}
+
+	.ed-gutter {
+		--digits: 2;
+		flex: none;
+		width: calc(var(--digits) * 1ch + 22px);
+		overflow: hidden;
+		padding-top: 10px;
+		border-right: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--gutter-bg);
+		color: var(--text-3);
+		text-align: right;
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* One element per line: one row high, or as high as the wrapped line (set through CSSOM) */
+	.ed-nums {
+		position: relative;
+
+		> div {
+			padding-right: 10px;
+		}
+
+		/* The line with the cursor */
+		> .is-current {
+			background: var(--gutter-current);
+			color: var(--text);
+			font-weight: 600;
+		}
+	}
+
+	.ed-wrap {
+		position: relative;
+		display: flex;
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		background: var(--win-bg);
+	}
+
+	/* Wrap mode: text, match layer and measuring copy break at the same width */
+	.ed.is-wrap {
+
+		.ed-text {
+			overflow-x: hidden;
+			white-space: pre-wrap;
+			overflow-wrap: break-word;
+		}
+
+		.ed-hl-inner,
+		.ed-ws-inner {
+			white-space: pre-wrap;
+			overflow-wrap: break-word;
+		}
+	}
+
+	/* Zero height with hidden overflow: its rows still lay out and can be measured */
+	.ed-mirror {
+		position: absolute;
+		top: 0;
+		left: 0;
+		height: 0;
+		overflow: hidden;
+		visibility: hidden;
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
+		tab-size: 4;
+		pointer-events: none;
+
+		> div:empty::before {
+			content: "\200b";
+		}
+	}
+
+	/* Search matches behind the transparent textarea — same box, font and tabs */
+	.ed-hl {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		padding: 10px 12px;
+		pointer-events: none;
+	}
+
+	.ed-hl-inner {
+		color: transparent;
+		white-space: pre;
+		tab-size: 4;
+
+		mark {
+			border-radius: 2px;
+			background: var(--match);
+			color: transparent;
+		}
+
+		/* An outline instead of a stronger fill keeps the light text readable */
+		.is-current {
+			background: var(--match-current);
+			box-shadow: 0 0 0 1.5px var(--warn);
+		}
+	}
+
+	/* Invisible characters behind the transparent textarea — same box, font and tabs as the matches */
+	.ed-ws {
+		--ws: color-mix(in srgb, var(--text-3) 55%, transparent);
+		--ws-odd: color-mix(in srgb, var(--warn) 80%, transparent);
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		padding: 10px 12px;
+		pointer-events: none;
+	}
+
+	.ed-ws-inner {
+		color: transparent;
+		white-space: pre;
+		tab-size: 4;
+		will-change: transform;  /* scrolling moves the drawn lines instead of painting them again */
+
+		/* Spaces: one dot per character cell */
+		.ed-ws-s {
+			background: radial-gradient(circle, var(--ws) 0 1px, transparent 1.5px) 0 55% / 1ch 1ch repeat-x;
+		}
+
+		/* Other spaces (no-break, en, em …): a small ring, in the warning colour */
+		.ed-ws-u {
+			background: radial-gradient(circle, transparent 0 1.25px, var(--ws-odd) 1.5px 2.25px, transparent 2.5px) 50% 55% / 100% 1ch no-repeat;
+		}
+
+		/* Tab: an arrow at its start; line end: a hook after the last character */
+		.ed-ws-t,
+		.ed-ws-n,
+		.ed-ws-z {
+			position: relative;
+		}
+
+		.ed-ws-t::before,
+		.ed-ws-n::before {
+			position: absolute;
+			left: 0;
+			color: var(--ws);
+		}
+
+		.ed-ws-t::before {
+			content: "→";
+		}
+
+		.ed-ws-n::before {
+			content: "¬";
+		}
+
+		/* Zero-width and direction marks take no room: a thin bar where they sit */
+		.ed-ws-z::before {
+			content: "";
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			left: -1px;
+			width: 2px;
+			border-radius: 1px;
+			background: var(--ws-odd);
+		}
+	}
+
+	.ed-text {
+		position: relative;
+		flex: 1;
+		min-width: 0;
+		margin: 0;
+		padding: 10px 12px;
+		border: 0;
+		outline: 0;
+		resize: none;
+		background: transparent;
+		color: var(--reader-text);
+		font: inherit;
+		tab-size: 4;
+		white-space: pre;
+		overflow: auto;
+		overscroll-behavior: contain;
+		scrollbar-color: var(--scroll-thumb) transparent;
+		-webkit-user-select: text;
+		user-select: text;
+		caret-color: var(--text);
+
+		&::selection {
+			background: color-mix(in srgb, var(--accent) 65%, transparent);
+		}
+	}
+
+	.ed-measure {
+		position: absolute;
+		visibility: hidden;
+		white-space: pre;
+		pointer-events: none;
+	}
+
+	/* ---------- Status bar ---------- */
+
+	.ed-status {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		min-height: 28px;
+		padding: 4px 12px;
+		border-top: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		color: var(--text-2);
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+
+		> span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+	}
+
+	.ed-file {
+		flex: 1;
+		min-width: 0;
+		text-align: end;
+
+		&.is-warn {
+			color: var(--warn);
+		}
+	}
+
+	.ed-wsbtn,
+	.ed-wrapbtn {
+		flex: none;
+		padding: 2px 8px;
+		border-radius: 5px;
+		color: var(--text-2);
+
+		&:hover {
+			background: rgb(var(--ink) / 0.1);
+			color: var(--text);
+		}
+
+		&[aria-pressed="true"] {
+			background: var(--accent);
+			color: var(--on-accent);
+			box-shadow: inset 0 0 0 1px var(--pressed-edge);   /* 3:1 shape edge in the dark theme (tokens.css) */
+		}
+	}
+
+	/* Two toggles side by side: a smaller gap than between the status texts */
+	.ed-wsbtn {
+		margin-inline-end: -10px;
+	}
+
+	.ed-wrapbtn {
+		margin-inline-end: -6px;
+	}
+
+	/* Forced colours (Windows High Contrast) drop the filled background of a pressed
+	   toggle: system colours keep the state visible, CanvasText keeps the focus ring */
+	@media (forced-colors: active) {
+
+		:is(.ed-toggle, .ed-wsbtn, .ed-wrapbtn)[aria-pressed="true"] {
+			forced-color-adjust: none;
+			background: Highlight;
+			color: HighlightText;
+		}
+
+		:is(.ed-toggle, .ed-wsbtn, .ed-wrapbtn)[aria-pressed="true"]:focus-visible {
+			outline-color: CanvasText;
+		}
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		/* 16px keeps iOS from zooming; gutter, layers and mirror inherit the same metrics */
+		.ed-input {
+			font-size: 16px;
+		}
+
+		.ed-main {
+			font-size: 16px;
+			line-height: 24px;
+		}
+
+		.ed-counts {
+			display: none;
+		}
+
+		/* Finger-sized tab bar and status toggles (the glyphs keep their size) */
+		.ed-tabs {
+			--ed-close: 36px;
+			--ed-close-end: 2px;
+			height: 40px;
+		}
+
+		.ed-tab-add {
+			width: 40px;
+		}
+
+		.ed-status {
+			gap: 10px;
+			min-height: 40px;
+		}
+
+		.ed-wsbtn,
+		.ed-wrapbtn {
+			min-width: 36px;
+			min-height: 32px;
+			margin-inline-end: 0;
+			padding: 4px 10px;
+		}
+	}
+}

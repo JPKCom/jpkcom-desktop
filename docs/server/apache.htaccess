@@ -1,0 +1,121 @@
+# ============================================================================
+# JPKCom Desktop — Apache configuration (.htaccess) — © Jean Pierre Kolb — MIT License
+# ============================================================================
+#
+# Copy this file as ".htaccess" into the folder that holds index.html — the web
+# root or a sub-folder such as /desktop/; nothing in it depends on the folder.
+# Apache 2.4.10 or newer with mod_headers, mod_mime and mod_alias (mod_dir,
+# mod_deflate, mod_brotli are used when present). The host must allow it:
+#   AllowOverride FileInfo Indexes Options=Indexes
+# (or "AllowOverride All"). Nothing here inherits from a parent .htaccess on
+# purpose: the header set is complete on its own and replaces security headers
+# a parent .htaccess or the server config may send.
+#
+# Service worker, installation, the vault and "My location" need a secure
+# context: serve the desktop over HTTPS (localhost is the only exception).
+#
+# Check after a deploy:
+#   curl -sI https://example.org/desktop/ | grep -iE '^(content-security|permissions|cache-control|x-)'
+
+# ---------- Files and folders ------------------------------------------------
+
+# No directory listings anywhere (the vault's file names must stay secret)
+Options -Indexes
+
+# /desktop → /desktop/ (manifest, service worker and data are resolved relative to the page)
+<IfModule mod_dir.c>
+	DirectorySlash On
+	DirectoryIndex index.html
+</IfModule>
+
+# Dotfiles (.git, .env, this file, …) are never served — /.well-known/ stays reachable.
+# mod_alias is part of every standard Apache; deliberately without <IfModule>: should it
+# be missing, Apache answers 500 instead of handing out .git/ or .env
+RedirectMatch 404 "/\.(?!well-known/)"
+
+# ---------- MIME types ---------------------------------------------------------
+
+<IfModule mod_mime.c>
+	AddType text/javascript .js .mjs
+	AddType application/manifest+json .webmanifest
+	AddType application/json .json
+	AddType image/svg+xml .svg
+	AddType application/octet-stream .bin
+	AddCharset utf-8 .html .js .mjs .css .json .webmanifest .svg .md .txt
+</IfModule>
+
+# ---------- Compression ------------------------------------------------------
+
+<IfModule mod_brotli.c>
+	AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/javascript application/json application/manifest+json image/svg+xml
+</IfModule>
+<IfModule mod_deflate.c>
+	AddOutputFilterByType DEFLATE text/html text/css text/javascript application/json application/manifest+json image/svg+xml
+</IfModule>
+
+<IfModule mod_headers.c>
+# Inside <Files>: Apache applies <Files>/<FilesMatch> sections after all directory and .htaccess
+# directives, parents first — so only here do these headers win over a parent's <FilesMatch>.
+<Files "*">
+
+	# ---------- Security headers -----------------------------------------------
+
+	# A parent .htaccess or the server config may set these with plain "Header set" (another
+	# table than "always"): remove those copies, or browsers would get two policies and apply both
+	Header unset Content-Security-Policy
+	Header unset Permissions-Policy
+	Header unset X-Frame-Options
+	Header unset X-Content-Type-Options
+	Header unset Referrer-Policy
+	Header unset Cross-Origin-Opener-Policy
+	Header unset Strict-Transport-Security
+
+	# Content-Security-Policy. Opt-in extensions — switch on ONLY what the site offers:
+	#
+	#   connect-src  add the hosts of the online services set to true in site/config.js → services:
+	#                  weather, provider 'open-meteo':  https://api.open-meteo.com
+	#                    a place search by name, if you add one: https://geocoding-api.open-meteo.com (the shipped providers never call it)
+	#                  weather, provider 'brightsky':   https://api.brightsky.dev
+	#                  terminal dig/host (DoH):         https://dns.google   (the host of terminal.doh.url)
+	#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
+	#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
+	#   frame-src    add the origins of 'web' apps whose url lives on another origin
+	#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+	#
+	# Then replace the line below with your extended copy, e.g. weather + DoH:
+	#   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+	# or with Pagefind and a framed app from another origin:
+	#   Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self' https://apps.example.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+	Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+	# On HTTPS: upgrade-insecure-requests and HSTS. Behind a proxy that terminates TLS, use
+	# "expr=%{HTTP:X-Forwarded-Proto} == 'https'" instead of "expr=%{HTTPS} == 'on'".
+	Header always edit Content-Security-Policy "$" "; upgrade-insecure-requests" "expr=%{HTTPS} == 'on'"
+	Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+
+	# Geolocation stays off unless the site offers "My location" for the weather
+	# (services.geolocation: true) — then use the second line instead
+	Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+	# Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+
+	# SAMEORIGIN, not DENY: windows show same-origin pages in iframes
+	Header always set X-Frame-Options "SAMEORIGIN"
+	Header always set X-Content-Type-Options "nosniff"
+	Header always set Referrer-Policy "strict-origin-when-cross-origin"
+	Header always set Cross-Origin-Opener-Policy "same-origin"
+
+	# ---------- Caching --------------------------------------------------------
+
+	# The files carry no version in their names: browsers revalidate them on every use (ETag /
+	# Last-Modified → 304), the service worker does the same. Images, fonts and media: one day.
+	Header set Cache-Control "no-cache"
+	Header set Cache-Control "public, max-age=86400" "expr=%{REQUEST_URI} =~ m#\.(png|jpe?g|gif|webp|avif|ico|woff2?|mp3|ogg|oga|m4a|wav|mp4|webm)$#i"
+	Header unset Expires
+
+	# ---------- Sealed vault files (site/vault/) -------------------------------
+
+	# The file name is derived from the credentials: never listed (see Options above),
+	# always revalidated (a re-sealed file must not come from a cache), not for search engines
+	Header always set X-Robots-Tag "noindex, nofollow, noarchive" "expr=%{REQUEST_URI} =~ m#/site/vault/#"
+
+</Files>
+</IfModule>

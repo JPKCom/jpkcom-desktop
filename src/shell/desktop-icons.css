@@ -1,0 +1,158 @@
+/* JPKCom Desktop — desktop icons: columns from the top end, labels, selection — © Jean Pierre Kolb — MIT License
+
+   Markup: ul#desktop-icons.icons[data-island=dark] > li > button.icon[data-app] > .tile + .icon-label
+   (.icon and .icon-label are shared with the All apps grid). Columns fill from the
+   top at the end side (right in left-to-right languages, left in right-to-left
+   ones): a wrapping flex column whose lines start at the cross end. Phones show
+   a home-screen grid instead, row by row from the top start. */
+
+@layer shell {
+
+	.icons {
+		position: absolute;
+		inset-block: 10px calc(110px + env(safe-area-inset-bottom));
+		inset-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
+		display: flex;
+		flex-flow: column wrap-reverse;
+		align-content: flex-start;
+		gap: 4px 6px;
+		pointer-events: none;
+
+		> li {
+			display: flex;
+			height: 100px;
+		}
+	}
+
+	body.icons-hidden .icons {
+		display: none;
+	}
+
+	.icon {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 5px;
+		width: 96px;
+		padding: 4px 2px;
+		pointer-events: auto;
+
+		.tile {
+			--tile: 56px;
+			outline: 3px solid transparent;
+			outline-offset: 2px;
+			transition: outline-color 0.1s;
+		}
+
+		.icon-label {
+			max-width: 100%;
+			padding: 1px 5px;
+			border-radius: 4px;
+			font-size: 12px;
+			font-weight: 500;
+			line-height: 1.3;
+			text-align: center;
+			text-shadow: 0 1px 3px rgb(0 0 0 / calc(0.8 * var(--shade)));
+			/* Words break at hyphenation points (html[lang] is set), never mid-word unless one alone is too wide */
+			overflow-wrap: break-word;
+			-webkit-hyphens: auto;
+			hyphens: auto;
+		}
+
+		/* Two-tone: the light ring with a dark halo shows on a light wallpaper as well */
+		&:focus-visible {
+			outline: none;
+
+			.icon-label {
+				outline: 2px solid var(--focus);
+				box-shadow: 0 0 0 4px rgb(0 0 0 / 0.6);
+			}
+		}
+
+		&.is-selected {
+
+			.tile {
+				outline-color: var(--icon-label-outline);
+			}
+
+			.icon-label {
+				background: var(--accent);
+				color: var(--on-accent);
+				text-shadow: none;
+			}
+		}
+	}
+
+	/* A light wallpaper (html[data-wp-tone=light], wallpaper.js): white labels get a dark
+	   backplate — a text shadow does not count as contrast (the selection still overrides it) */
+	:root[data-wp-tone="light"] .icon:not(.is-selected) .icon-label {
+		background: rgb(0 0 0 / 0.55);
+	}
+
+	/* Forced colours: no outline on every tile (a transparent one would be drawn), the
+	   selection in the system's highlight colours */
+	@media (forced-colors: active) {
+
+		.icon .tile {
+			outline-style: none;
+		}
+
+		.icon.is-selected .tile {
+			outline: 3px solid Highlight;
+		}
+
+		.icon.is-selected .icon-label {
+			forced-color-adjust: none;
+			background: Highlight;
+			color: HighlightText;
+		}
+	}
+}
+
+@layer compact {
+
+	/* Home-screen grid, filled row by row from the top start */
+	body.compact {
+
+		.icons {
+			inset-block: 16px auto;
+			inset-inline: 10px;
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+			gap: 16px 4px;
+
+			> li {
+				height: auto;
+			}
+		}
+
+		.icon {
+			width: 100%;
+
+			.tile {
+				--tile: 58px;
+			}
+
+			/* A narrow cell: slightly smaller type, at most two lines */
+			.icon-label {
+				display: -webkit-box;
+				overflow: hidden;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 2;
+				line-clamp: 2;
+				padding-inline: 2px;
+				font-size: 11.5px;
+			}
+		}
+
+		/* Notification banners lie at the top (notifications.css): the grid moves below them meanwhile */
+		&.has-notifs .icons {
+			inset-block-start: calc(var(--notifs-h, 0px) + 24px);
+		}
+
+		/* This layer comes after the one above: hidden stays hidden */
+		&.icons-hidden .icons {
+			display: none;
+		}
+	}
+}

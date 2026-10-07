@@ -1,0 +1,129 @@
+/* JPKCom Desktop — image viewer: picture on a checkerboard, info bar — © Jean Pierre Kolb — MIT License
+
+   .viewer-box    picture and (optional) info bar side by side; on phones stacked
+   .viewer        the stage (checkerboard, so transparent areas stay visible)
+   .viewer-empty  no picture: tile, message, error, open button, drop hint
+   .viewer-info   the info bar (Mod+I) */
+
+@layer modules {
+	.viewer-box {
+		position: absolute;
+		inset: 0;
+		display: flex;
+	}
+
+	.viewer {
+		position: relative;
+		flex: 1;
+		min-width: 0;
+		padding: 16px;
+		background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 50% / 20px 20px;
+
+		img {
+			display: block;
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+		}
+	}
+
+	.viewer-empty {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 20px;
+		background: var(--win-bg);
+		color: var(--text-2);
+		text-align: center;
+
+		.tile {
+			--tile: 64px;
+			margin-block-end: 8px;
+		}
+
+		p {
+			margin: 0;
+		}
+
+		.btn {
+			margin-block-start: 6px;
+		}
+	}
+
+	.viewer-none {
+		color: var(--text);
+		font-size: 15px;
+		font-weight: 600;
+	}
+
+	.viewer-hint {
+		color: var(--text-3);
+		font-size: 12px;
+	}
+
+	.viewer-error {
+		color: var(--warn);
+	}
+
+	.viewer-info {
+		flex: none;
+		width: 250px;
+		overflow-y: auto;
+		padding: 14px 16px;
+		border-inline-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--win-bg);
+		color: var(--text);
+		font-size: 12.5px;
+		-webkit-user-select: text;
+		user-select: text;
+
+		h3 {
+			margin: 0 0 10px;
+			font-size: 13px;
+		}
+
+		dl {
+			display: grid;
+			grid-template-columns: auto 1fr;
+			gap: 6px 12px;
+			margin: 0;
+		}
+
+		dt {
+			color: var(--text-2);
+		}
+
+		dd {
+			display: flex;
+			flex-direction: column;
+			margin: 0;
+			overflow-wrap: anywhere;
+			font-variant-numeric: tabular-nums;
+		}
+
+		small {
+			color: var(--text-3);
+			font-size: 11.5px;
+		}
+	}
+}
+
+@layer compact {
+	/* Phones: the info bar goes below the picture */
+	body.compact {
+		.viewer-box {
+			flex-direction: column;
+		}
+
+		.viewer-info {
+			width: auto;
+			max-height: 45%;
+			border-inline-start: 0;
+			border-block-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		}
+	}
+}

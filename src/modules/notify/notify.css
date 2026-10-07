@@ -1,0 +1,84 @@
+/* JPKCom Desktop — feed notifications: the news list in the calendar — © Jean Pierre Kolb — MIT License
+
+   The banners themselves belong to the notifications service (shell). Here
+   only the "notification centre" under the calendar; the heading reuses .cal-sub. */
+
+@layer modules {
+
+	.cal-news {
+		margin-block-start: 10px;
+		padding-block-start: 8px;
+		border-block-start: 1px solid var(--line);
+
+		ul {
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+	}
+
+	.cal-news-item {
+		display: grid;
+		grid-template-columns: 7px 1fr auto;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 5px 6px;
+		border-radius: 6px;
+		text-align: start;
+
+		.cal-news-dot {
+			width: 7px;
+			height: 7px;
+			border-radius: 50%;
+
+			&.is-new {
+				background: var(--cal-week);
+			}
+		}
+
+		.cal-news-name {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		time {
+			color: var(--text-2);
+			font-size: 12px;
+			font-variant-numeric: tabular-nums;
+		}
+
+		&:hover,
+		&:focus-visible {
+			background: var(--accent);
+			color: var(--on-accent);
+
+			time {
+				color: var(--on-accent);
+			}
+
+			.cal-news-dot.is-new {
+				background: var(--on-accent);
+			}
+		}
+
+		/* The filled row marks the focus; the transparent outline keeps a ring in forced colours
+		   (Windows High Contrast drops the background, the outline turns visible) */
+		&:focus-visible {
+			outline: 2px solid transparent;
+			outline-offset: -2px;
+		}
+	}
+
+	/* Forced colours drop the dot's fill (it has no text or border): keep it in a system colour,
+	   also on the hovered or focused row (whose accent fill is dropped as well) */
+	@media (forced-colors: active) {
+
+		.cal-news-item .cal-news-dot.is-new,
+		.cal-news-item:is(:hover, :focus-visible) .cal-news-dot.is-new {
+			forced-color-adjust: none;
+			background: CanvasText;
+		}
+	}
+}

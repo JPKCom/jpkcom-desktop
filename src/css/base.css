@@ -1,0 +1,198 @@
+/* JPKCom Desktop — reset, page, scrollbars, utilities, icons — © Jean Pierre Kolb — MIT License */
+
+@layer reset {
+
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
+	html,
+	body {
+		height: 100%;
+		margin: 0;
+		overflow: hidden;
+		overscroll-behavior: none;
+	}
+
+	button {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		cursor: default;
+	}
+
+	ul {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+}
+
+@layer base {
+
+	/* Fixed to the viewport: the document has nothing to scroll. With 100dvh, an installed iPad app
+	   let iOS scroll it by a few dozen pixels while rotating, and the dock flickered until the next touch */
+	body {
+		position: fixed;
+		inset: 0;
+		background: radial-gradient(120% 90% at 50% 0%,
+			var(--wallpaper-from) 0%,
+			color-mix(in srgb, var(--wallpaper-from) 33.3%, var(--wallpaper-to)) 55%,
+			var(--wallpaper-to) 100%);
+		color: var(--text);
+		font: 13px/1.4 var(--font);
+		-webkit-font-smoothing: antialiased;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+		touch-action: manipulation;
+	}
+
+	/* The configured default gradient's direction (boot/theme.js sets data-wp-dir) — the same
+	   gradients the wallpaper panel paints, so its first frame does not jump. 'glow' is the rule above */
+	:root[data-wp-dir="down"] body {
+		background: linear-gradient(180deg, var(--wallpaper-from), var(--wallpaper-to));
+	}
+
+	:root[data-wp-dir="diag"] body {
+		background: linear-gradient(135deg, var(--wallpaper-from), var(--wallpaper-to));
+	}
+
+	:root[data-wp-dir="radial"] body {
+		background: radial-gradient(120% 120% at 30% 20%, var(--wallpaper-from), var(--wallpaper-to));
+	}
+
+	/* The boot screen is coming (boot/theme.js): cover the page from the first paint until the
+	   shell's power module shows the real one; boot/main.js removes the cover when nobody does */
+	:root[data-boot="pending"] body::after {
+		content: "";
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-boot);
+		background: var(--boot-bg);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--focus);
+		outline-offset: 2px;
+	}
+
+	/* Scrollbars — thin everywhere. scrollbar-width is not inherited (hence the universal rule);
+	   scrollbar-color is, and resolves per theme context, so every dark island sets it again */
+	* {
+		scrollbar-width: thin;
+	}
+
+	:root,
+	[data-island="dark"] {
+		scrollbar-color: var(--scroll-thumb) transparent;
+	}
+
+	/* Engines without scrollbar-color (Safari before 26.2, old Chromium) */
+	@supports not (scrollbar-color: auto) {
+
+		::-webkit-scrollbar {
+			width: 12px;
+			height: 12px;
+		}
+
+		::-webkit-scrollbar-track {
+			background: transparent;
+		}
+
+		::-webkit-scrollbar-thumb {
+			border: 3px solid transparent;
+			border-radius: 12px;
+			background: var(--scroll-thumb) padding-box;
+		}
+
+		::-webkit-scrollbar-thumb:hover {
+			background-color: var(--scroll-thumb-hover);
+		}
+	}
+
+	/* Author styles with display must not revive hidden elements */
+	[hidden] {
+		display: none !important;
+	}
+
+	.visually-hidden {
+		position: absolute !important;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	/* The inline <symbol> sprite (core/icons.js) */
+	.sprite {
+		position: absolute;
+		width: 0;
+		height: 0;
+		overflow: hidden;
+	}
+
+	/* Icons: <svg class="i"><use href="#id"></svg>. Filled glyphs paint with fill,
+	   outline glyphs (fill none on their symbol) with stroke — both currentColor */
+	svg.i {
+		display: block;
+		flex: none;
+		width: 1em;
+		height: 1em;
+		fill: currentColor;
+		stroke-width: var(--icon-stroke);
+	}
+
+	/* The wallpaper layer behind everything (filled by the wallpaper panel) */
+	.wallpaper {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		pointer-events: none;
+
+		svg,
+		img {
+			display: block;
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+		}
+	}
+
+	.noscript {
+		position: absolute;
+		inset: 38% 1rem auto;
+		margin: 0;
+		font-size: 1rem;
+		text-align: center;
+
+		p {
+			margin: 0 0 0.75em;
+		}
+
+		a {
+			color: var(--text);
+		}
+	}
+}
+
+/* Less motion when the system asks for it; JS checks reduceMotion() as well */
+@layer base {
+
+	@media (prefers-reduced-motion: reduce) {
+
+		*,
+		*::before,
+		*::after {
+			transition-duration: 0.01ms !important;
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+		}
+	}
+}

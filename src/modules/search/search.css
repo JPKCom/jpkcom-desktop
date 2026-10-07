@@ -1,0 +1,258 @@
+/* JPKCom Desktop — Search: palette under the menu bar, menu bar magnifier — © Jean Pierre Kolb — MIT License
+
+   Markup (built by index.js):
+     .search-palette[role=dialog] (.is-open)
+       label.search-field > svg.i + input.search-input[role=combobox]
+       .search-results > .search-list[role=listbox] > [role=group] > .search-head + .search-item[role=option]
+                                                       (.tile, .search-text > .search-name + .search-sub, .search-ext)
+                       + p.search-empty
+       .search-foot > .search-status + .search-keys > span > kbd
+   Every rule is scoped to .search-palette, so other parts may use .search-* names
+   for their own fields without picking these up. */
+
+@layer modules {
+
+	/* The magnifier among the menu bar's status items */
+	.mb-search {
+		padding-inline: 8px;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.12);
+		}
+	}
+
+	.search-palette {
+		--search-top: max(calc(var(--mb-total) + 40px), 18vh);
+		position: absolute;
+		inset-block-start: var(--search-top);
+		inset-inline: 0;
+		z-index: var(--z-popover);
+		display: flex;
+		flex-direction: column;
+		width: min(680px, calc(100% - 32px));
+		max-height: calc(100dvh - var(--search-top) - 24px);
+		margin-inline: auto;
+		overflow: hidden;
+		border-radius: 12px;
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: blur(30px) saturate(1.8);
+		backdrop-filter: blur(30px) saturate(1.8);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 18px 48px rgb(0 0 0 / calc(0.55 * var(--shade)));
+		color: var(--text);
+		opacity: 0;
+		scale: 0.98;
+		transition: opacity var(--dur) var(--ease), scale var(--dur) var(--ease);
+
+		&.is-open {
+			opacity: 1;
+			scale: 1;
+		}
+
+		&:not(.is-open) {
+			pointer-events: none;
+		}
+
+		.search-field {
+			display: flex;
+			flex: none;
+			align-items: center;
+			gap: 12px;
+			height: 54px;
+			padding-inline: 16px;
+			color: var(--text-3);
+			font-size: 20px;
+		}
+
+		.search-input {
+			flex: 1;
+			min-width: 0;
+			border: 0;
+			outline: 0;
+			background: none;
+			color: var(--text);
+			font: 20px/1.2 var(--font);
+			-webkit-user-select: text;
+			user-select: text;
+
+			&::placeholder {
+				color: var(--text-3);
+			}
+
+			&::-webkit-search-cancel-button {
+				display: none;
+			}
+		}
+
+		.search-results {
+			position: relative;
+			min-height: 0;
+			overflow-y: auto;
+			overscroll-behavior: contain;
+			padding: 4px 6px 6px;
+			border-block-start: 1px solid var(--line);
+			scrollbar-color: var(--scroll-thumb) transparent;
+		}
+
+		.search-head {
+			padding: 10px 10px 4px;
+			color: var(--text-2);
+			font-size: 12px;
+			font-weight: 600;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+		}
+
+		.search-item {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			min-height: 42px;
+			padding: 5px 10px;
+			border-radius: 8px;
+			cursor: default;
+
+			.tile {
+				--tile: 28px;
+				flex: none;
+				box-shadow: var(--tile-shadow-sm);
+			}
+		}
+
+		.search-text {
+			display: flex;
+			flex: 1;
+			flex-direction: column;
+			min-width: 0;
+		}
+
+		.search-name,
+		.search-sub {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.search-name {
+			font-size: 14px;
+			font-weight: 500;
+		}
+
+		.search-sub {
+			color: var(--text-2);
+			font-size: 12px;
+
+			mark {
+				padding: 0 1px;
+				border-radius: 4px;
+				background: var(--highlight);
+				color: var(--text);
+			}
+		}
+
+		.search-ext {
+			flex: none;
+			color: var(--text-3);
+			font-size: 12px;
+		}
+
+		.search-empty {
+			margin: 0;
+			padding: 14px 12px;
+			color: var(--text-2);
+			text-align: center;
+		}
+
+		.search-foot {
+			display: flex;
+			flex: none;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			min-height: 32px;
+			padding: 6px 16px;
+			border-block-start: 1px solid var(--line);
+			color: var(--text-3);
+			font-size: 12px;
+		}
+
+		.search-status {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.search-keys {
+			display: flex;
+			gap: 12px;
+			white-space: nowrap;
+
+			kbd {
+				margin-inline-end: 4px;
+				padding: 0 5px;
+				border-radius: 4px;
+				background: rgb(var(--ink) / 0.1);
+				box-shadow: inset 0 0 0 0.5px var(--line-strong);
+				color: var(--text-2);
+				font: 11px/1.4 var(--font-mono);
+			}
+		}
+	}
+
+	/* The selected row: accent ground, everything on it in --on-accent */
+	.search-palette .search-item[aria-selected="true"] {
+		background: var(--accent);
+		color: var(--on-accent);
+
+		.search-sub,
+		.search-ext,
+		mark {
+			color: var(--on-accent);
+		}
+
+		mark {
+			background: var(--mark-on-accent);
+		}
+	}
+}
+
+@layer compact {
+
+	/* Phones: right under the menu bar, across the whole width */
+	body.compact {
+
+		.search-palette {
+			--search-top: calc(var(--mb-total) + 8px);
+			width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+
+			.search-field {
+				height: 50px;
+			}
+
+			/* 16px and more keeps mobile browsers from zooming into the field */
+			.search-input {
+				font-size: 17px;
+			}
+
+			.search-item {
+				min-height: 50px;
+			}
+
+			.search-name {
+				font-size: 15px;
+			}
+
+			.search-sub {
+				font-size: 13px;
+			}
+
+			.search-foot {
+				display: none;
+			}
+		}
+
+		.search-palette .search-item .tile {
+			--tile: 32px;
+		}
+	}
+}

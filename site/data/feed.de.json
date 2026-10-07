@@ -1,0 +1,27 @@
+{
+	"version": "https://jsonfeed.org/version/1.1",
+	"title": "JPKCom Desktop — Versionshinweise",
+	"description": "Versionen und Neuigkeiten von JPKCom Desktop. Die Links der Einträge sind relativ zu dieser Datei.",
+	"language": "de",
+	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
+	"items": [
+		{
+			"id": "jpkcom-desktop-1.0.0",
+			"url": "../content/de/changelog.html?release=1.0.0",
+			"title": "JPKCom Desktop 1.0.0 ist erschienen",
+			"summary": "Die erste öffentliche Version: Fenster, Menüleiste, Dock, Apps und Module — beliebig viele Sprachen, eine strenge Content Security Policy und kein Build-Schritt.",
+			"content_text": "Die erste öffentliche Version von JPKCom Desktop. Was sie alles mitbringt, steht in den Versionshinweisen.",
+			"date_published": "2026-10-01T10:00:00+02:00",
+			"tags": ["release"]
+		},
+		{
+			"id": "jpkcom-desktop-example-site",
+			"url": "../content/de/changelog.html?release=example-site",
+			"title": "Eine Beispiel-Website als Ausgangspunkt",
+			"summary": "Seiten, Lesezeichen, ein Schaufenster mit je einem Beispiel für jede Art von Eintrag, Glückskeks-Sprüche und dieser Feed — bereit, durch deine eigenen Inhalte ersetzt zu werden.",
+			"content_text": "Der Beispielinhalt im Ordner site zeigt jede Möglichkeit des Manifests.",
+			"date_published": "2026-09-30T10:00:00+02:00",
+			"tags": ["documentation"]
+		}
+	]
+}

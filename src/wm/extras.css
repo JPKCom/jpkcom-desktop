@@ -1,0 +1,160 @@
+/* JPKCom Desktop — window manager extras: snap preview, tile menu, window overview — © Jean Pierre Kolb — MIT License
+
+   Markup:
+     #windows > .snap-preview(.is-on)          snap.js — geometry and z-index set through CSSOM
+     body > .tilemenu[role=group] > button.tilemenu-btn   tilemenu.js — left/top set through CSSOM
+     #windows > .overview-dim(.is-on)          overview.js — the dimmed desktop behind the windows
+     body > .overview-labels(.is-on) > .overview-label    window titles under the scaled windows
+     body.is-overview, .win.is-picked, --xs    the overview is open; the selected window; its scale */
+
+@layer wm {
+
+	/* ---------- Snap preview ---------- */
+
+	.snap-preview {
+		position: absolute;
+		border-radius: var(--radius-win);
+		background: var(--snap-bg);
+		box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.35);
+		-webkit-backdrop-filter: blur(6px);
+		backdrop-filter: blur(6px);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.15s, left 0.18s var(--ease), top 0.18s var(--ease), width 0.18s var(--ease), height 0.18s var(--ease);
+
+		&.is-on {
+			opacity: 1;
+		}
+	}
+
+	/* ---------- Tile menu (zoom button: hover / long press) ---------- */
+
+	.tilemenu {
+		position: absolute;
+		z-index: var(--z-tilemenu);
+		display: flex;
+		gap: 4px;
+		padding: 5px;
+		border-radius: 10px;
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: blur(30px) saturate(1.8);
+		backdrop-filter: blur(30px) saturate(1.8);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 26px rgb(0 0 0 / calc(0.45 * var(--shade)));
+	}
+
+	.tilemenu-btn {
+		display: grid;
+		place-items: center;
+		width: 38px;
+		height: 32px;
+		border-radius: 6px;
+		color: var(--text-2);
+		font-size: 22px;
+
+		&:hover:not(:disabled) {
+			background: rgb(var(--ink) / 0.14);
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 1px;
+		}
+
+		/* The current layout as a fill: --on-accent on the accent reaches 4.5:1 for every
+		   accent, an accent glyph on glass did not (WCAG 1.4.11) */
+		&[aria-pressed="true"] {
+			background: var(--accent);
+			color: var(--on-accent);
+			box-shadow: inset 0 0 0 1px var(--pressed-edge);   /* 3:1 shape edge in the dark theme (tokens.css) */
+		}
+
+		&:disabled {
+			opacity: 0.35;
+		}
+	}
+
+	@media (forced-colors: active) {
+
+		.tilemenu {
+			border: 1px solid CanvasText;
+		}
+
+		.tilemenu-btn[aria-pressed="true"] {
+			forced-color-adjust: none;
+			background: Highlight;
+			color: HighlightText;
+		}
+	}
+
+	/* ---------- Window overview ---------- */
+
+	.overview-dim {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		background: var(--overlay);
+		opacity: 0;
+		pointer-events: auto;
+		transition: opacity var(--dur) var(--ease);
+
+		&.is-on {
+			opacity: 1;
+		}
+	}
+
+	.overview-labels {
+		position: absolute;
+		z-index: var(--z-overview);
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity var(--dur) var(--ease) 0.08s;
+
+		&.is-on {
+			opacity: 1;
+		}
+	}
+
+	/* Placed at the window's centre (physical geometry, as the windows) */
+	.overview-label {
+		position: absolute;
+		max-width: 220px;
+		padding: 3px 10px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: var(--glass-strong);
+		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+		color: var(--text);
+		font-size: 12px;
+		font-weight: 500;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		translate: -50% 0;
+	}
+
+	/* The ring scales with the window, so it is divided by the window's scale (--xs) */
+	body.is-overview {
+
+		iframe {
+			pointer-events: none;
+		}
+
+		.win {
+			cursor: pointer;
+
+			&:hover {
+				outline: calc(3px / var(--xs, 1)) solid color-mix(in srgb, var(--accent) 55%, transparent);
+			}
+
+			&.is-picked {
+				outline: calc(3px / var(--xs, 1)) solid var(--accent);
+			}
+		}
+
+		.win-bar,
+		.win-body,
+		.rz {
+			pointer-events: none;
+		}
+	}
+}

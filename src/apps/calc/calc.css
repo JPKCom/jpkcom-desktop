@@ -1,0 +1,180 @@
+/* JPKCom Desktop — Calculator app: display, round keys, history — © Jean Pierre Kolb — MIT License
+
+   Always dark: the root carries data-island="dark", so its tokens stay dark in
+   the light theme. Key colours: --calc-num, --calc-fn (theme block), --calc-op,
+   --calc-bg (fixed surfaces). */
+
+@layer apps {
+
+	.calc {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		padding: 10px 12px 14px;
+		background: var(--calc-bg);
+	}
+
+	.calc-display {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: flex-end;
+		gap: 4px;
+		min-height: 84px;
+		padding: 0 6px 10px;
+		overflow: hidden;
+	}
+
+	/* Long expressions keep their end visible: the text overflows to the start */
+	.calc-expr {
+		display: flex;
+		justify-content: flex-end;
+		max-width: 100%;
+		min-height: 1.4em;
+		overflow: hidden;
+		color: var(--text-2);
+		font-size: 14px;
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.calc-value {
+		max-width: 100%;
+		font: 300 44px/1.1 var(--font);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+		-webkit-user-select: text;
+		user-select: text;
+	}
+
+	.calc-keys {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		grid-auto-rows: 1fr;
+		gap: 10px;
+		flex: none;
+		height: min(66%, 320px);
+	}
+
+	.calc-key {
+		display: grid;
+		place-items: center;
+		border-radius: 999px;
+		background: var(--calc-num);
+		color: var(--text);
+		font: 400 26px/1 var(--font);
+		transition: filter 0.1s, background-color 0.1s;
+
+		&:hover {
+			filter: brightness(1.25);
+		}
+
+		&:active,
+		&.is-pressed {
+			filter: brightness(1.6);
+		}
+
+		&.is-fn {
+			background: var(--calc-fn);
+			font-size: 22px;
+		}
+
+		&.is-op {
+			background: var(--calc-op);
+			color: var(--on-accent);
+			font-size: 28px;
+		}
+
+		/* The operator waiting for its second number: inverted */
+		&.is-op.is-active {
+			background: var(--on-accent);
+			color: var(--calc-op);
+		}
+
+		&.is-zero {
+			grid-column: span 2;
+			justify-items: start;
+			padding-inline-start: 24px;
+		}
+	}
+
+	.calc-hist {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 12px;
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: blur(20px);
+		backdrop-filter: blur(20px);
+
+		h3 {
+			margin: 0;
+			color: var(--text-2);
+			font-size: 12px;
+			font-weight: 600;
+			letter-spacing: 0.06em;
+			text-transform: uppercase;
+			outline: 0;
+		}
+
+		.btn {
+			align-self: flex-end;
+		}
+	}
+
+	.calc-hist-list {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		scrollbar-color: var(--scroll-thumb) transparent;
+	}
+
+	.calc-hist-item {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		width: 100%;
+		padding: 6px 8px;
+		border-radius: 6px;
+		font-variant-numeric: tabular-nums;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.08);
+		}
+	}
+
+	.calc-hist-expr {
+		color: var(--text-2);
+		font-size: 12px;
+	}
+
+	.calc-hist-result {
+		font-size: 18px;
+	}
+
+	.calc-hist-empty {
+		padding: 30px 0;
+		color: var(--text-3);
+		text-align: center;
+	}
+
+	/* The copy button in the title bar, for a moment after copying */
+	.win-btn.calc-copy.is-done {
+		color: var(--done);
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		.calc-keys {
+			height: min(62%, 440px);
+		}
+	}
+}

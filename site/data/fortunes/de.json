@@ -1,0 +1,62 @@
+{
+	"lang": "de",
+	"by": "JPKCom",
+	"categories": {
+		"desktop": "Desktop",
+		"keys": "Tastatur",
+		"web": "Webentwicklung",
+		"a11y": "Barrierefreiheit",
+		"fun": "Zum Schmunzeln"
+	},
+	"items": [
+		{ "cat": "desktop", "text": "Ein Doppelklick auf die Titelleiste vergrößert ein Fenster. Noch ein Doppelklick, und es hat wieder seine alte Größe." },
+		{ "cat": "desktop", "text": "Zieh ein Fenster an den linken oder rechten Bildschirmrand, und es füllt diese Hälfte. Zieh es wieder weg, und es ist frei." },
+		{ "cat": "desktop", "text": "Lass den Zeiger kurz auf dem Zoom-Knopf eines Fensters ruhen: Ein kleines Menü bietet linke Hälfte, rechte Hälfte, volle Größe und beide nebeneinander." },
+		{ "cat": "desktop", "text": "Ein Rechtsklick auf die Titelleiste zeigt die Anordnungen des Fensters — minimieren, vergrößern, linke oder rechte Hälfte." },
+		{ "cat": "desktop", "text": "Der Desktop merkt sich deine Fenster. Tab zu, morgen wiederkommen — alles ist noch da, wo du es gelassen hast." },
+		{ "cat": "desktop", "text": "Rechtsklick auf eine App im Dock, dann „Im Dock behalten“ — und deine Lieblinge ziehst du in die Reihenfolge, die dir passt." },
+		{ "cat": "desktop", "text": "Gelöschte Notizen und Aufgaben warten 30 Tage im Papierkorb. Doch anders überlegt? Einfach zurücklegen." },
+		{ "cat": "desktop", "text": "Zieh eine Textdatei auf den Desktop, und sie öffnet sich im Editor. Ein Bild landet im Bildbetrachter." },
+		{ "cat": "desktop", "text": "Jedes Hintergrundmotiv zeichnet dein Browser selbst — nichts zu laden und auf jedem Bildschirm gestochen scharf." },
+		{ "cat": "desktop", "text": "Hell oder dunkel, blau oder grün: Unter Einstellungen → Erscheinungsbild wechselst du Modus und Akzentfarbe." },
+		{ "cat": "desktop", "text": "Der beste Zeitpunkt für eine Sicherung war gestern. Der zweitbeste ist jetzt: Einstellungen → Daten → Sicherung speichert Notizen, Aufgaben und Einstellungen in einer Datei." },
+		{ "cat": "desktop", "text": "Auf dem Smartphone zeigt der Desktop ein Fenster nach dem anderen — dieselben Apps, gemacht für den Daumen." },
+
+		{ "cat": "keys", "text": "Strg+K — oder ⌘K auf Tastaturen mit ⌘-Taste — öffnet die Suche: Apps, Lesezeichen, Seiten und mehr.", "url": "site/content/de/docs/keyboard.html" },
+		{ "cat": "keys", "text": "F3 zeigt alle offenen Fenster nebeneinander. Mit den Pfeiltasten eins auswählen, Eingabe drücken, fertig.", "url": "site/content/de/docs/keyboard.html" },
+		{ "cat": "keys", "text": "Strg und die Taste links neben der 1 wechseln zum nächsten Fenster. Mit Umschalt geht es in die andere Richtung." },
+		{ "cat": "keys", "text": "In der Menüleiste wandern die Pfeiltasten zwischen den Menüs und durch ihre Einträge. Ganz ohne Maus." },
+		{ "cat": "keys", "text": "Esc schließt ein offenes Menü und bringt den Fokus dorthin zurück, wo er herkam." },
+		{ "cat": "keys", "text": "Im Editor schaltet Alt+Z den Zeilenumbruch ein und aus." },
+		{ "cat": "keys", "text": "Hier zeigen Leertaste oder N den nächsten Spruch, der Pfeil nach links geht zurück — höchstens zwanzig Schritte." },
+		{ "cat": "keys", "text": "Strg+C ohne markierten Text kopiert den Spruch, den du gerade liest. Der Rechner macht das genauso mit seinem Ergebnis." },
+		{ "cat": "keys", "text": "Umschalt+F10 oder die Kontextmenü-Taste öffnet das Kontextmenü dessen, was gerade den Fokus hat." },
+
+		{ "cat": "web", "text": "Kein einziger Knoten dieses Desktops entsteht mit innerHTML. Deshalb kostet ihn eine strenge Content Security Policy nichts." },
+		{ "cat": "web", "text": "Native ES-Module brauchen keinen Bundler: Der Browser lädt genau die Dateien, die eine Seite importiert, und sonst nichts." },
+		{ "cat": "web", "text": "Logische CSS-Eigenschaften wie margin-inline-start lassen ein Layout auch in Sprachen funktionieren, die von rechts nach links laufen — ohne zweites Stylesheet." },
+		{ "cat": "web", "text": "Plural heißt nicht „ein s anhängen“. Intl.PluralRules weiß, dass manche Sprachen drei, vier oder sechs Formen haben." },
+		{ "cat": "web", "text": "Eine Version im Dateinamen plus Cache-Control: immutable — und wiederkehrende Besucher laden keine Datei zweimal." },
+		{ "cat": "web", "text": "Ein JSON Feed ist einfach JSON. Wer ein Objekt schreiben kann, kann einen Feed veröffentlichen — dieser Desktop liest einen für seine Mitteilungen." },
+		{ "cat": "web", "text": "Statische Dateien auf einem guten Webserver sind kaum zu schlagen: schnell, günstig, und nachts um drei muss niemand etwas patchen." },
+		{ "cat": "web", "text": "Behandle alles, was du aus dem Speicher zurückliest, wie einen Fremden. Der Fehlerbericht von heute beginnt oft mit den Daten von gestern." },
+		{ "cat": "web", "text": "Noch eine Sprache gefällig? Den Ordner locales/en kopieren, die Texte übersetzen, den Code in die Konfiguration eintragen. Mehr ist es nicht.", "url": "site/content/de/docs/configuration.html" },
+
+		{ "cat": "a11y", "text": "Jeder Knopf hier, der nur ein Symbol zeigt, hat einen Namen für Screenreader. Ein Tooltip allein ist keine Beschriftung." },
+		{ "cat": "a11y", "text": "Farbe allein trägt nie eine Botschaft: Ein Fehler bekommt auch Worte." },
+		{ "cat": "a11y", "text": "Normaler Text braucht mindestens einen Kontrast von 4,5 zu 1 zu seinem Hintergrund. Probier ein Farbpaar im Kontrastprüfer aus.", "url": "site/content/demos/contrast/index.de.html" },
+		{ "cat": "a11y", "text": "Überschriften sind das Inhaltsverzeichnis für alle, die sich eine Seite vorlesen lassen. Halte ihre Reihenfolge ein." },
+		{ "cat": "a11y", "text": "prefers-reduced-motion ist eine Bitte, kein Vorschlag. Dieser Desktop lässt seine Animationen weg, wenn du darum bittest." },
+		{ "cat": "a11y", "text": "Der Fokus darf nie verloren gehen: Schließt ein Fenster, wandert er zum nächsten." },
+		{ "cat": "a11y", "text": "„Hier klicken“ verrät niemandem, wohin ein Link führt. Gute Linktexte verstehen sich von selbst." },
+
+		{ "cat": "fun", "text": "Dieser Glückskeks hat keine Kalorien und hinterlässt keine Krümel in der Tastatur." },
+		{ "cat": "fun", "text": "Der Papierkorb leert sich nach 30 Tagen von selbst. Wenn das Postfach das nur auch täte." },
+		{ "cat": "fun", "text": "Warum hat die Entwicklerin den Rechner im Dock? Weil am Ende alles aufgehen muss." },
+		{ "cat": "fun", "text": "Lorem ipsum ist keine Sprache. Wir haben nachgesehen — im Ordner locales steht es auch nicht." },
+		{ "cat": "fun", "text": "Ein Fenster kommt ins Dock. Fragt das Dock: Warum heute so minimiert?" },
+		{ "cat": "fun", "text": "Es gibt keine Cloud. Es gibt nur die Computer anderer Leute — und diesen hier, direkt in deinem Browser." },
+
+		{ "text": "JPKCom Desktop ist freie Software unter der MIT-Lizenz: lesen, ändern, auf der eigenen Website betreiben.", "url": "site/content/de/about.html" }
+	]
+}

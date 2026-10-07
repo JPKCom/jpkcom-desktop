@@ -1,0 +1,124 @@
+/* JPKCom Desktop — menu bar: glass bar, menu titles, brand glyph, app name, status items — © Jean Pierre Kolb — MIT License
+
+   Markup (index.html + src/shell):
+     header#menubar.menubar[data-island=dark]
+       #mb-menus.mb-left[role=menubar] > button.mb-item(.mb-logo | .mb-app)[data-menu]
+       #mb-status.mb-right > button.mb-item (search, weather, .mb-lang, .mb-clock > time > .mb-date)
+   body.mb-tight: crowded bar — the clock drops its date (menubar-fit.js). */
+
+@layer shell {
+
+	.menubar {
+		position: absolute;
+		inset: 0 0 auto;
+		z-index: var(--z-menubar);
+		display: flex;
+		align-items: stretch;
+		justify-content: space-between;
+		height: var(--mb-total);
+		padding-block: env(safe-area-inset-top) 0;
+		padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
+		background: var(--menubar-bg);
+		-webkit-backdrop-filter: blur(24px) saturate(1.6);
+		backdrop-filter: blur(24px) saturate(1.6);
+		box-shadow: 0 1px 0 rgb(var(--ink) / 0.06);
+		font-size: 13px;
+	}
+
+	/* A light wallpaper (html[data-wp-tone=light], wallpaper.js): a darker layer over
+	   --menubar-bg keeps the white titles at 4.5:1 or more, even over white */
+	:root[data-wp-tone="light"] .menubar {
+		background: linear-gradient(rgb(0 0 0 / 0.35) 0 0), var(--menubar-bg);
+	}
+
+	.mb-left,
+	.mb-right {
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		min-width: 0;
+	}
+
+	/* Only the app name gives way when the bar is crowded (menubar-fit.js) */
+	.mb-left > *,
+	.mb-right {
+		flex: none;
+	}
+
+	.mb-item {
+		display: flex;
+		align-items: center;
+		height: calc(var(--mb-h) - 6px);
+		padding-inline: 9px;
+		border-radius: 5px;
+		white-space: nowrap;
+
+		&[aria-expanded="true"] {
+			background: rgb(var(--ink) / 0.2);
+		}
+	}
+
+	/* Status buttons (search, weather, language, clock) light up under the pointer */
+	.mb-right .mb-item:hover:not([aria-expanded="true"]) {
+		background: rgb(var(--ink) / 0.12);
+	}
+
+	.mb-logo {
+		padding-inline: 11px;
+
+		svg {
+			width: 17px;
+			height: 17px;
+		}
+	}
+
+	.mb-app {
+		display: block;
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-weight: 700;
+		line-height: calc(var(--mb-h) - 6px);
+	}
+
+	/* Crowded bar: the clock keeps the time, the date stays in the label (and the calendar) */
+	.mb-tight .mb-date {
+		display: none;
+	}
+
+	.mb-lang {
+		gap: 5px;
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+
+		svg {
+			font-size: 14px;
+		}
+	}
+
+	.mb-clock {
+		font-variant-numeric: tabular-nums;
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		.menubar {
+			font-size: 15px;
+		}
+
+		.mb-logo svg {
+			width: 19px;
+			height: 19px;
+		}
+
+		/* Phones: the app name never takes more than about half the bar */
+		.mb-app {
+			max-width: 44vw;
+		}
+	}
+}

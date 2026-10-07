@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Getting started — © Jean Pierre Kolb — MIT License -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started | JPKCom Desktop</title>
+<link rel="alternate" hreflang="de" href="../../de/docs/index.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Getting started</h1>
+<p class="lead">Run the desktop on your computer in a minute, then make it your own.</p>
+<h2 id="run">Run it locally</h2>
+<p>You need <a href="https://nodejs.org/">Node.js</a> 22 or newer — only for the tools; the desktop itself runs in any current browser.</p>
+<pre><code>npm install
+npm run serve</code></pre>
+<p>Then open <code>http://localhost:8080/</code>. The desktop needs a web server: opening <code>index.html</code> straight from the disk (<code>file://</code>) does not work, because browsers do not load ES modules from there.</p>
+
+<h2 id="own">Make it yours</h2>
+<ol>
+<li><strong><code>site/config.js</code></strong> — name and brand, languages, which modules and apps are loaded, online services. Every key is documented in the file; see <a href="configuration.html">Configuration</a>.</li>
+<li><strong><code>site/apps.js</code></strong> — your apps, collections (bookmarks, showcases), menus and the files the terminal can show. Check it with <code>npm run validate</code>.</li>
+<li><strong><code>site/content/&lt;language&gt;/</code></strong> — your pages, one folder per language. <a href="pages.html">Writing pages</a> explains the little markup they need.</li>
+<li><strong><code>site/data/</code></strong> — the sayings of the fortune app (<code>fortunes/&lt;language&gt;.json</code>) and the news feed (<code>feed.&lt;language&gt;.json</code>).</li>
+</ol>
+
+<h2 id="deploy">Put it online</h2>
+<p>Copy the project to your web server — without <code>node_modules</code>, <code>tools</code> and <code>tests</code>. Send the security headers, above all the Content Security Policy; the README has ready-made snippets for common web servers. If you switch on an online service, add its host to <code>connect-src</code>.</p>
+
+<h2 id="more">Read on</h2>
+<ul>
+<li><a href="configuration.html">Configuration</a></li>
+<li><a href="keyboard.html">Keyboard</a></li>
+<li><a href="pages.html">Writing pages</a></li>
+</ul>
+</article>
+</main>
+</body>
+</html>

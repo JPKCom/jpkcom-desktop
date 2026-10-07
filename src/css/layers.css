@@ -1,0 +1,19 @@
+/* JPKCom Desktop — cascade layer order — © Jean Pierre Kolb — MIT License
+
+   Declared once, first. Every stylesheet wraps its rules in one of these
+   layers, so the order of <link>s (core in index.html, module CSS injected
+   later by the loader) never decides which rule wins:
+
+     reset       box model, element resets
+     tokens      design tokens (custom properties), dark + light theme
+     base        page, typography, utilities, scrollbars
+     components  shared controls: tiles, buttons, segments, switches, fields, sheets, rows
+     wm          windows (src/wm)
+     shell       menu bar, menus, dock, launcher, desktop icons, notifications (src/shell)
+     panels      native panels: settings, wallpaper, backup, trash, about, help (src/panels)
+     modules     optional modules (src/modules)
+     apps        apps (src/apps)
+     compact     phone overrides — every file puts its body.compact rules here
+     themes      site theme presets: token overrides that must win over everything */
+
+@layer reset, tokens, base, components, wm, shell, panels, modules, apps, compact, themes;

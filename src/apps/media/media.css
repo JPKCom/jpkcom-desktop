@@ -1,0 +1,467 @@
+/* JPKCom Desktop — media players: audio and video with playlist and info bar — © Jean Pierre Kolb — MIT License
+
+   .media-box        player, playlist and info bar side by side; on phones stacked
+   .media-main       the player (.media-audio | .media-video); a size container
+   .media-empty      no file: tile, message, open button, drop hint
+   .media-now        audio: cover and names
+   .media-screen     video: the <video> with the browser's controls
+   .media-transport  audio: seek bar, repeat switches, transport, volume
+   .media-list       the playlist
+   .media-info       the info bar (Mod+I) — the same look as the image viewer's
+   .media-repeat     the repeat switches, in the audio controls or the video title bar; their on
+                     state is the pressed look of every .win-btn[aria-pressed="true"] (wm.css) */
+
+@layer apps {
+	.media-box {
+		position: absolute;
+		inset: 0;
+		display: flex;
+	}
+
+	.media-main {
+		position: relative;
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-width: 0;
+		overflow: hidden;
+		background: var(--win-bg);
+		container-type: size;
+
+		&.media-video {
+			background: var(--media-stage);
+		}
+	}
+
+	/* No file yet */
+	.media-empty {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 20px;
+		background: var(--win-bg);
+		color: var(--text-2);
+		text-align: center;
+
+		.tile {
+			--tile: 64px;
+			margin-block-end: 8px;
+		}
+
+		p {
+			margin: 0;
+		}
+
+		.btn {
+			margin-block-start: 6px;
+		}
+	}
+
+	.media-none {
+		color: var(--text);
+		font-size: 15px;
+		font-weight: 600;
+	}
+
+	.media-hint {
+		color: var(--text-3);
+		font-size: 12px;
+	}
+
+	.media-error {
+		color: var(--warn);
+	}
+
+	.media-screen {
+		flex: 1;
+		min-height: 0;
+
+		video {
+			display: block;
+			width: 100%;
+			height: 100%;
+			background: var(--media-stage);
+		}
+	}
+
+	/* Audio: cover and names in the middle */
+	.media-now {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 14px;
+		min-height: 0;
+		padding: 20px;
+		text-align: center;
+	}
+
+	.media-cover {
+		display: grid;
+		place-items: center;
+		width: 168px;
+		height: 168px;
+		flex: none;
+
+		img {
+			width: 100%;
+			height: 100%;
+			border-radius: 12px;
+			object-fit: cover;
+			box-shadow: 0 8px 24px rgb(0 0 0 / calc(0.45 * var(--shade)));
+		}
+
+		.tile {
+			--tile: 128px;
+		}
+	}
+
+	/* Low windows keep the controls and drop the cover */
+	@container (max-height: 340px) {
+		.media-cover {
+			display: none;
+		}
+	}
+
+	.media-meta {
+		max-width: 100%;
+		min-width: 0;
+	}
+
+	.media-title {
+		margin: 0;
+		overflow: hidden;
+		color: var(--text);
+		font-size: 16px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.media-sub {
+		margin: 4px 0 0;
+		overflow: hidden;
+		color: var(--text-2);
+		font-size: 13px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.media-msg {
+		flex: none;
+		margin: 0;
+		padding: 6px 16px;
+		background: var(--win-bg);
+		color: var(--warn);
+		font-size: 12.5px;
+
+		/* Without a message: out of sight, but still in the accessibility tree (live region) */
+		&.is-empty {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
+	}
+
+	.media-transport {
+		display: grid;
+		flex: none;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 6px;
+		padding: 10px 16px 14px;
+		border-block-start: 1px solid var(--line);
+	}
+
+	.media-seek {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.media-time {
+		min-width: 5ch;
+		color: var(--text-2);
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+
+		&:last-child {
+			text-align: end;
+		}
+	}
+
+	.media-range {
+		min-width: 0;
+		margin: 0;
+		accent-color: var(--accent);
+
+		&.media-seek-range {
+			flex: 1;
+		}
+
+		&.media-volume-range {
+			width: 84px;
+		}
+	}
+
+	/* Repeat left, transport in the middle, volume right */
+	.media-buttons {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		align-items: center;
+		gap: 8px;
+	}
+
+	.media-center,
+	.media-side {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+	}
+
+	.media-vol {
+		justify-content: flex-end;
+	}
+
+	/* Narrow players (playlist and info bar open): transport on top, repeat and volume below */
+	@container (max-width: 400px) {
+		.media-buttons {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		}
+
+		.media-center {
+			grid-column: 1 / -1;
+			order: -1;
+			justify-content: center;
+		}
+
+		.media-range.media-volume-range {
+			width: auto;
+			flex: 1;
+			max-width: 84px;
+		}
+	}
+
+	.media-play {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		background: var(--accent);
+		color: var(--on-accent);
+		font-size: 18px;
+		cursor: pointer;
+
+		&:hover {
+			filter: brightness(1.1);
+		}
+
+		&:disabled {
+			opacity: 0.4;
+			filter: none;
+			cursor: default;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 2px;
+		}
+	}
+
+	/* Playlist */
+	.media-list {
+		flex: none;
+		width: 260px;
+		overflow-y: auto;
+		border-inline-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--win-bg);
+		color: var(--text);
+		font-size: 12.5px;
+
+		ol {
+			margin: 0;
+			padding: 0 6px 8px;
+			list-style: none;
+		}
+
+		li {
+			display: flex;
+			align-items: center;
+			border-radius: 6px;
+
+			&.is-current {
+				background: var(--line);
+			}
+
+			&.is-error .media-name {
+				color: var(--warn);
+			}
+		}
+	}
+
+	.media-list-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 12px 14px 8px;
+
+		h3 {
+			margin: 0;
+			font-size: 13px;
+		}
+	}
+
+	.media-count {
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.media-item {
+		display: grid;
+		flex: 1;
+		grid-template-columns: 22px 1fr auto;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		padding: 6px;
+		border: 0;
+		border-radius: 6px;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: start;
+		cursor: pointer;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.06);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	.media-num {
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
+		text-align: end;
+
+		.i {
+			font-size: 14px;
+			color: var(--accent);
+		}
+	}
+
+	.media-name {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+
+		span,
+		small {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		small {
+			color: var(--text-3);
+			font-size: 11.5px;
+		}
+	}
+
+	.media-dur {
+		color: var(--text-3);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.media-remove {
+		flex: none;
+	}
+
+	/* With a mouse the cross waits for the pointer; touch and keyboard always see it */
+	@media (hover: hover) {
+		.media-list li:not(:hover) .media-remove:not(:focus-visible) {
+			opacity: 0;
+		}
+	}
+
+	/* Info bar — the image viewer's look, kept here because the viewer module is optional */
+	.media-info {
+		flex: none;
+		width: 250px;
+		overflow-y: auto;
+		padding: 14px 16px;
+		border-inline-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--win-bg);
+		color: var(--text);
+		font-size: 12.5px;
+		-webkit-user-select: text;
+		user-select: text;
+
+		h3 {
+			margin: 0 0 10px;
+			font-size: 13px;
+		}
+
+		dl {
+			display: grid;
+			grid-template-columns: auto 1fr;
+			gap: 6px 12px;
+			margin: 0;
+		}
+
+		dt {
+			color: var(--text-2);
+		}
+
+		dd {
+			display: flex;
+			flex-direction: column;
+			margin: 0;
+			overflow-wrap: anywhere;
+			font-variant-numeric: tabular-nums;
+		}
+
+		small {
+			color: var(--text-3);
+			font-size: 11.5px;
+		}
+	}
+}
+
+@layer compact {
+	/* Phones: the playlist and the info bar go below the player */
+	body.compact {
+		.media-box {
+			flex-direction: column;
+		}
+
+		.media-list {
+			width: auto;
+			max-height: 40%;
+			border-inline-start: 0;
+			border-block-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		}
+
+		.media-info {
+			width: auto;
+			max-height: 45%;
+			border-inline-start: 0;
+			border-block-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		}
+	}
+}

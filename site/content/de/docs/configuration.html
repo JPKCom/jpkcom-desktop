@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Konfiguration — © Jean Pierre Kolb — MIT License -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konfiguration | JPKCom Desktop</title>
+<link rel="alternate" hreflang="en" href="../../en/docs/configuration.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Konfiguration</h1>
+<p class="lead">Eine Datei, site/config.js, richtet den ganzen Desktop ein. Jeder Schlüssel ist optional — was du weglässt, behält seinen Standardwert.</p>
+<p>Die Datei setzt <code>window.DESKTOP_CONFIG</code>. Objekte werden Schlüssel für Schlüssel mit den Standardwerten zusammengeführt; Listen und einfache Werte ersetzen sie. Ungültige Werte meldet die Browserkonsole und ersetzt sie durch den Standard — ein Tippfehler legt den Desktop nie lahm.</p>
+
+<h2 id="keys">Die wichtigsten Schlüssel</h2>
+<table>
+<thead><tr><th scope="col">Schlüssel</th><th scope="col">Wofür</th></tr></thead>
+<tbody>
+<tr><td><code>brand</code>, <code>author</code>, <code>credit</code></td><td>Name, Zeichen und Logo des Desktops; Autorenhinweis und Profil-Links.</td></tr>
+<tr><td><code>languages</code>, <code>defaultLang</code></td><td>Die angebotenen Sprachen (Ordner in <code>locales/</code>) und die Rückfallsprache.</td></tr>
+<tr><td><code>site</code></td><td>Die Manifest-Datei, eigene Hostnamen, die Startseite, die Rechtstexte (<code>legal: ['imprint', 'privacy']</code>), Routing-Regeln.</td></tr>
+<tr><td><code>theme</code>, <code>wallpaper</code></td><td>Modus, Akzentfarben, Kachelfarben, Fensterknöpfe; die angebotenen Hintergründe.</td></tr>
+<tr><td><code>modules</code>, <code>apps</code></td><td>Welche optionalen Teile geladen werden. Was fehlt, wird gar nicht erst heruntergeladen.</td></tr>
+<tr><td><code>services</code></td><td>Online-Dienste, die die Website anbietet: <code>weather</code>, <code>geolocation</code>, <code>fortune</code>, <code>dns</code>. Standardmäßig alle <code>false</code>.</td></tr>
+<tr><td><code>reader</code></td><td>Wie der Inhalt einer Seite gefunden wird: <a href="pages.html">Seiten schreiben</a>.</td></tr>
+<tr><td><code>notify</code></td><td>Der Nachrichten-Feed pro Sprache und die App, die seine Einträge öffnet.</td></tr>
+<tr><td><code>fortune</code></td><td>Der Ordner der Sprüche (<code>dir</code>), eine optionale Online-Quelle (<code>remote</code>) und Kategorien, die draußen bleiben (<code>block</code>).</td></tr>
+</tbody>
+</table>
+
+<h2 id="services">Online-Dienste</h2>
+<p>Ein Dienst braucht zwei Schalter: Die Website bietet ihn an (<code>services.fortune: true</code>), und jede Besucherin, jeder Besucher stimmt vor der ersten Anfrage zu. Sein Host muss außerdem im <code>connect-src</code> deiner Content Security Policy stehen — zum Beispiel <code>v2.jokeapi.dev</code> für <code>fortune: { remote: 'jokeapi' }</code> oder <code>uselessfacts.jsph.pl</code> für <code>remote: 'uselessfacts'</code>.</p>
+
+<h2 id="language">Eine Sprache hinzufügen</h2>
+<ol>
+<li><code>locales/en</code> nach <code>locales/&lt;Code&gt;</code> kopieren, in <code>_meta.js</code> Namen und Schreibrichtung eintragen und die Dateien übersetzen.</li>
+<li>Den Code in <code>languages</code> eintragen.</li>
+<li>Die Sprache bei den Texten in <code>site/apps.js</code> ergänzen, <code>site/content/&lt;Code&gt;/</code> und <code>site/data/fortunes/&lt;Code&gt;.json</code> schreiben, nach Wunsch auch einen Feed.</li>
+<li><code>npm run i18n:check -- &lt;Code&gt;</code> und <code>npm run validate</code> ausführen.</li>
+</ol>
+</article>
+</main>
+</body>
+</html>

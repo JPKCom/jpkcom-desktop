@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Configuration — © Jean Pierre Kolb — MIT License -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration | JPKCom Desktop</title>
+<link rel="alternate" hreflang="de" href="../../de/docs/configuration.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Configuration</h1>
+<p class="lead">One file, site/config.js, sets up the whole desktop. Every key is optional — what you leave out keeps its default.</p>
+<p>The file sets <code>window.DESKTOP_CONFIG</code>. Objects merge key by key with the defaults; lists and plain values replace them. Invalid values are reported in the browser console and replaced by the default — a typo never breaks the desktop.</p>
+
+<h2 id="keys">The most important keys</h2>
+<table>
+<thead><tr><th scope="col">Key</th><th scope="col">What it does</th></tr></thead>
+<tbody>
+<tr><td><code>brand</code>, <code>author</code>, <code>credit</code></td><td>The desktop's name, glyph and logo; the author credit and profile links.</td></tr>
+<tr><td><code>languages</code>, <code>defaultLang</code></td><td>The languages offered (folders in <code>locales/</code>) and the fallback.</td></tr>
+<tr><td><code>site</code></td><td>The manifest file, your own host names, the home page, the legal pages (<code>legal: ['imprint', 'privacy']</code>), routing rules.</td></tr>
+<tr><td><code>theme</code>, <code>wallpaper</code></td><td>Mode, accent colours, tile tints, window controls; the wallpapers on offer.</td></tr>
+<tr><td><code>modules</code>, <code>apps</code></td><td>Which optional parts are loaded. Leave one out and it is not even downloaded.</td></tr>
+<tr><td><code>services</code></td><td>Online services the site offers: <code>weather</code>, <code>geolocation</code>, <code>fortune</code>, <code>dns</code>. All <code>false</code> by default.</td></tr>
+<tr><td><code>reader</code></td><td>How the content of a page is found: <a href="pages.html">Writing pages</a>.</td></tr>
+<tr><td><code>notify</code></td><td>The news feed per language and the app that opens its entries.</td></tr>
+<tr><td><code>fortune</code></td><td>The folder of the sayings (<code>dir</code>), an optional online source (<code>remote</code>) and categories to leave out (<code>block</code>).</td></tr>
+</tbody>
+</table>
+
+<h2 id="services">Online services</h2>
+<p>A service needs two switches: the site offers it (<code>services.fortune: true</code>) and each visitor agrees before the first request. Its host must also be allowed in the <code>connect-src</code> of your Content Security Policy — for example <code>v2.jokeapi.dev</code> for <code>fortune: { remote: 'jokeapi' }</code> or <code>uselessfacts.jsph.pl</code> for <code>remote: 'uselessfacts'</code>.</p>
+
+<h2 id="language">Adding a language</h2>
+<ol>
+<li>Copy <code>locales/en</code> to <code>locales/&lt;code&gt;</code>, set the name and text direction in <code>_meta.js</code> and translate the files.</li>
+<li>Add the code to <code>languages</code>.</li>
+<li>Add the language to the texts in <code>site/apps.js</code>, write <code>site/content/&lt;code&gt;/</code>, <code>site/data/fortunes/&lt;code&gt;.json</code> and, if you like, a feed.</li>
+<li>Run <code>npm run i18n:check -- &lt;code&gt;</code> and <code>npm run validate</code>.</li>
+</ol>
+</article>
+</main>
+</body>
+</html>

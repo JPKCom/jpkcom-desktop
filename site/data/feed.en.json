@@ -1,0 +1,27 @@
+{
+	"version": "https://jsonfeed.org/version/1.1",
+	"title": "JPKCom Desktop — Changelog",
+	"description": "Releases and news of JPKCom Desktop. Item links are relative to this file.",
+	"language": "en",
+	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
+	"items": [
+		{
+			"id": "jpkcom-desktop-1.0.0",
+			"url": "../content/en/changelog.html?release=1.0.0",
+			"title": "JPKCom Desktop 1.0.0 released",
+			"summary": "The first public release: windows, menu bar, Dock, apps and modules — any number of languages, a strict Content Security Policy and no build step.",
+			"content_text": "The first public release of JPKCom Desktop. See the changelog for everything it brings.",
+			"date_published": "2026-10-01T10:00:00+02:00",
+			"tags": ["release"]
+		},
+		{
+			"id": "jpkcom-desktop-example-site",
+			"url": "../content/en/changelog.html?release=example-site",
+			"title": "An example site to start from",
+			"summary": "Pages, bookmarks, a showcase with one example of every kind of item, fortunes and this feed — ready to be replaced with your own content.",
+			"content_text": "The example content in the site folder shows every feature of the manifest.",
+			"date_published": "2026-09-30T10:00:00+02:00",
+			"tags": ["documentation"]
+		}
+	]
+}

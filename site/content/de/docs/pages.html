@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Seiten schreiben — © Jean Pierre Kolb — MIT License -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seiten schreiben | JPKCom Desktop</title>
+<link rel="alternate" hreflang="en" href="../../en/docs/pages.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Seiten schreiben</h1>
+<p class="lead">Schlichte HTML-Dateien, ein Ordner pro Sprache. Der Reader zeigt sie direkt im Fenster an — ohne iframe, ohne Skripte.</p>
+<h2 id="markup">Das Markup</h2>
+<p>Der Reader sucht den Inhalt mit den Regeln in <code>config.reader.rules</code>. Die Beispiel-Website nutzt eine Regel für alles unter <code>site/content/</code>: Inhalt ist das erste <code>main article</code>, <code>article</code> oder <code>main</code>, der Titel dessen <code>h1</code>, der Vorspann ein Absatz mit der Klasse <code>lead</code>.</p>
+<pre><code>&lt;!doctype html&gt;
+&lt;html lang="de"&gt;
+&lt;head&gt;
+&lt;meta charset="utf-8"&gt;
+&lt;title&gt;Seitentitel | Name der Website&lt;/title&gt;
+&lt;link rel="alternate" hreflang="en" href="../en/seite.html"&gt;
+&lt;link rel="stylesheet" href="../content.css"&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;main&gt;
+&lt;article&gt;
+&lt;h1&gt;Seitentitel&lt;/h1&gt;
+&lt;p class="lead"&gt;Ein, zwei Sätze zur Seite.&lt;/p&gt;
+&lt;h2 id="teil"&gt;Ein Abschnitt&lt;/h2&gt;
+&lt;p&gt;Text, &lt;a href="andere.html"&gt;Links&lt;/a&gt;, Listen, Tabellen, Abbildungen …&lt;/p&gt;
+&lt;/article&gt;
+&lt;/main&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+<h2 id="rules">Worauf es ankommt</h2>
+<ul>
+<li><strong>Titel:</strong> Das Fenster zeigt den Teil von <code>&lt;title&gt;</code> vor „ | “, sonst die <code>h1</code>.</li>
+<li><strong>Sprachen:</strong> <code>&lt;html lang&gt;</code> legt die Sprache des Textes fest; <code>&lt;link rel="alternate" hreflang&gt;</code> sagt dem Reader, welche Seite er nach einem Sprachwechsel zeigt.</li>
+<li><strong>Links:</strong> Relative Links auf andere Seiten öffnen sich im selben Fenster, Links auf andere Websites in einem neuen Tab; <code>#Anker</code> scrollen.</li>
+<li><strong>Erlaubt:</strong> Text, Überschriften, Listen, Tabellen, Abbildungen und Bilder, <code>details</code>, <code>pre</code> und <code>code</code>, Audio und Video mit Bedienelementen.</li>
+<li><strong>Entfernt:</strong> Skripte, Styles und <code>style</code>-Attribute, Formulare, iframes, Event-Handler. Das eigene Stylesheet der Seite zählt nur, wenn sie außerhalb des Desktops geöffnet wird.</li>
+<li><strong>Klassen</strong> bekommen das Präfix <code>c-</code>, damit keine Klasse einer Seite den Desktop verändern kann. Gestalte sie mit <code>.reader-page .c-name</code> in einem eigenen Stylesheet.</li>
+</ul>
+
+<h2 id="terminal">Für das Terminal</h2>
+<p>Ein Markdown-Zwilling einer Seite (<code>about.md</code> neben <code>about.html</code>) lässt sich in <code>site/apps.js</code> unter <code>files</code> eintragen; das Terminal zeigt ihn mit <code>cat about</code>.</p>
+</article>
+</main>
+</body>
+</html>

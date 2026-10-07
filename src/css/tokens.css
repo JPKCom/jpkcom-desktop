@@ -1,0 +1,288 @@
+/* JPKCom Desktop — design tokens: palette, dark and light theme, layout, motion — © Jean Pierre Kolb — MIT License
+
+   Rules of the colour system (unchanged from the original):
+   - Theme-dependent tokens live in the block for ":root, [data-island='dark']"
+     (dark) and in ":root[data-theme='light']" (light). Accents, tints, window
+     control colours and --danger live in the plain :root block — never in the
+     theme block, or a dark island would reset the chosen accent.
+   - A "dark island" is any element with data-island="dark": it declares the
+     dark values for its subtree and stays dark in the light theme (menu bar,
+     desktop icons, terminal, calculator, code blocks, boot screen).
+   - New surfaces and lines use rgb(var(--ink) / a) instead of white-alpha
+     (light turns it into black-alpha), shadows rgb(0 0 0 / calc(a * var(--shade))),
+     text var(--text) / --text-2 / --text-3. #fff only via --on-accent or
+     --tile-fg on coloured ground.
+
+   KEEP IN SYNC: accent and tint values mirror DEFAULTS in src/core/config.js
+   (tests/config.test.mjs compares them); the built-in accent ids also appear
+   in src/boot/theme.js. Site colours from the config are set on <html> by
+   theme.js and override these. */
+
+@layer tokens {
+
+	:root {
+
+		/* Author palette (JPKCom slate) — default wallpaper, logo glow, browser UI colour */
+		--brand: #3c4955;
+		--brand-light: #596c7e;
+		--brand-dark: #2c3945;
+		--brand-darker: #1c2935;
+		--brand-darkest: #0c1925;
+
+		/* Default wallpaper (body background until the wallpaper module paints) */
+		--wallpaper-from: var(--brand);
+		--wallpaper-to: var(--brand-darkest);
+
+		/* Actions */
+		--danger: #c93434;                     /* destructive buttons, 5.2:1 with white */
+
+		/* Accent — selection and menu highlight; white 13px text on it clears AA (4.9:1).
+		   The alternatives keep white ≥ 4.5:1 and ≥ 3:1 against the glass */
+		--accent-blue: #3571c0;
+		--accent-violet: #7853d8;
+		--accent-pink: #c5306f;
+		--accent-orange: #b35412;
+		--accent-green: #23813f;
+		--accent-teal: #0f7d78;
+		--accent-graphite: #626e79;
+		--accent: var(--accent-blue);
+		--on-accent: #fff;                     /* text and glyphs on --accent and --danger */
+		--accent-ring: var(--accent);          /* focus rings, selection marks: settings.js darkens/lightens a
+		                                          light or dark accent until it reaches 3:1 on --win-bg */
+
+		/* Window controls (close, minimise, zoom) */
+		--wc-close: #ff5f57;
+		--wc-min: #febc2e;
+		--wc-max: #28c840;
+		--wc-glyph: rgb(0 0 0 / 0.6);
+
+		/* App tile tints (top, bottom) — tile() sets --tint: var(--t-<name>) */
+		--t-slate: #8497a9, #3c4955;
+		--t-blue: #56adff, #1c62d6;
+		--t-orange: #ffb547, #ef6420;
+		--t-teal: #45d8c4, #0e8783;
+		--t-pink: #ff78aa, #d0266a;
+		--t-violet: #a476ff, #5a2dd4;
+		--t-black: #454552, #0a0a10;
+		--t-indigo: #7a7bff, #563acc;
+		--t-graphite: #a2acb6, #58626c;
+		--t-green: #52d879, #1b9245;
+
+		/* App tile surface */
+		--tile-fg: #fff;
+		--tile-highlight: rgb(255 255 255 / 0.35);
+		--tile-edge: rgb(0 0 0 / 0.25);
+		--tile-shadow: rgb(0 0 0 / 0.35);
+		--tile-shadow-sm: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 1px 3px rgb(0 0 0 / 0.3);
+		--tile-glyph-shadow: rgb(0 0 0 / 0.45);  /* edge of the white glyph on light tint tops */
+
+		/* Fixed-colour surfaces (dark by design in both themes) */
+		--menubar-bg: rgb(14 22 31 / 0.42);
+		--calc-bg: #10161c;
+		--calc-op: #d4561a;                    /* 4.1:1 with white — keys use 26px (large) text */
+		--media-stage: #000;
+		--boot-bg: #000;
+		--boot-fg: #fff;
+		--reader-code-bg: #11171e;
+		--scroll-code-thumb: #6272a4;
+		--term-user: #52d879;
+		--term-error: #ff8a80;
+
+		/* Details */
+		--switch-knob: #fff;
+		--swatch-edge: rgb(255 255 255 / 0.3);
+		--icon-label-outline: rgb(255 255 255 / 0.28);
+		--logo-glow: rgb(60 73 85 / 0.8);
+		--logo-glow-off: rgb(60 73 85 / 0);
+		--match: rgb(243 179 90 / 0.28);       /* find-in-text hits */
+		--match-current: rgb(243 179 90 / 0.42);
+		--mark-on-accent: rgb(255 255 255 / 0.25);
+		--fortune-mark: var(--accent-orange);
+
+		/* Typography */
+		--font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+		--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+		--icon-stroke: 1.75;                   /* stroke width of outline icons (Tabler: 24-unit grid) */
+
+		/* Layout */
+		--mb-h: 28px;
+		--mb-total: calc(var(--mb-h) + env(safe-area-inset-top));
+		--bar-h: 38px;
+		--tile: 52px;
+		--radius-win: 12px;
+		--radius-menu: 8px;
+
+		/* Window controls: hit box and dot (compact mode enlarges them) */
+		--wc-box-w: 20px;
+		--wc-box-h: 24px;
+		--wc-dot: 12px;
+		--wc-glyph-size: 8px;
+
+		/* Stacking order of the shell layers (windows stack inside #workspace, below all of these) */
+		--z-overview: 790;                     /* window overview labels */
+		--z-launcher: 800;                     /* "All apps" */
+		--z-dock: 900;
+		--z-menubar: 1000;
+		--z-notification: 1050;
+		--z-tilemenu: 1060;
+		--z-dropzone: 1060;                    /* file drop target over the desktop (src/shell/drop.css) */
+		--z-menu: 1100;                        /* dropdowns, submenus, context menus, sheets */
+		--z-popover: 1150;                     /* calendar, search */
+		--z-boot: 5000;
+
+		/* Motion: --anim mirrors config.ui.animMs (set before the first paint by boot/theme.js);
+		   --dur, the duration of window transitions, follows it — JS timers wait for the same value */
+		--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+		--anim: 240ms;
+		--dur: var(--anim);
+
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	/* A light wallpaper under the menu bar (html[data-wp-tone], boot/theme.js and the wallpaper
+	   panel): darker glass, so its white text keeps 4.5:1 even over white (8.6:1 there) */
+	:root[data-wp-tone="light"] {
+		--menubar-bg: rgb(14 22 31 / 0.72);
+	}
+
+	/* ---------- Theme tokens: dark (default and every dark island) ---------- */
+
+	:root,
+	[data-island="dark"] {
+
+		/* Overlays: white-alpha fills and lines on dark, black-alpha on light */
+		--ink: 255 255 255;
+		/* Strength of black shadows and edges */
+		--shade: 1;
+
+		/* Surfaces */
+		--glass: rgb(18 28 38 / 0.5);
+		--glass-strong: rgb(26 36 47 / 0.86);
+		--win-bg: #18212a;
+		--win-bar: #243039;
+		--win-bar-inactive: #1e2831;
+		--frame-bg: var(--win-bg);             /* behind iframes while they load */
+		--line: rgb(255 255 255 / 0.1);
+		--line-strong: rgb(255 255 255 / 0.18);
+		/* Edge of a control (switch off, text field): 3:1 on window and title bar in both themes
+		   (light 3.3:1 on --win-bg and --win-bar, dark 4.4:1) — WCAG 1.4.11. Follows --ink, so it
+		   lives here and is recomputed in every dark island */
+		--control-edge: rgb(var(--ink) / 0.45);
+		/* Edge of a pressed title-bar button (accent fill): the fill alone reaches only 2.6–2.8:1
+		   against --win-bar in the dark theme; this light edge lifts the shape over 3:1 (WCAG 1.4.11) */
+		--pressed-edge: rgb(var(--ink) / 0.6);
+		--overlay: rgb(12 20 28 / 0.55);       /* "All apps" backdrop, under blur */
+		--dock-bg: rgb(24 34 45 / 0.42);
+		--snap-bg: rgb(120 160 210 / 0.16);
+		--check-a: #222b34;                    /* image checkerboard */
+		--check-b: #1a232c;
+
+		/* Hints */
+		--warn: #f3b35a;
+		--done: #7ee2a0;
+
+		/* Productivity apps */
+		--gutter-bg: #131b23;
+		--gutter-current: rgb(255 255 255 / 0.08);
+		--calc-fn: rgb(255 255 255 / 0.22);
+		--calc-num: rgb(255 255 255 / 0.1);
+
+		/* Text */
+		--text: #fff;
+		--text-2: rgb(255 255 255 / 0.72);
+		--text-3: rgb(255 255 255 / 0.5);     /* 5:1 on windows and glass — counts, placeholders, disabled */
+		--focus: rgb(255 255 255 / 0.85);
+
+		/* Inactive window controls */
+		--wc-off: rgb(255 255 255 / 0.2);
+
+		/* Scrollbars: the thumb clears 3:1 on the window ground */
+		--scroll-thumb: #6b7a88;
+		--scroll-thumb-hover: #8e9cab;
+
+		/* Calendar */
+		--cal-weekend: #f3a6a6;
+		--cal-week: #8fc0ff;
+
+		/* Reader */
+		--reader-text: #dde5ec;
+		--reader-link: #8fc0ff;
+
+		/* Search hits in excerpts */
+		--highlight: rgb(143 192 255 / 0.24);
+
+		color-scheme: dark;
+	}
+
+	/* An island's text colour is inherited from outside — reset it to the island's own */
+	[data-island="dark"] {
+		color: var(--text);
+	}
+
+	/* ---------- Light theme: every text value clears AA on window, title bar and glass ---------- */
+
+	:root[data-theme="light"] {
+		--ink: 0 0 0;
+		--shade: 0.45;
+		--pressed-edge: transparent;           /* the accent fill reaches 4:1 against the light bar */
+
+		--glass: rgb(246 247 249 / 0.62);
+		--glass-strong: rgb(246 247 249 / 0.92);
+		--win-bg: #fbfbfc;
+		--win-bar: #e9ecef;
+		--win-bar-inactive: #f1f3f5;
+		--line: rgb(0 0 0 / 0.1);
+		--line-strong: rgb(0 0 0 / 0.16);
+		--overlay: rgb(236 239 242 / 0.72);
+		--dock-bg: rgb(246 247 249 / 0.55);
+		--snap-bg: rgb(53 113 192 / 0.14);
+		--check-a: #e7eaed;
+		--check-b: #f3f4f6;
+
+		--warn: #8a5100;                       /* 5.2:1 on glass */
+		--done: #166b34;
+
+		--gutter-bg: #f1f3f5;
+		--gutter-current: rgb(0 0 0 / 0.06);
+
+		--text: #1f2328;
+		--text-2: rgb(0 0 0 / 0.68);          /* 7.2:1 on glass */
+		--text-3: rgb(0 0 0 / 0.56);          /* 4.6:1 on glass */
+		--focus: rgb(0 0 0 / 0.75);
+
+		--wc-off: rgb(0 0 0 / 0.18);
+
+		--scroll-thumb: #7b848d;
+		--scroll-thumb-hover: #5f6870;
+
+		--cal-weekend: #b3261e;
+		--cal-week: #1f5fae;
+
+		--reader-text: #2b3036;
+		--reader-link: #1f5fae;
+
+		--highlight: rgb(31 95 174 / 0.16);
+
+		color-scheme: light;
+	}
+}
+
+/* Phones: larger bars and tiles. body.compact is set from config.ui.compactQuery (core/env.js) */
+@layer compact {
+
+	body.compact {
+		--mb-h: 34px;
+		--mb-total: calc(var(--mb-h) + env(safe-area-inset-top));
+		--bar-h: 44px;
+		--tile: clamp(40px, min(12.5vw, 11vh), 54px);
+		/* What the Dock takes at the bottom: its tiles (never larger than --tile, dock.css),
+		   5px padding twice, 6px above the edge, the home indicator, a little air */
+		--dock-space: calc(var(--tile) + 10px + 6px + env(safe-area-inset-bottom) + 4px);
+		--radius-win: 14px;
+		--bounce: -4px;
+		--wc-box-w: 34px;
+		--wc-box-h: 42px;
+		--wc-dot: 15px;
+		--wc-glyph-size: 9px;
+	}
+}

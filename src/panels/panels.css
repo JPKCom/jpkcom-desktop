@@ -1,0 +1,301 @@
+/* JPKCom Desktop — panels: About this desktop, backup, trash, How it works — © Jean Pierre Kolb — MIT License
+
+   .panel, .btn, .notice, kbd: src/css/components.css. */
+
+@layer panels {
+
+	/* ---------- About this desktop ---------- */
+
+	.about-panel {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+
+		h2 {
+			margin-bottom: 2px;
+			font-size: 22px;
+		}
+
+		dl {
+			display: grid;
+			grid-template-columns: auto 1fr;
+			gap: 3px 10px;
+			margin: 0 0 18px;
+			font-size: 12px;
+			text-align: start;
+		}
+
+		dt {
+			color: var(--text);
+			font-weight: 600;
+			text-align: end;
+		}
+
+		dd {
+			margin: 0;
+		}
+	}
+
+	/* The detailed logo, with its hover lift: the mark rises, the construction grid fades */
+	.about-logo,
+	.about-glyph {
+		flex: none;
+		width: 116px;
+		height: 116px;
+		margin: 4px 0 16px;
+		border-radius: 21%;
+		box-shadow: 0 1px 0 rgb(var(--ink) / 0.1), 0 8px 18px rgb(0 0 0 / calc(0.35 * var(--shade)));
+	}
+
+	.about-logo {
+		overflow: hidden;
+
+		svg {
+			display: block;
+			width: 100%;
+			height: 100%;
+		}
+
+		.logo-mark {
+			filter: drop-shadow(0 2rem 1rem var(--logo-glow-off));
+			transition: filter 0.3s ease;
+		}
+
+		.logo-grid {
+			transition: opacity 0.3s ease;
+		}
+
+		&:hover {
+
+			.logo-mark {
+				filter: drop-shadow(0 2rem 1rem var(--logo-glow));
+			}
+
+			.logo-grid {
+				opacity: 0;
+			}
+		}
+	}
+
+	/* Without a logo: the brand glyph on a tile */
+	.about-glyph {
+		display: grid;
+		place-items: center;
+		background: linear-gradient(180deg, var(--t-slate));
+		color: var(--tile-fg);
+		font-size: 64px;
+	}
+
+	.about-version {
+		color: var(--text-3);
+		font-size: 12px;
+
+		.panel & {
+			margin-bottom: 16px;
+		}
+	}
+
+	.about-credit {
+		color: var(--text-2);
+		font-size: 12px;
+	}
+
+	.about-copy {
+		color: var(--text-3);
+		font-size: 11px;
+
+		.panel & {
+			margin-top: auto;
+			margin-bottom: 0;
+		}
+	}
+
+	/* ---------- Backup ---------- */
+
+	.bk-panel {
+
+		h3 {
+			margin-top: 16px;
+			font-size: 14px;
+		}
+
+		dt {
+			color: var(--text);
+			font-weight: 600;
+		}
+
+		dd {
+			margin: 0;
+			font-variant-numeric: tabular-nums;
+
+			&.is-kept {
+				color: var(--text-3);
+			}
+		}
+	}
+
+	.bk-list {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 3px 14px;
+		margin: 0 0 16px;
+	}
+
+	.bk-btns {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.bk-status:not(:empty) {
+		margin-top: 18px;
+		padding: 2px 14px 14px;
+		border-radius: 8px;
+		background: var(--line);
+		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+	}
+
+	.bk-note {
+		color: var(--text-3);
+	}
+
+	.bk-error {
+		color: var(--warn);
+
+		.panel & {
+			margin: 12px 0 0;
+		}
+	}
+
+	/* ---------- Trash ---------- */
+
+	.trash-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+
+		p {
+			margin: 0;
+		}
+
+		h2:focus {
+			outline: none;
+		}
+	}
+
+	.trash-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+
+		/* The text keeps a readable width; on a narrow window the button wraps below it */
+		> div {
+			flex: 1 1 14rem;
+			min-width: 0;
+		}
+
+		.btn {
+			flex: none;
+		}
+	}
+
+	.trash-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.trash-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 8px;
+		border-radius: 8px;
+
+		&:hover,
+		&:focus-within {
+			background: var(--line);
+		}
+
+		.tile {
+			--tile: 28px;
+			flex: none;
+			box-shadow: var(--tile-shadow-sm);
+		}
+	}
+
+	.trash-text {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.trash-name {
+		overflow: hidden;
+		color: var(--text);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.trash-meta {
+		color: var(--text-3);
+		font-size: 12px;
+	}
+
+	.trash-back {
+		flex: none;
+
+		&.btn {
+			padding: 3px 10px;
+			font-size: 12px;
+		}
+	}
+
+	.trash-purge {
+		flex: none;
+	}
+
+	.trash-none {
+		padding: 30px 0;
+		text-align: center;
+	}
+
+	/* ---------- How it works ---------- */
+
+	.help {
+
+		h3 {
+			margin-top: 8px;
+			font-size: 14px;
+		}
+	}
+
+	.help-list {
+		margin: 0 0 16px;
+
+		li {
+			display: grid;
+			grid-template-columns: 9.5em 1fr;
+			gap: 12px;
+			padding: 6px 0;
+			border-bottom: 1px solid var(--line);
+		}
+
+		b {
+			color: var(--text);
+			font-weight: 600;
+		}
+	}
+}
+
+@layer compact {
+
+	body.compact .help-list li {
+		grid-template-columns: 1fr;
+		gap: 2px;
+	}
+}

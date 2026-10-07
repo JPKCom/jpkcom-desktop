@@ -1,0 +1,71 @@
+# Changelog
+
+© Jean Pierre Kolb — MIT License
+
+All notable changes to JPKCom Desktop are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version lives in
+`package.json`, `src/core/env.js` and `sw.js` and is the same in all three.
+
+## [Unreleased]
+
+## [1.0.0] — 2026-10-06
+
+Initial open-source release under the MIT License.
+
+### Added
+
+- **Foundation** — vanilla JavaScript with native ES modules, no build step, no runtime dependencies,
+  no CDN. A strict Content Security Policy (no inline script or style, no `eval`, no `innerHTML`); DOM is
+  built with `h()`/`s()` and `textContent`. Everything optional is a module described by a descriptor
+  (apps, styles, i18n namespaces, storage keys, reset groups, trash types, online services, settings,
+  shortcuts, terminal commands, search providers, file-drop handlers, context menus). A public, frozen
+  `window.JPKDesk` API, a service registry and a bus with documented events
+  ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
+- **Site folder** — everything a site owner changes lives in `site/`: `config.js` (every key optional
+  and documented inline, validated with warnings and defaults), `apps.js` (apps, collections, menus,
+  terminal files), Reader pages, fortunes, feeds, wallpapers and sealed vault files. A neutral example
+  site ships and is meant to be replaced.
+- **Any number of languages** — German and English ship; a new language is a folder in `locales/`.
+  Fallback chain, named placeholders, CLDR plural forms, `Intl` formatting, right-to-left support,
+  language toggle for two languages and a menu for more.
+- **Window manager** — window kinds (`web`, `app`, `native` built in, more from modules), drag, resize,
+  minimise, zoom, keyboard operation, configurable window controls (left/right, classic/minimal); edge
+  snapping and a tile menu, a window overview, session restore and deep links to windows.
+- **Shell** — menu bar with arrow-key navigation, status area, clock and language switch, folding on
+  phones; dock with pins, magnification and sizes; desktop icons; "All apps"; keyboard shortcuts;
+  context menus; notification banners; file drops onto the desktop; boot, restart and shut-down screens.
+- **Panels** — Settings (appearance, accent colours, online services, reset), Wallpaper (colours,
+  gradients, pictures and generated SVG motifs), Backup and restore of the local data, Trash, About this
+  desktop, How it works, and app installation.
+- **Content modules** — Reader for HTML pages (fetched, sanitised against an allowlist and shown in a
+  window), image viewer, Catalog for collections (bookmarks, tools, a portfolio …), quick search over apps
+  and collections with optional Pagefind full-text search.
+- **Calendar, holidays, weather, notifications** — a calendar popover under the clock, public holidays
+  per region (Bavaria as an example), weather with two providers (Open-Meteo worldwide, Bright Sky for
+  Germany), feed notifications from a JSON Feed per language.
+- **Vault** — private bookmarks sealed with `tools/seal-vault.mjs` (PBKDF2-HMAC-SHA-256 and
+  AES-256-GCM), unlocked in the terminal, optionally kept on the device.
+- **Apps** — text editor with tabs, notes, tasks, calculator, a terminal with a command registry that
+  modules extend, audio and video players for files from the device (tags and cover art read locally),
+  and Fortune with local jokes and facts plus optional online sources.
+- **Privacy** — every online service is off by default; the site has to switch it on *and* the visitor
+  has to agree before the first request; consent can be withdrawn in Settings. No cookies, no referrer
+  on third-party requests.
+- **Accessibility** — menu bar as `menubar`, windows as named dialogs, focus handling and restoration,
+  one shared live region, reduced motion respected in CSS and JavaScript.
+- **Branding and theming** — JPK monogram and JPKCom logo as the default brand, replaceable through
+  `site/config.js`; they are the author's personal logo and not MIT (brand assets, see
+  [CREDITS.md](CREDITS.md#brand-assets-not-mit)); dark and light themes, accent colours, tile tints and wallpapers configurable.
+- **PWA and offline** — service worker with an offline copy of the desktop and of Reader pages, web app
+  manifest and app icons; works in the web root or any sub-folder.
+- **Deployment** — a deployment guide ([`docs/deploy.md`](docs/deploy.md)) and tested server
+  configurations for Apache (`.htaccess`), nginx, Caddy, Ferron 2 and 3 and static-web-server
+  ([`docs/server/`](docs/server/)), all with the same security headers and commented opt-in lines.
+- **Tools and tests** — local server with the production headers (`npm run serve`), icon subset
+  builder and check, i18n check, site manifest validator, vault sealing tool, PWA icon renderer,
+  headless browser check, and a `node --test` suite for the pure parts of every package.
+
+[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/JPKCom/jpkcom-desktop/releases/tag/v1.0.0

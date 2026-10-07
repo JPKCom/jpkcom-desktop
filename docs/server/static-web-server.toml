@@ -1,0 +1,116 @@
+# ============================================================================
+# JPKCom Desktop — static-web-server configuration (TOML) — © Jean Pierre Kolb — MIT License
+# ============================================================================
+#
+# static-web-server 2.x (https://static-web-server.net), started with
+#   static-web-server --config-file /etc/static-web-server/config.toml
+# Replace the root folder; for TLS either give it a certificate (http2 settings
+# below) or put it behind a proxy that terminates HTTPS. The service worker,
+# installation, the vault and "My location" need a secure context (HTTPS;
+# localhost is the only exception).
+#
+# Root or sub-folder: copy the desktop's files into the root folder itself
+# (https://example.org/) or into a folder below it (https://example.org/desktop/).
+# Nothing else changes — the header globs below match the desktop's paths
+# wherever they are, and /desktop (without the slash) is redirected to /desktop/
+# (redirect-trailing-slash).
+#
+# Header rules: every [[advanced.headers]] entry whose glob matches the request
+# path adds its headers; a later matching entry overrides the same header name
+# of an earlier one (as for Cache-Control on images below).
+#
+# Check after a deploy:
+#   curl -sI https://example.org/desktop/ | grep -iE '^(content-security|permissions|cache-control|x-)'
+
+[general]
+
+host = "::"
+port = 443
+root = "/var/www/example.org"
+
+#### HTTPS (certificate files) — or port = 8080, http2 = false behind a TLS proxy
+http2 = true
+http2-tls-cert = "/etc/ssl/example.org/fullchain.pem"
+http2-tls-key = "/etc/ssl/example.org/privkey.pem"
+https-redirect = true
+https-redirect-host = "example.org"
+https-redirect-from-port = 80
+https-redirect-from-hosts = "example.org"
+
+#### Files: no directory listings (the vault's file names must stay secret), no dotfiles.
+#### ignore-hidden-files has no exception: /.well-known/ is refused too (404) — get certificates with a
+#### DNS challenge or through the TLS proxy, or set it to false if the root holds no other dotfiles.
+directory-listing = false
+ignore-hidden-files = true
+redirect-trailing-slash = true
+index-files = "index.html"
+compression = true
+
+#### The headers below replace the built-in sets (their CSP and caching do not fit)
+security-headers = false
+cache-control-headers = false
+
+[advanced]
+
+#### Security headers and the default caching — every path
+[[advanced.headers]]
+source = "**"
+[advanced.headers.headers]
+# Content-Security-Policy. Opt-in extensions — switch on ONLY what the site offers:
+#
+#   connect-src  add the hosts of the online services set to true in site/config.js → services:
+#                  weather, provider 'open-meteo':  https://api.open-meteo.com
+#                    a place search by name, if you add one: https://geocoding-api.open-meteo.com (the shipped providers never call it)
+#                  weather, provider 'brightsky':   https://api.brightsky.dev
+#                  terminal dig/host (DoH):         https://dns.google   (the host of terminal.doh.url)
+#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
+#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
+#   frame-src    add the origins of 'web' apps whose url lives on another origin
+#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+#
+# Then replace the line below with your extended copy, e.g. weather + DoH:
+#   Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+# or with Pagefind and a framed app from another origin:
+#   Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self' https://apps.example.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+# Geolocation stays off unless the site offers "My location" for the weather
+# (services.geolocation: true) — then use the second line instead
+Permissions-Policy = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+# Permissions-Policy = "accelerometer=(), camera=(), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+# SAMEORIGIN, not DENY: windows show same-origin pages in iframes
+X-Frame-Options = "SAMEORIGIN"
+X-Content-Type-Options = "nosniff"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Cross-Origin-Opener-Policy = "same-origin"
+Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+# Revalidated on every use (ETag / Last-Modified → 304): HTML, JS, CSS, JSON, the manifest,
+# sw.js and the sealed vault files carry no version in their names
+Cache-Control = "no-cache"
+
+#### Images, fonts and media: one day
+[[advanced.headers]]
+source = "**/*.{png,jpg,jpeg,gif,webp,avif,ico,woff,woff2,mp3,ogg,oga,m4a,wav,mp4,webm}"
+headers = { Cache-Control = "public, max-age=86400" }
+
+#### Text types with their charset (the built-in table sends text/javascript, text/css, application/json without one)
+[[advanced.headers]]
+source = "**/*.{js,mjs}"
+headers = { Content-Type = "text/javascript; charset=utf-8" }
+
+[[advanced.headers]]
+source = "**/*.css"
+headers = { Content-Type = "text/css; charset=utf-8" }
+
+[[advanced.headers]]
+source = "**/*.json"
+headers = { Content-Type = "application/json; charset=utf-8" }
+
+#### The web app manifest (older MIME tables do not know .webmanifest)
+[[advanced.headers]]
+source = "**/*.webmanifest"
+headers = { Content-Type = "application/manifest+json; charset=utf-8" }
+
+#### Sealed vault files: not for search engines
+[[advanced.headers]]
+source = "**/site/vault/**"
+headers = { X-Robots-Tag = "noindex, nofollow, noarchive" }

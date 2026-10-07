@@ -1,0 +1,506 @@
+/* JPKCom Desktop — windows: workspace, window frame, title bar, window controls, resize handles — © Jean Pierre Kolb — MIT License
+
+   Markup (src/wm/wm.js):
+     section.win.win-<kind>[role=dialog]  (.is-active .is-max .is-tiled .is-fixed .is-min .is-anim .is-opening .is-closing)
+       header.win-bar                     (.is-folded: buttons folded into "More actions" — title fitting, shell)
+         .win-controls > button.wc.wc-close / .wc-min / .wc-max   (glyphs wc-*)
+         h2.win-title > .tile + .win-title-text
+         .win-nav (optional, kinds)       .win-actions > button.win-btn (… + .win-more)
+       .win-body (.has-frame for iframes)
+       .rz[data-dir=n|e|s|w|ne|nw|se|sw]  resize handles
+   Window geometry is physical (left/top in workspace pixels), so the handles
+   use physical sides too. html[data-wc=right] moves the controls to the end,
+   html[data-wc-style=minimal] draws them as plain glyph buttons. */
+
+@layer wm {
+
+	/* ---------- Workspace and window layer ---------- */
+
+	.workspace {
+		position: absolute;
+		inset: var(--mb-total) 0 0;
+		overflow: hidden;
+
+		/* Window z-indexes keep rising with every focus change; the own stacking
+		   context keeps them below the menu bar, the dock and "All apps" */
+		isolation: isolate;
+
+		/* Focused by the window manager after the last window went (tabindex -1) */
+		&:focus {
+			outline: none;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	.windows {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+	}
+
+	/* ---------- Window ---------- */
+
+	.win {
+		position: absolute;
+		display: flex;
+		flex-direction: column;
+		/* config.wm.minSize, set on <html> by initWM() */
+		min-width: var(--win-min-w, 280px);
+		min-height: var(--win-min-h, 180px);
+		border-radius: var(--radius-win);
+		background: var(--win-bg);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.7 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 24px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		pointer-events: auto;
+		transform-origin: 50% 50%;
+		transition: box-shadow var(--dur);
+
+		/* Focused programmatically (open, show): the active styling marks it, no ring */
+		&:focus-visible {
+			outline: none;
+		}
+
+		&.is-active {
+			box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.8 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 24px 64px rgb(0 0 0 / calc(0.55 * var(--shade)));
+		}
+
+		&.is-max {
+			border-radius: 0;
+		}
+
+		&.is-anim {
+			transition: left var(--dur) var(--ease), top var(--dur) var(--ease), width var(--dur) var(--ease), height var(--dur) var(--ease), transform var(--dur) var(--ease), opacity var(--dur) var(--ease), box-shadow var(--dur);
+		}
+
+		&.is-opening,
+		&.is-closing {
+			transform: scale(0.94);
+			opacity: 0;
+		}
+
+		&.is-closing {
+			pointer-events: none;
+		}
+
+		&.is-min {
+			visibility: hidden;
+			pointer-events: none;
+		}
+	}
+
+	/* ---------- Title bar ---------- */
+
+	.win-bar {
+		position: relative;
+		display: flex;
+		align-items: center;
+		flex: none;
+		height: var(--bar-h);
+		padding-inline: 12px 8px;
+		border-radius: var(--radius-win) var(--radius-win) 0 0;
+		background: var(--win-bar-inactive);
+		box-shadow: inset 0 -1px 0 rgb(0 0 0 / calc(0.35 * var(--shade)));
+		touch-action: none;
+
+		.is-active & {
+			background: var(--win-bar);
+		}
+
+		.is-max & {
+			border-radius: 0;
+		}
+	}
+
+	.win-title {
+		position: absolute;
+
+		/* Clear of the buttons on both sides; the title fitting (shell) measures --title-side */
+		inset-block: 0;
+		inset-inline: var(--title-side, 90px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		margin: 0;
+		color: var(--text-3);
+		font-size: 13px;
+		font-weight: 600;
+		pointer-events: none;
+
+		.is-active & {
+			color: var(--text-2);
+		}
+
+		.win-title-text {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.tile {
+			--tile: 16px;
+			flex: none;
+			border-radius: 4px;
+			box-shadow: none;
+		}
+	}
+
+	/* ---------- Window controls ---------- */
+
+	.win-controls {
+		position: relative;
+		z-index: 1;
+		display: flex;
+	}
+
+	.wc {
+		display: grid;
+		place-items: center;
+		width: var(--wc-box-w);
+		height: var(--wc-box-h);
+
+		/* Dot and glyph share one grid cell — no absolute positioning,
+		   which Safari places at the static start position instead of centred */
+		&::before,
+		svg {
+			grid-area: 1 / 1;
+		}
+
+		/* The ring sets the dot off the title bar at 3:1 or more in both themes
+		   (WCAG 1.4.11) — the glyph only shows on hover and focus */
+		&::before {
+			content: "";
+			display: block;
+			width: var(--wc-dot);
+			height: var(--wc-dot);
+			border-radius: 50%;
+			background: var(--wc-off);
+			box-shadow: inset 0 0 0 1px var(--wc-ring, rgb(var(--ink) / 0.5));
+		}
+
+		svg {
+			width: var(--wc-glyph-size);
+			height: var(--wc-glyph-size);
+			color: var(--wc-glyph);
+			opacity: 0;
+		}
+
+		.is-active &.wc-close::before,
+		.win-controls:hover &.wc-close::before {
+			background: var(--wc-close);
+		}
+
+		.is-active &.wc-min::before,
+		.win-controls:hover &.wc-min::before {
+			background: var(--wc-min);
+		}
+
+		.is-active &.wc-max::before,
+		.win-controls:hover &.wc-max::before {
+			background: var(--wc-max);
+		}
+
+		.win-controls:hover & svg,
+		&:focus-visible svg {
+			opacity: 1;
+		}
+
+		&:disabled::before {
+			background: var(--wc-off) !important;
+		}
+
+		&:disabled svg {
+			display: none;
+		}
+	}
+
+	/* Controls at the end of the bar: close outermost, the action buttons before them */
+	:root[data-wc="right"] {
+
+		.win-controls {
+			order: 2;
+			flex-direction: row-reverse;
+			margin-inline-start: 6px;
+		}
+	}
+
+	/* Plain glyph buttons instead of coloured dots */
+	:root[data-wc-style="minimal"] {
+
+		.wc {
+			width: 28px;
+			height: 26px;
+			border-radius: 6px;
+			color: var(--text-2);
+
+			&::before {
+				display: none;
+			}
+
+			svg {
+				width: 10px;
+				height: 10px;
+				color: currentColor;
+				opacity: 1;
+			}
+
+			&:hover {
+				background: rgb(var(--ink) / 0.1);
+				color: var(--text);
+			}
+
+			&.wc-close:hover {
+				background: var(--danger);
+				color: var(--on-accent);
+			}
+
+			&:disabled {
+				opacity: 0.35;
+				background: none;
+			}
+		}
+	}
+
+	/* ---------- Navigation and action buttons ---------- */
+
+	.win-nav {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		gap: 2px;
+		margin-inline-start: 10px;
+	}
+
+	.win-actions {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		gap: 2px;
+		margin-inline-start: auto;
+	}
+
+	.win-btn {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 26px;
+		border-radius: 6px;
+		color: var(--text-2);
+		font-size: 16px;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.1);
+			color: var(--text);
+		}
+
+		&:disabled {
+			opacity: 0.35;
+			background: none;
+		}
+
+		/* The on state as a fill (as the menus and the editor's toggles): --on-accent on the accent
+		   reaches 4.5:1 for every accent, a coloured glyph on a grey fill did not. In the dark theme
+		   the fill alone is under 3:1 against the bar: --pressed-edge draws a light edge there */
+		&[aria-pressed="true"] {
+			background: var(--accent);
+			color: var(--on-accent);
+			box-shadow: inset 0 0 0 1px var(--pressed-edge);
+		}
+	}
+
+	/* Narrow window: the buttons fold into "More actions" (title fitting, shell) */
+	.win-actions > .win-more {
+		display: none;
+	}
+
+	.is-folded .win-actions {
+
+		> :not(.win-more) {
+			display: none;
+		}
+
+		> .win-more {
+			display: grid;
+		}
+	}
+
+	/* ---------- Body ---------- */
+
+	.win-body {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		border-radius: 0 0 var(--radius-win) var(--radius-win);
+
+		.is-max & {
+			border-radius: 0;
+		}
+
+		iframe {
+			display: block;
+			width: 100%;
+			height: 100%;
+			border: 0;
+			background: var(--frame-bg);
+		}
+	}
+
+	/* Inactive windows: a shield catches the first click so it focuses the window
+	   (clicks inside an iframe never reach the parent document) */
+	.win:not(.is-active) .has-frame::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+	}
+
+	/* Spinner while a page loads (web windows, reader) */
+	.win-loading {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		background: var(--win-bg);
+		transition: opacity 0.2s;
+
+		&::after {
+			content: "";
+			width: 26px;
+			height: 26px;
+			border: 2.5px solid rgb(var(--ink) / 0.15);
+			border-top-color: rgb(var(--ink) / 0.8);
+			border-radius: 50%;
+			animation: wm-spin 0.8s linear infinite;
+		}
+
+		&.is-done {
+			opacity: 0;
+			pointer-events: none;
+		}
+	}
+
+	@keyframes wm-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/* ---------- Resize handles ---------- */
+
+	.rz {
+		--rz: 8px;
+		--rzc: 14px;
+		position: absolute;
+		z-index: 2;
+		touch-action: none;
+
+		&[data-dir="n"] { inset: calc(var(--rz) / -2) var(--rzc) auto; height: var(--rz); cursor: ns-resize; }
+		&[data-dir="s"] { inset: auto var(--rzc) calc(var(--rz) / -2); height: var(--rz); cursor: ns-resize; }
+		&[data-dir="e"] { inset: var(--rzc) calc(var(--rz) / -2) var(--rzc) auto; width: var(--rz); cursor: ew-resize; }
+		&[data-dir="w"] { inset: var(--rzc) auto var(--rzc) calc(var(--rz) / -2); width: var(--rz); cursor: ew-resize; }
+		&[data-dir="ne"] { top: calc(var(--rzc) / -2.5); right: calc(var(--rzc) / -2.5); width: var(--rzc); height: var(--rzc); cursor: nesw-resize; }
+		&[data-dir="sw"] { bottom: calc(var(--rzc) / -2.5); left: calc(var(--rzc) / -2.5); width: var(--rzc); height: var(--rzc); cursor: nesw-resize; }
+		&[data-dir="nw"] { top: calc(var(--rzc) / -2.5); left: calc(var(--rzc) / -2.5); width: var(--rzc); height: var(--rzc); cursor: nwse-resize; }
+		&[data-dir="se"] { bottom: calc(var(--rzc) / -2.5); right: calc(var(--rzc) / -2.5); width: var(--rzc); height: var(--rzc); cursor: nwse-resize; }
+
+		/* Fingers need bigger targets (tablets in desktop mode) */
+		@media (pointer: coarse) {
+			--rz: 22px;
+			--rzc: 32px;
+		}
+
+		.is-max &,
+		.is-tiled &,
+		.is-fixed & {
+			display: none;
+		}
+	}
+
+	/* Forced colours (Windows High Contrast) drop shadows, fills and the coloured dots:
+	   a frame per window (the active one in the highlight colour), outlined controls with
+	   their glyphs, pressed buttons in the highlight colours */
+	@media (forced-colors: active) {
+
+		.win {
+			border: 1px solid CanvasText;
+		}
+
+		.win.is-active {
+			outline: 2px solid Highlight;
+		}
+
+		.wc::before {
+			border: 1px solid ButtonText;
+		}
+
+		.wc:disabled::before {
+			border-color: GrayText;
+		}
+
+		.wc svg {
+			color: ButtonText;
+			opacity: 1;
+		}
+
+		.win-btn[aria-pressed="true"] {
+			forced-color-adjust: none;
+			background: Highlight;
+			color: HighlightText;
+		}
+	}
+
+	/* While dragging or resizing, iframes must not swallow pointer events */
+	body.wm-busy {
+		cursor: var(--wm-cursor, default);
+
+		iframe {
+			pointer-events: none;
+		}
+	}
+}
+
+/* Phones: every window is a card above the dock — no dragging, resizing or zooming */
+@layer compact {
+
+	body.compact {
+
+		.workspace {
+			inset-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+		}
+
+		.win {
+			min-width: 0;
+			min-height: 0;
+
+			&.is-opening {
+				transform: translateY(28px);
+			}
+		}
+
+		.rz,
+		.wc-max {
+			display: none;
+		}
+
+		.win-bar {
+			padding-inline: 4px;
+		}
+
+		.wc svg {
+			opacity: 1;
+		}
+
+		.win-title {
+			font-size: 15px;
+		}
+
+		.win-btn {
+			width: 38px;
+			height: 38px;
+			font-size: 19px;
+		}
+	}
+}

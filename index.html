@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- JPKCom Desktop — shell markup — © Jean Pierre Kolb — MIT License — https://github.com/JPKCom/jpkcom-desktop
+     No inline scripts or styles (CSP script-src/style-src 'self'). lang, dir, the title,
+     the h1, theme-color and apple-mobile-web-app-title are set at runtime from the
+     configuration and the chosen language; the values here only cover the moments
+     before, pages without JavaScript and tools that read the HTML (search engines,
+     "Add to Home Screen").
+
+     SITE-SPECIFIC LINES — edit them by hand when you adapt the desktop
+     (docs/deploy.md §11, next to manifest.webmanifest):
+       <html lang>                      = config defaultLang
+       <title>, <h1 id="desk-title">    = config brand.name
+       meta description                 = config site.description, in the default language
+       meta theme-color                 = config brand.themeColor
+       apple-mobile-web-app-title       = config brand.shortName
+       <noscript>                       one <p lang="xx"> per language in config languages -->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>JPKCom Desktop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- site-specific: config site.description in the default language (docs/deploy.md §11) -->
+<meta name="description" content="A desktop-style web interface — windows, dock and apps in the browser.">
+<meta name="author" content="Jean Pierre Kolb">
+<meta name="generator" content="JPKCom Desktop">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#1c2935">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!-- site-specific: config brand.shortName (docs/deploy.md §11) -->
+<meta name="apple-mobile-web-app-title" content="JPK Desktop">
+<link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="src/css/layers.css">
+<link rel="stylesheet" href="src/css/tokens.css">
+<link rel="stylesheet" href="src/css/base.css">
+<link rel="stylesheet" href="src/css/components.css">
+<script src="site/config.js"></script>
+<script src="src/boot/theme.js"></script>
+<script type="module" src="src/boot/main.js"></script>
+</head>
+<body>
+
+	<div class="wallpaper" id="wallpaper" aria-hidden="true"></div>
+
+	<header class="menubar" id="menubar" data-island="dark">
+
+		<div class="mb-left" id="mb-menus" role="menubar"></div>
+
+		<div class="mb-right" id="mb-status"></div>
+
+	</header>
+
+	<main class="workspace" id="workspace">
+
+		<h1 class="visually-hidden" id="desk-title">JPKCom Desktop</h1>
+
+		<ul class="icons" id="desktop-icons" data-island="dark"></ul>
+
+		<div class="windows" id="windows"></div>
+
+	</main>
+
+	<nav class="dock" id="dock">
+
+		<ul class="dock-list" id="dock-list"></ul>
+
+	</nav>
+
+	<!-- site-specific: one line per offered language (config languages), each with its lang (docs/deploy.md §11) -->
+	<noscript>
+		<div class="noscript">
+			<p lang="en">This desktop needs JavaScript.</p>
+			<p lang="de">Dieser Desktop braucht JavaScript.</p>
+		</div>
+	</noscript>
+
+</body>
+</html>

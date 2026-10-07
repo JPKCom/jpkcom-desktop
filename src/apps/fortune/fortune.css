@@ -1,0 +1,209 @@
+/* JPKCom Desktop — Fortune app: the question, the card, the controls — © Jean Pierre Kolb — MIT License
+
+   Ported from the original joke app. Colours from tokens only: the card's
+   glyph --fortune-mark, errors --warn, the text button --reader-link. */
+
+@layer apps {
+
+	.fortune {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+		overflow-y: auto;
+		color: var(--text-2);
+		-webkit-user-select: text;
+		user-select: text;
+	}
+
+	/* The privacy question before anything is fetched */
+	.fortune-ask {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		max-inline-size: 440px;
+		margin: auto;
+		padding: 24px 26px;
+		text-align: center;
+
+		h2 {
+			margin: 12px 0 8px;
+			color: var(--text);
+			font-size: 18px;
+		}
+
+		p {
+			margin: 0 0 10px;
+			line-height: 1.5;
+		}
+	}
+
+	.fortune-tile {
+		--tile: 56px;
+	}
+
+	.fortune-btns {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 8px;
+		margin: 8px 0 12px;
+	}
+
+	.fortune-textbtn {
+		padding: 2px 4px;
+		border-radius: 4px;
+		color: var(--reader-link);
+		font-size: 12px;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+		}
+	}
+
+	.fortune-main {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		gap: 12px;
+		min-height: 0;
+		padding: 14px 18px 12px;
+	}
+
+	.fortune-top {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px 20px;
+
+		&:not(:has(.fortune-field:not([hidden]))) {
+			display: none;
+		}
+	}
+
+	.fortune-field {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-width: 0;
+	}
+
+	.fortune-label {
+		color: var(--text);
+	}
+
+	.fortune-select {
+		min-width: 0;
+		height: 30px;
+		padding: 0 8px;
+		border: 1px solid var(--line-strong);
+		border-radius: 7px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text);
+		font: 13px var(--font);
+
+		/* The opened list is drawn by the system; options get explicit colours */
+		option {
+			background: var(--win-bar);
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 1px;
+		}
+	}
+
+	.fortune-card {
+		position: relative;
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		justify-content: center;
+		gap: 10px;
+		min-height: 120px;
+		margin: 0;
+		padding-block: 20px;
+		padding-inline: 64px 22px;
+		border-radius: 12px;
+		background: rgb(var(--ink) / 0.06);
+		box-shadow: inset 0 0 0 0.5px var(--line-strong);
+	}
+
+	.fortune-mark {
+		position: absolute;
+		inset-block-start: 18px;
+		inset-inline-start: 18px;
+		font-size: 30px;
+		color: var(--fortune-mark);
+	}
+
+	.fortune-quote {
+		margin: 0;
+		color: var(--text);
+		font-size: 18px;
+		line-height: 1.5;
+		/* two-part jokes: setup and punch line on lines of their own */
+		white-space: pre-line;
+		overflow-wrap: anywhere;
+	}
+
+	.fortune-by {
+		margin: 0;
+		color: var(--text-2);
+		font-size: 13px;
+		text-align: end;
+	}
+
+	.fortune-foot {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.fortune-status {
+		flex: 1;
+		min-width: 0;
+		margin: 0;
+
+		&.is-error {
+			color: var(--warn);
+		}
+	}
+
+	.fortune-next {
+		flex: none;
+		padding: 6px 16px;
+
+		&[aria-disabled="true"] {
+			opacity: 0.6;
+		}
+	}
+
+	.fortune-keys {
+		margin: 0;
+		color: var(--text-2);
+		font-size: 11px;
+	}
+
+	/* "Previous" points the other way in right-to-left languages */
+	:root[dir="rtl"] .fortune-prev svg {
+		transform: scaleX(-1);
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		.fortune-keys {
+			display: none;
+		}
+
+		.fortune-card {
+			padding: 52px 18px 18px;
+		}
+	}
+}

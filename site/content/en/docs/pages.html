@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Writing pages — © Jean Pierre Kolb — MIT License -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing pages | JPKCom Desktop</title>
+<link rel="alternate" hreflang="de" href="../../de/docs/pages.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Writing pages</h1>
+<p class="lead">Plain HTML files, one folder per language. The Reader shows them natively in a window — no iframe, no scripts.</p>
+<h2 id="markup">The markup</h2>
+<p>The Reader looks for the content with the rules in <code>config.reader.rules</code>. The example site uses one rule for everything below <code>site/content/</code>: the content is the first <code>main article</code>, <code>article</code> or <code>main</code>, the title its <code>h1</code>, the lead a paragraph with the class <code>lead</code>.</p>
+<pre><code>&lt;!doctype html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+&lt;meta charset="utf-8"&gt;
+&lt;title&gt;Page title | Site name&lt;/title&gt;
+&lt;link rel="alternate" hreflang="de" href="../de/page.html"&gt;
+&lt;link rel="stylesheet" href="../content.css"&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;main&gt;
+&lt;article&gt;
+&lt;h1&gt;Page title&lt;/h1&gt;
+&lt;p class="lead"&gt;One or two sentences about the page.&lt;/p&gt;
+&lt;h2 id="part"&gt;A section&lt;/h2&gt;
+&lt;p&gt;Text, &lt;a href="other.html"&gt;links&lt;/a&gt;, lists, tables, figures …&lt;/p&gt;
+&lt;/article&gt;
+&lt;/main&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+<h2 id="rules">What to keep in mind</h2>
+<ul>
+<li><strong>Title:</strong> the window shows the part of <code>&lt;title&gt;</code> before “ | ”, else the <code>h1</code>.</li>
+<li><strong>Languages:</strong> <code>&lt;html lang&gt;</code> sets the language of the text; <code>&lt;link rel="alternate" hreflang&gt;</code> tells the Reader which page to show after a language switch.</li>
+<li><strong>Links:</strong> relative links to other pages open in the same window; links to other sites open in a new tab; <code>#anchors</code> scroll.</li>
+<li><strong>Allowed:</strong> text, headings, lists, tables, figures and pictures, <code>details</code>, <code>pre</code> and <code>code</code>, audio and video with controls.</li>
+<li><strong>Removed:</strong> scripts, styles and <code>style</code> attributes, forms, iframes, event handlers. The page's own stylesheet only matters when it is opened outside the desktop.</li>
+<li><strong>Classes</strong> get the prefix <code>c-</code>, so no class of a page can change the desktop. Style them with <code>.reader-page .c-name</code> in a stylesheet of your own.</li>
+</ul>
+
+<h2 id="terminal">For the terminal</h2>
+<p>A Markdown twin of a page (<code>about.md</code> next to <code>about.html</code>) can be listed under <code>files</code> in <code>site/apps.js</code>; the terminal shows it with <code>cat about</code>.</p>
+</article>
+</main>
+</body>
+</html>

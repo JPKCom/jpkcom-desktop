@@ -1,0 +1,288 @@
+/* JPKCom Desktop — Reader: typography for content pages — © Jean Pierre Kolb — MIT License
+
+   .reader       the scrolling area of a page window (kind 'page')
+   .reader-page  the imported page (classes from the page carry a 'c-' prefix,
+                 so no page class picks up a desktop style; style a site's own
+                 classes with .reader-page .c-<class> in a site stylesheet)
+   .reader-hero  heading (+ .reader-lead) taken from outside the content region
+   pre           code blocks are dark islands (data-island="dark", set by the sanitiser) */
+
+@layer modules {
+	.reader {
+		height: 100%;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		background: var(--win-bg);
+		color: var(--reader-text);
+		font-size: 15px;
+		line-height: 1.65;
+		-webkit-user-select: text;
+		user-select: text;
+		-webkit-touch-callout: default;
+		scrollbar-color: var(--scroll-thumb) transparent;
+
+		/* The scroller is in the Tab order: an inset ring the window's rounded clip keeps */
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	/* The arrows point the reading direction */
+	[dir="rtl"] :is(.reader-back, .reader-fwd) svg {
+		scale: -1 1;
+	}
+
+	.reader-error {
+		height: 100%;
+	}
+
+	.reader-page {
+		max-width: 48rem;
+		margin-inline: auto;
+		padding: 28px 34px 56px;
+		overflow-wrap: break-word;
+
+		a {
+			color: var(--reader-link);
+			text-underline-offset: 2px;
+		}
+
+		:is(h1, h2, h3, h4, h5, h6) {
+			color: var(--text);
+			line-height: 1.25;
+		}
+
+		/* Sizes by the level the page wrote (extract.js moves the elements two levels down) */
+		.reader-h1 { font-size: 1.9rem; margin: 0 0 0.4em; }
+		.reader-h2 { font-size: 1.4rem; margin: 1.8em 0 0.6em; }
+		.reader-h3 { font-size: 1.15rem; margin: 1.5em 0 0.5em; }
+		:is(.reader-h4, .reader-h5, .reader-h6) { font-size: 1rem; margin: 1.3em 0 0.4em; }
+
+		:is(p, ul, ol, dl, pre, table, blockquote, figure, details, address) {
+			margin: 0 0 1em;
+		}
+
+		:is(ul, ol) {
+			padding-inline-start: 1.4em;
+		}
+
+		/* The reset layer takes the markers off every ul; page text wants them back */
+		ul { list-style: disc; }
+		ul ul { list-style: circle; }
+		ol { list-style: decimal; }
+
+		li {
+			margin: 0.2em 0;
+		}
+
+		address {
+			font-style: normal;
+		}
+
+		abbr[title] {
+			text-decoration: underline dotted;
+			text-underline-offset: 3px;
+			cursor: help;
+		}
+
+		:is(code, kbd) {
+			padding: 0.1em 0.35em;
+			border-radius: 4px;
+			background: rgb(var(--ink) / 0.08);
+			font: 0.88em var(--font-mono);
+		}
+
+		pre {
+			overflow-x: auto;
+			padding: 14px 16px;
+			border-radius: 8px;
+			background: var(--reader-code-bg);
+			color: var(--reader-text);
+			font-size: 13px;
+			line-height: 1.55;
+			scrollbar-color: var(--scroll-code-thumb) var(--reader-code-bg);
+
+			code {
+				padding: 0;
+				background: none;
+				font-size: inherit;
+			}
+		}
+
+		table {
+			scrollbar-color: var(--scroll-code-thumb) transparent;
+		}
+
+		:is(img, video, picture) {
+			max-width: 100%;
+			height: auto;
+			border-radius: 6px;
+		}
+
+		audio {
+			max-width: 100%;
+		}
+
+		svg {
+			max-width: 100%;
+		}
+
+		/* Icon SVGs without their own size */
+		svg:not([width]) {
+			width: 1.15em;
+			height: 1.15em;
+			vertical-align: -0.18em;
+			fill: currentColor;
+		}
+
+		hr {
+			margin: 2em 0;
+			border: 0;
+			border-block-start: 1px solid var(--line);
+		}
+
+		blockquote {
+			padding-block: 0.2em;
+			padding-inline: 1em 0;
+			border-inline-start: 3px solid var(--accent);
+			color: var(--text-2);
+		}
+
+		table {
+			display: block;
+			overflow-x: auto;
+			border-collapse: collapse;
+			font-size: 14px;
+		}
+
+		:is(th, td) {
+			padding: 6px 10px;
+			border: 1px solid var(--line-strong);
+			text-align: start;
+			vertical-align: top;
+		}
+
+		th {
+			background: rgb(var(--ink) / 0.05);
+			color: var(--text);
+		}
+
+		dt {
+			margin-block-start: 0.6em;
+			color: var(--text);
+			font-weight: 600;
+		}
+
+		dd {
+			margin-block: 0 0.3em;
+			margin-inline: 1.2em 0;
+		}
+
+		details {
+			padding: 0 14px;
+			border: 1px solid var(--line);
+			border-radius: 8px;
+			background: rgb(var(--ink) / 0.03);
+
+			&[open] {
+				padding-block-end: 12px;
+			}
+		}
+
+		summary {
+			display: flex;
+			align-items: center;
+			gap: 0.5em;
+			padding: 10px 0;
+			color: var(--text);
+			font-weight: 600;
+			list-style: none;
+			cursor: pointer;
+
+			&::-webkit-details-marker {
+				display: none;
+			}
+
+			:is(.reader-h2, .reader-h3, .reader-h4) {
+				margin: 0;
+				font-size: 1.05rem;
+			}
+		}
+
+		:is(figcaption, time) {
+			color: var(--text-3);
+			font-size: 0.9em;
+		}
+
+		mark {
+			padding: 0 0.15em;
+			border-radius: 3px;
+			background: var(--highlight);
+			color: inherit;
+		}
+
+		/* Screen-reader-only text of the page (class visually-hidden / sr-only) */
+		:is(.c-visually-hidden, .c-sr-only) {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
+	}
+
+	/* Engines without scrollbar-color: the code blocks' thumb on their dark background */
+	@supports not (scrollbar-color: auto) {
+		.reader-page pre::-webkit-scrollbar-thumb {
+			background-color: var(--scroll-code-thumb);
+		}
+	}
+
+	.reader-hero {
+		margin-block-end: 1.6em;
+		padding-block-end: 1.2em;
+		border-block-end: 1px solid var(--line);
+
+		.reader-h1 {
+			margin: 0 0 0.25em;
+			font-size: 2.1rem;
+		}
+	}
+
+	.reader-lead {
+		margin: 0;
+		color: var(--text-2);
+		font-size: 1.1rem;
+
+		.reader-page > & {
+			margin-block-end: 1em;
+		}
+	}
+}
+
+@layer compact {
+	/* Phones: no forward button (back is enough), more room for the text */
+	body.compact {
+		.reader-fwd {
+			display: none;
+		}
+
+		.win-page .win-nav {
+			margin-inline-start: 0;
+		}
+
+		.reader {
+			font-size: 16px;
+		}
+
+		.reader-page {
+			padding: 18px 16px 44px;
+		}
+
+		.reader-hero .reader-h1 {
+			font-size: 1.7rem;
+		}
+	}
+}

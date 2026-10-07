@@ -1,0 +1,107 @@
+# ============================================================================
+# JPKCom Desktop — Caddy configuration (Caddyfile) — © Jean Pierre Kolb — MIT License
+# ============================================================================
+#
+# Caddy 2.7+. Replace example.org and the root folder. Caddy fetches the TLS
+# certificate itself and redirects http to https (automatic HTTPS) — the secure
+# context that the service worker, installation, the vault and "My location" need.
+#
+# Root or sub-folder: copy the desktop's files into the root folder itself
+# (https://example.org/) or into a folder below it (https://example.org/desktop/).
+# Nothing else changes — the matchers below find the desktop's paths wherever they
+# are. file_server answers /desktop (a directory without the slash) with a redirect
+# to /desktop/ by itself, and it lists no directories (no "browse").
+#
+# Check after a deploy:
+#   curl -sI https://example.org/desktop/ | grep -iE '^(content-security|permissions|cache-control|x-)'
+
+example.org {
+	root * /var/www/example.org
+
+	encode zstd gzip
+
+	# ---------- Security headers -----------------------------------------------
+
+	header {
+		# Content-Security-Policy. Opt-in extensions — switch on ONLY what the site offers:
+		#
+		#   connect-src  add the hosts of the online services set to true in site/config.js → services:
+		#                  weather, provider 'open-meteo':  https://api.open-meteo.com
+		#                    a place search by name, if you add one: https://geocoding-api.open-meteo.com (the shipped providers never call it)
+		#                  weather, provider 'brightsky':   https://api.brightsky.dev
+		#                  terminal dig/host (DoH):         https://dns.google   (the host of terminal.doh.url)
+		#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
+		#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
+		#   frame-src    add the origins of 'web' apps whose url lives on another origin
+		#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+		#
+		# Then replace the line below with your extended copy, e.g. weather + DoH:
+		#   Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+		# or with Pagefind and a framed app from another origin:
+		#   Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self' https://apps.example.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+
+		# Geolocation stays off unless the site offers "My location" for the weather
+		# (services.geolocation: true) — then use the second line instead
+		Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+		# Permissions-Policy "accelerometer=(), camera=(), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+
+		# SAMEORIGIN, not DENY: windows show same-origin pages in iframes
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	# A header block that deletes (-) or defaults (?) a field is deferred until the response
+	# is written — and file_server's own error answers (a missing file: 404) never pass
+	# through it. Keep these two apart, so the security headers above are set at once and
+	# reach 404 answers too; never add a "-" or "?" line to the block above.
+	header -Server
+	# Default, revalidated on every use (ETag / Last-Modified → 304): HTML, JS, CSS, JSON,
+	# the manifest, sw.js and the sealed vault files carry no version in their names.
+	# The "?" sets it only where the rule for images below did not.
+	header ?Cache-Control "no-cache"
+
+	# ---------- Caching, MIME types, the vault -------------------------------------
+
+	# Images, fonts and media: one day
+	@static path_regexp static (?i)\.(png|jpe?g|gif|webp|avif|ico|woff2?|mp3|ogg|oga|m4a|wav|mp4|webm)$
+	header @static Cache-Control "public, max-age=86400"
+
+	@manifest path *.webmanifest
+	header @manifest Content-Type "application/manifest+json; charset=utf-8"
+	@modules path *.mjs
+	header @modules Content-Type "text/javascript; charset=utf-8"
+	# Caddy sends JSON (feeds, fortunes) without a charset; browsers decode it as UTF-8
+	# anyway, but say it, like every other text type
+	@json path *.json
+	header @json Content-Type "application/json; charset=utf-8"
+
+	# Sealed vault files: not for search engines
+	@vault path */site/vault/*
+	header @vault X-Robots-Tag "noindex, nofollow, noarchive"
+
+	# ---------- Files ----------------------------------------------------------
+
+	# Dotfiles (.git, .env, …) are never served
+	@hidden {
+		path */.*
+		not path /.well-known/*
+	}
+	respond @hidden 404
+
+	file_server {
+		index index.html
+	}
+
+	# Error answers (a missing file): the security headers set above stay on the response;
+	# answering here lets the deferred "-Server" run as well. The Content-Type line replaces
+	# the type that a matcher above set for the missing path (a missing .json is plain text)
+	handle_errors {
+		header -Server
+		header Content-Type "text/plain; charset=utf-8"
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+}

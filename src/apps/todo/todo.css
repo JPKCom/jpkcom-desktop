@@ -1,0 +1,222 @@
+/* JPKCom Desktop — Tasks app: input, filters, list with grip and checkbox, status — © Jean Pierre Kolb — MIT License */
+
+@layer apps {
+
+	.todo {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+
+	.todo-add {
+		display: flex;
+		gap: 6px;
+		padding: 12px 12px 8px;
+	}
+
+	.todo-input,
+	.todo-edit {
+		flex: 1;
+		min-width: 0;
+		height: 32px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 7px;
+		outline: 0;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text);
+		font: 14px var(--font);
+		-webkit-user-select: text;
+		user-select: text;
+
+		&:focus {
+			box-shadow: 0 0 0 2px var(--accent-ring);
+		}
+
+		&::placeholder {
+			color: var(--text-3);
+		}
+	}
+
+	.todo-edit {
+		height: 28px;
+	}
+
+	.todo-add-btn {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		border-radius: 7px;
+		background: var(--accent);
+		color: var(--on-accent);
+		font-size: 16px;
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 2px;
+		}
+	}
+
+	.todo-filters {
+		display: flex;
+		gap: 2px;
+		margin: 0 12px 8px;
+		padding: 2px;
+		border-radius: 8px;
+		background: rgb(var(--ink) / 0.06);
+	}
+
+	.todo-filter {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		color: var(--text-2);
+
+		&[aria-pressed="true"] {
+			background: rgb(var(--ink) / 0.14);
+			color: var(--text);
+		}
+	}
+
+	.todo-count {
+		color: var(--text-3);
+		font-size: 11px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.todo-list {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 0 8px 8px;
+		scrollbar-color: var(--scroll-thumb) transparent;
+	}
+
+	.todo-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 38px;
+		padding: 3px 6px;
+		border-radius: 8px;
+
+		&:hover,
+		&:focus-within {
+			background: rgb(var(--ink) / 0.05);
+		}
+
+		&.is-dragging {
+			background: rgb(var(--ink) / 0.12);
+			box-shadow: 0 6px 16px rgb(0 0 0 / calc(0.4 * var(--shade)));
+		}
+
+		&.is-done .todo-text {
+			color: var(--text-3);
+			text-decoration: line-through;
+		}
+	}
+
+	.todo-grip {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 20px;
+		height: 28px;
+		color: var(--text-3);
+		cursor: grab;
+		touch-action: none;
+	}
+
+	.todo-check {
+		flex: none;
+		width: 18px;
+		height: 18px;
+		margin: 0;
+		accent-color: var(--accent);
+	}
+
+	.todo-text {
+		flex: 1;
+		min-width: 0;
+		font-size: 14px;
+		overflow-wrap: anywhere;
+	}
+
+	.todo-del {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+		color: var(--text-2);
+		font-size: 14px;
+		opacity: 0;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.1);
+			color: var(--text);
+		}
+
+		.todo-item:hover &,
+		.todo-item:focus-within & {
+			opacity: 1;
+		}
+	}
+
+	.todo-empty {
+		padding: 40px 10px;
+		color: var(--text-3);
+		text-align: center;
+	}
+
+	.todo-status {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 40px;
+		padding: 6px 12px;
+		border-top: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		color: var(--text-2);
+		font-size: 12px;
+	}
+
+	.todo-summary {
+		flex: 1;
+
+		&.is-warn {
+			color: var(--warn);
+		}
+	}
+
+	.todo-clear {
+		font-size: 12px;
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		/* 16px keeps iOS from zooming into the field */
+		.todo-input,
+		.todo-edit {
+			font-size: 16px;
+		}
+
+		.todo-del {
+			opacity: 1;
+		}
+
+		.todo-item {
+			min-height: 46px;
+		}
+	}
+}

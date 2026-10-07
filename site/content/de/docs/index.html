@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- JPKCom Desktop — example page: Erste Schritte — © Jean Pierre Kolb — MIT License -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erste Schritte | JPKCom Desktop</title>
+<link rel="alternate" hreflang="en" href="../../en/docs/index.html">
+<link rel="stylesheet" href="../../content.css">
+</head>
+<body>
+<main>
+<article>
+<h1>Erste Schritte</h1>
+<p class="lead">In einer Minute läuft der Desktop auf deinem Rechner — danach machst du ihn zu deinem.</p>
+<h2 id="run">Lokal starten</h2>
+<p>Du brauchst <a href="https://nodejs.org/">Node.js</a> ab Version 22 — nur für die Werkzeuge; der Desktop selbst läuft in jedem aktuellen Browser.</p>
+<pre><code>npm install
+npm run serve</code></pre>
+<p>Dann <code>http://localhost:8080/</code> öffnen. Der Desktop braucht einen Webserver: <code>index.html</code> direkt von der Festplatte (<code>file://</code>) zu öffnen, klappt nicht, weil Browser von dort keine ES-Module laden.</p>
+
+<h2 id="own">Zu deinem machen</h2>
+<ol>
+<li><strong><code>site/config.js</code></strong> — Name und Marke, Sprachen, welche Module und Apps geladen werden, Online-Dienste. Jeder Schlüssel ist in der Datei beschrieben; siehe <a href="configuration.html">Konfiguration</a>.</li>
+<li><strong><code>site/apps.js</code></strong> — deine Apps, Sammlungen (Lesezeichen, Schaufenster), Menüs und die Dateien, die das Terminal anzeigen kann. Prüfen mit <code>npm run validate</code>.</li>
+<li><strong><code>site/content/&lt;Sprache&gt;/</code></strong> — deine Seiten, ein Ordner pro Sprache. <a href="pages.html">Seiten schreiben</a> erklärt das bisschen Markup, das sie brauchen.</li>
+<li><strong><code>site/data/</code></strong> — die Sprüche des Glückskekses (<code>fortunes/&lt;Sprache&gt;.json</code>) und der Nachrichten-Feed (<code>feed.&lt;Sprache&gt;.json</code>).</li>
+</ol>
+
+<h2 id="deploy">Online stellen</h2>
+<p>Kopiere das Projekt auf deinen Webserver — ohne <code>node_modules</code>, <code>tools</code> und <code>tests</code>. Sende die Sicherheits-Header, vor allem die Content Security Policy; die README enthält fertige Schnipsel für gängige Webserver. Schaltest du einen Online-Dienst ein, gehört sein Host in <code>connect-src</code>.</p>
+
+<h2 id="more">Weiterlesen</h2>
+<ul>
+<li><a href="configuration.html">Konfiguration</a></li>
+<li><a href="keyboard.html">Tastatur</a></li>
+<li><a href="pages.html">Seiten schreiben</a></li>
+</ul>
+</article>
+</main>
+</body>
+</html>

@@ -1,0 +1,315 @@
+/* JPKCom Desktop — Catalog: sidebar, search, icon grid, status bar — © Jean Pierre Kolb — MIT License
+
+   .catalog          sidebar + main column (phones: stacked, the groups as chips)
+   .catalog-side     groups (.catalog-cat, aria-current="true" = shown)
+   .catalog-toolbar  search field (.catalog-search > .catalog-input) and "Open on the web" (.catalog-extra)
+   .catalog-grid     items (.catalog-item: tile + .catalog-label; .is-selected)
+   .catalog-status   name — description · host of the selection, its actions */
+
+@layer modules {
+	.catalog {
+		display: flex;
+		height: 100%;
+	}
+
+	.catalog-side {
+		flex: none;
+		width: 210px;
+		overflow-y: auto;
+		padding: 10px 8px;
+		border-inline-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: rgb(var(--ink) / 0.03);
+		scrollbar-color: var(--scroll-thumb) transparent;
+
+		ul {
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+	}
+
+	.catalog-cat {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 5px 8px;
+		border-radius: 6px;
+		color: var(--text-2);
+		font-size: 13px;
+		text-align: start;
+
+		.tile.mini {
+			--tile: 18px;
+			border-radius: 5px;
+			box-shadow: none;
+		}
+
+		&:hover {
+			background: rgb(var(--ink) / 0.06);
+		}
+
+		&[aria-current="true"] {
+			background: rgb(var(--ink) / 0.12);
+			color: var(--text);
+
+			/* --text-3 drops below 4.5:1 on the highlight */
+			.catalog-count {
+				color: var(--text-2);
+			}
+		}
+	}
+
+	.catalog-cat-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.catalog-count {
+		margin-inline-start: auto;
+		color: var(--text-3);
+		font-size: 11px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.catalog-main {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-width: 0;
+
+		/* Without it, a flex item grows to its content and the grid never scrolls
+		   (phones, where .catalog is a column) */
+		min-height: 0;
+	}
+
+	.catalog-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 12px;
+		border-block-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+	}
+
+	.catalog-search {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		gap: 6px;
+		max-width: 300px;
+		height: 28px;
+		padding: 0 8px;
+		border-radius: 7px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text-3);
+		font-size: 14px;
+
+		&:focus-within {
+			box-shadow: 0 0 0 2px var(--accent-ring);
+		}
+	}
+
+	.catalog-input {
+		flex: 1;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: none;
+		color: var(--text);
+		font: 13px var(--font);
+		-webkit-user-select: text;
+		user-select: text;
+
+		&::placeholder {
+			color: var(--text-3);
+		}
+	}
+
+	.catalog-extra {
+		display: flex;
+		flex: none;
+		align-items: center;
+		gap: 6px;
+		margin-inline-start: auto;
+		padding: 4px 10px;
+		border-radius: 6px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text);
+		font-size: 12.5px;
+		white-space: nowrap;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.14);
+		}
+
+		svg {
+			font-size: 14px;
+		}
+	}
+
+	.catalog-action + .catalog-action {
+		margin-inline-start: 0;
+	}
+
+	.catalog-grid {
+		display: grid;
+		flex: 1;
+		grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+		align-content: start;
+		gap: 14px 6px;
+		min-height: 0;
+		margin: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 16px;
+		list-style: none;
+		scrollbar-color: var(--scroll-thumb) transparent;
+	}
+
+	/* An item: tile above its label (the look of the desktop icons, without depending on them) */
+	.catalog-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 5px;
+		width: 100%;
+		padding: 4px 2px;
+		color: var(--text);
+
+		.tile {
+			--tile: 56px;
+			outline: 3px solid transparent;
+			outline-offset: 2px;
+			transition: outline-color 0.1s;
+		}
+
+		&:focus-visible {
+			outline: none;
+
+			.catalog-label {
+				outline: 2px solid var(--focus);
+			}
+		}
+
+		&.is-selected {
+			.tile {
+				outline-color: rgb(var(--ink) / 0.28);
+			}
+
+			.catalog-label {
+				background: var(--accent);
+				color: var(--on-accent);
+			}
+		}
+	}
+
+	.catalog-label {
+		max-width: 100%;
+		padding: 1px 5px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.3;
+		text-align: center;
+		/* Words break at hyphenation points (html[lang] is set), never mid-word unless one alone is too wide */
+		overflow-wrap: break-word;
+		-webkit-hyphens: auto;
+		hyphens: auto;
+	}
+
+	.catalog-empty {
+		grid-column: 1 / -1;
+		padding: 40px 0;
+		color: var(--text-3);
+		text-align: center;
+	}
+
+	.catalog-status {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 34px;
+		padding: 5px 12px;
+		border-block-start: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		color: var(--text-2);
+		font-size: 12px;
+
+		b {
+			color: var(--text);
+		}
+	}
+
+	.catalog-desc {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+}
+
+@layer compact {
+	/* Phones: groups as a row of chips above the grid */
+	body.compact {
+		.catalog {
+			flex-direction: column;
+		}
+
+		.catalog-side {
+			width: auto;
+			overflow-x: auto;
+			overflow-y: hidden;
+			padding: 8px;
+			border-inline-end: 0;
+			border-block-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+			scrollbar-width: none;
+
+			ul {
+				display: flex;
+				gap: 6px;
+			}
+		}
+
+		.catalog-count {
+			display: none;
+		}
+
+		.catalog-cat {
+			padding: 6px 12px;
+			border-radius: 999px;
+			background: rgb(var(--ink) / 0.06);
+			font-size: 14px;
+			white-space: nowrap;
+		}
+
+		.catalog-search {
+			max-width: none;
+			height: 36px;
+		}
+
+		/* 16px keeps iOS from zooming into the field */
+		.catalog-input {
+			font-size: 16px;
+		}
+
+		.catalog-extra-label {
+			display: none;
+		}
+
+		.catalog-extra {
+			padding: 8px 10px;
+		}
+
+		.catalog-grid {
+			grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+			padding: 12px 8px;
+		}
+
+		.catalog-status {
+			flex-wrap: wrap;
+			font-size: 13px;
+		}
+	}
+}

@@ -1,0 +1,222 @@
+/* JPKCom Desktop — dock: glass bar, labels, running dots, sizes, magnification, reordering, bounce — © Jean Pierre Kolb — MIT License
+
+   Markup: nav#dock.dock > ul#dock-list.dock-list > li > button.dock-item[data-app] > .tile + .dock-label + .dock-dot
+           li.dock-sep between the apps and the links.
+   Body classes: dock-small, dock-large, dock-magnify (stored preferences), dock-dragging.
+   --n on #dock: the number of items (phones size the tiles by it). */
+
+@layer shell {
+
+	.dock {
+		position: absolute;
+		left: 50%;                             /* centred: the same in both directions */
+		bottom: calc(6px + env(safe-area-inset-bottom));
+		z-index: var(--z-dock);
+		max-width: calc(100% - 12px);
+		translate: -50% 0;
+		padding: 5px;
+		border-radius: 20px;
+		background: var(--dock-bg);
+		-webkit-backdrop-filter: blur(24px) saturate(1.6);
+		backdrop-filter: blur(24px) saturate(1.6);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.4 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 30px rgb(0 0 0 / calc(0.3 * var(--shade)));
+
+		/* Empty (nothing registered yet): no glass pill */
+		&:not(:has(.dock-item)) {
+			visibility: hidden;
+		}
+
+		/* Installed app (body.standalone): no browser bar below, so the dock sits just above
+		   the home indicator like the system's own (iPhone 34px inset → 17px, iPad 20px → 13px) */
+		.standalone & {
+			bottom: calc(6px + env(safe-area-inset-bottom) / 3);
+		}
+	}
+
+	.dock-list {
+		display: flex;
+		align-items: flex-end;
+		gap: 5px;
+	}
+
+	.dock-sep {
+		align-self: stretch;
+		width: 1px;
+		margin: 4px;
+		background: var(--line-strong);
+	}
+
+	.dock-item {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+
+		.tile {
+			transition: transform 0.18s var(--ease);
+			transform-origin: 50% 100%;
+		}
+
+		.dock-label {
+			position: absolute;
+			bottom: calc(100% + 14px);
+			padding: 3px 10px;
+			border-radius: 6px;
+			background: var(--glass-strong);
+			box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 4px 12px rgb(0 0 0 / calc(0.35 * var(--shade)));
+			color: var(--text);
+			font-size: 12px;
+			white-space: nowrap;
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity 0.12s;
+		}
+
+		.dock-dot {
+			width: 4px;
+			height: 4px;
+			margin-top: 2px;
+			border-radius: 50%;
+			background: transparent;
+		}
+
+		&.is-running .dock-dot {
+			background: rgb(var(--ink) / 0.85);
+		}
+
+		&.is-bounce .tile {
+			animation: dock-bounce 0.6s var(--ease) 2;
+		}
+
+		&:focus-visible {
+			outline: none;
+
+			.tile {
+				outline: 2px solid var(--focus);
+				outline-offset: 2px;
+			}
+
+			.dock-label {
+				opacity: 1;
+				visibility: visible;
+			}
+		}
+	}
+
+	@media (hover: hover) {
+
+		.dock-item:hover {
+
+			.tile {
+				transform: translateY(-6px) scale(1.14);
+			}
+
+			.dock-label {
+				opacity: 1;
+				visibility: visible;
+			}
+		}
+
+		/* Magnification: the tile under the pointer grows, its neighbours a little */
+		body.dock-magnify:not(.compact) .dock-list {
+
+			li:hover .tile {
+				transform: translateY(-14px) scale(1.55);
+			}
+
+			li:has(+ li:hover) .tile,
+			li:hover + li .tile {
+				transform: translateY(-5px) scale(1.25);
+			}
+
+			.dock-label {
+				bottom: calc(100% + 46px);
+			}
+		}
+
+		/* …and makes room: each grown item gets the width it gained as margin (half on each side),
+		   so its neighbours and the separator move aside instead of being drawn over.
+		   Not while reordering: dock.js measures the items then. */
+		body.dock-magnify:not(.compact, .dock-dragging) .dock-list {
+
+			> li {
+				transition: margin-inline 0.18s var(--ease);
+			}
+
+			> li:not(.dock-sep):hover {
+				margin-inline: calc(var(--tile) * 0.275);
+			}
+
+			> li:not(.dock-sep):has(+ li:hover),
+			> li:hover + li:not(.dock-sep) {
+				margin-inline: calc(var(--tile) * 0.125);
+			}
+		}
+	}
+
+	/* Dock size (settings; phones size the dock themselves) */
+	body:not(.compact) {
+
+		&.dock-small .dock {
+			--tile: 42px;
+		}
+
+		&.dock-large .dock {
+			--tile: 64px;
+		}
+	}
+
+	/* Reordering by drag: the moved tile floats a little, labels and hover stay quiet */
+	.dock-list > li.is-dragging .tile {
+		opacity: 0.75;
+		transform: translateY(-8px) scale(1.08);
+	}
+
+	/* .dock-item in the selector: it must outweigh the focus rule that shows the label */
+	body.dock-dragging {
+		cursor: grabbing;
+
+		.dock-item .dock-label {
+			visibility: hidden;
+		}
+	}
+
+	@keyframes dock-bounce {
+		0%, 100% { translate: 0 0; }
+		40% { translate: 0 var(--bounce, -14px); }
+	}
+}
+
+@layer compact {
+
+	/* Dock tiles shrink with the item count (--n, set by dock.js),
+	   and the dock scrolls sideways only below 36px */
+	body.compact {
+
+		.dock {
+			--tile: max(36px, min(clamp(40px, min(12.5vw, 11vh), 54px), (100vw - 34px - (var(--n, 6) - 1) * 6px) / var(--n, 6)));
+			max-width: calc(100% - 12px - env(safe-area-inset-left) - env(safe-area-inset-right));
+			overflow-x: auto;
+			overscroll-behavior-x: contain;
+			scrollbar-width: none;
+			border-radius: 18px;
+
+			&::-webkit-scrollbar {
+				display: none;
+			}
+		}
+
+		.dock-list {
+			gap: 6px;
+		}
+
+		.dock-item:hover .tile {
+			transform: none;
+		}
+
+		.dock-label {
+			display: none;
+		}
+	}
+}

@@ -1,0 +1,78 @@
+/* JPKCom Desktop — drop zone: the overlay while files are dragged onto the desktop — © Jean Pierre Kolb — MIT License
+
+   Markup: div.dropzone[aria-hidden] (.is-on, .is-msg: a short message instead) >
+             .dropzone-box > svg.dropzone-icon + p.dropzone-title + p.dropzone-sub
+   Above windows, dock and banners, below menus. */
+
+@layer shell {
+
+	.dropzone {
+		position: absolute;
+		inset: var(--mb-total) 0 0;
+		z-index: var(--z-dropzone);
+		display: grid;
+		place-items: center;
+		padding: 12px;
+		color: var(--text);
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity var(--dur) var(--ease);
+
+		&::before {
+			content: "";
+			position: absolute;
+			inset: 12px;
+			border: 2px dashed var(--line-strong);
+			border-radius: 12px;
+			background: var(--overlay);
+		}
+
+		&.is-on {
+			opacity: 1;
+		}
+
+		&.is-msg::before {
+			border-color: transparent;
+			background: none;
+		}
+	}
+
+	.dropzone-box {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+		max-width: min(420px, 100%);
+		padding: 22px 28px;
+		border-radius: 12px;
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: blur(30px) saturate(1.8);
+		backdrop-filter: blur(30px) saturate(1.8);
+		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 14px 36px rgb(0 0 0 / calc(0.5 * var(--shade)));
+		text-align: center;
+
+		p {
+			margin: 0;
+		}
+	}
+
+	.dropzone-icon {
+		margin-bottom: 8px;
+		color: var(--reader-link);
+		font-size: 36px;
+	}
+
+	.dropzone-title {
+		font-size: 15px;
+		font-weight: 700;
+	}
+
+	.dropzone-sub {
+		color: var(--text-2);
+
+		&:empty {
+			display: none;
+		}
+	}
+}

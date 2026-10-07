@@ -1,0 +1,173 @@
+/* JPKCom Desktop — settings window: sidebar of sections, rows, accent picker — © Jean Pierre Kolb — MIT License
+
+   The row components (.set-row, .set-label, .set-value, .set-intro, .set-actions,
+   .set-confirm, .seg, .swatches, .switch, .check) live in src/css/components.css;
+   this file lays out the window. */
+
+@layer panels {
+
+	.settings {
+		display: flex;
+		height: 100%;
+		min-height: 0;
+	}
+
+	.set-side {
+		flex: none;
+		width: 200px;
+		padding: 10px 8px;
+		overflow-y: auto;
+		border-inline-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: var(--line);
+
+		ul {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+		}
+	}
+
+	.set-cat {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 5px 8px;
+		border-radius: 6px;
+		color: var(--text-2);
+		text-align: start;
+
+		.tile {
+			--tile: 22px;
+			flex: none;
+			box-shadow: none;
+		}
+
+		&:hover {
+			background: var(--line);
+		}
+
+		&[aria-current="true"] {
+			background: var(--line-strong);
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	/* Forced colours drop the background of the current section: the system's highlight marks it */
+	@media (forced-colors: active) {
+
+		.set-cat[aria-current="true"] {
+			forced-color-adjust: none;
+			background: Highlight;
+			color: HighlightText;
+		}
+	}
+
+	.set-main {
+		flex: 1;
+		min-width: 0;
+		overflow-y: auto;
+		padding: 18px 24px 24px;
+		color: var(--text-2);
+		-webkit-user-select: text;
+		user-select: text;
+
+		h2 {
+			margin: 0 0 12px;
+			color: var(--text);
+			font-size: 18px;
+		}
+	}
+
+	/* A list choice (more than three languages, places of an online service, …) */
+	.set-select {
+		flex: none;
+		max-width: 50%;
+		height: 30px;
+		padding: 0 8px;
+		border: 1px solid var(--line-strong);
+		border-radius: 7px;
+		background: rgb(var(--ink) / 0.08);
+		color: var(--text);
+		font: 13px var(--font);
+
+		/* The opened list is drawn by the OS; options get explicit colours */
+		option {
+			background: var(--win-bar);
+			color: var(--text);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 1px;
+		}
+	}
+
+	/* Accent: the swatches plus the picker of a custom colour */
+	.set-accents {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+	}
+
+	/* The custom swatch: a ring of colours around the chosen one */
+	.set-custom-accent span {
+		background: radial-gradient(circle, var(--c) 0 52%, transparent 54%),
+			conic-gradient(var(--t-pink), var(--t-orange), var(--t-green), var(--t-teal), var(--t-blue), var(--t-violet));
+	}
+
+	.set-color {
+		width: 34px;
+		height: 26px;
+		padding: 2px;
+		border: 1px solid var(--line-strong);
+		border-radius: 7px;
+		background: rgb(var(--ink) / 0.06);
+		cursor: pointer;
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 2px;
+		}
+	}
+}
+
+@layer compact {
+
+	/* Phones: the sections become chips above the content */
+	body.compact {
+
+		.settings {
+			flex-direction: column;
+		}
+
+		.set-side {
+			width: auto;
+			overflow-x: auto;
+			overflow-y: hidden;
+			border-inline-end: 0;
+			border-block-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+			scrollbar-width: none;
+
+			ul {
+				flex-direction: row;
+			}
+		}
+
+		.set-cat {
+			font-size: 14px;
+			white-space: nowrap;
+		}
+
+		.set-accents {
+			justify-content: flex-start;
+		}
+	}
+}

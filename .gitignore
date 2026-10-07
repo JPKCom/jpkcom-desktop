@@ -1,0 +1,19 @@
+# JPKCom Desktop — files that never belong in the repository
+
+# Development dependencies only (@tabler/icons for tools/build-icons.mjs; playwright-core for
+# tools/browser-check.mjs and tools/build-pwa-icons.mjs). Nothing is needed at runtime;
+# src/icons/tabler.js is committed.
+node_modules/
+
+# Sealed private bookmarks are per deployment and must never be published.
+# The folder itself stays (site/vault/.gitkeep); keep your plaintext source outside the repository.
+site/vault/*.bin
+site/vault/*.json
+
+# Editors, OS, logs
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp

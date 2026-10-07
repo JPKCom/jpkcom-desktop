@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- JPKCom Desktop — example web demo: contrast checker — © Jean Pierre Kolb — MIT License -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kontrastprüfer</title>
+<link rel="alternate" hreflang="en" href="index.html">
+<link rel="stylesheet" href="demo.css">
+<script src="demo.js" defer></script>
+</head>
+<body>
+<main class="demo">
+<h1>Kontrastprüfer</h1>
+<p class="intro">Wähle eine Textfarbe und einen Hintergrund: Das Verhältnis zeigt, ob sich das Paar gut lesen lässt (WCAG 2).</p>
+<form id="form" class="pickers">
+<div class="pick">
+<label for="fg">Textfarbe</label>
+<input type="color" id="fg" value="#1c2935">
+<input type="text" id="fg-hex" value="#1c2935" aria-label="Textfarbe (Hex-Wert)" spellcheck="false" autocomplete="off">
+</div>
+<div class="pick">
+<label for="bg">Hintergrund</label>
+<input type="color" id="bg" value="#ffffff">
+<input type="text" id="bg-hex" value="#ffffff" aria-label="Hintergrund (Hex-Wert)" spellcheck="false" autocomplete="off">
+</div>
+<button type="button" id="swap">Farben tauschen</button>
+</form>
+<div id="sample" class="sample">
+<p class="big">Großer Text, 24 Pixel</p>
+<p>Normaler Text braucht mehr Kontrast als großer oder fetter Text.</p>
+</div>
+<p class="ratio"><output id="ratio" aria-live="polite" data-format="Kontrast {ratio} : 1"></output></p>
+<ul id="checks" class="checks" data-pass="Bestanden" data-fail="Nicht bestanden">
+<li data-min="4.5"><span>AA — normaler Text (4,5 : 1)</span><span class="state"></span></li>
+<li data-min="3"><span>AA — großer Text (3 : 1)</span><span class="state"></span></li>
+<li data-min="7"><span>AAA — normaler Text (7 : 1)</span><span class="state"></span></li>
+<li data-min="4.5"><span>AAA — großer Text (4,5 : 1)</span><span class="state"></span></li>
+</ul>
+<p class="note">Eine Web-Demo der Beispiel-Website: eine HTML-Seite, ein Skript und ein Stylesheet — kein Inline-Code, wie es die Content Security Policy verlangt.</p>
+</main>
+</body>
+</html>

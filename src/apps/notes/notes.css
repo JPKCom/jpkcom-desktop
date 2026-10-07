@@ -1,0 +1,227 @@
+/* JPKCom Desktop — Notes app: list beside the text; list or text on phones — © Jean Pierre Kolb — MIT License
+
+   The search field is the shared .field component (components.css). .notes is
+   an inline-size container: in a window narrower than 460px the list and the
+   text take turns (.is-detail, back button) as on phones. */
+
+@layer apps {
+
+	.notes {
+		display: flex;
+		height: 100%;
+		container: notes / inline-size;
+	}
+
+	.notes-side {
+		display: flex;
+		flex: none;
+		flex-direction: column;
+		width: 240px;
+		border-inline-end: 1px solid rgb(0 0 0 / calc(0.35 * var(--shade)));
+		background: rgb(var(--ink) / 0.03);
+	}
+
+	.notes-search.field {
+		flex: none;
+		max-width: none;
+		margin: 10px 10px 6px;
+	}
+
+	.notes-list {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 4px 8px 10px;
+		scrollbar-color: var(--scroll-thumb) transparent;
+	}
+
+	.notes-item {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		width: 100%;
+		padding: 8px 10px;
+		border-radius: 8px;
+		text-align: start;
+
+		&:hover {
+			background: rgb(var(--ink) / 0.06);
+		}
+
+		&[aria-current="true"] {
+			background: rgb(var(--ink) / 0.13);
+		}
+	}
+
+	.notes-title {
+		overflow: hidden;
+		font-weight: 600;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.notes-sub {
+		display: flex;
+		gap: 8px;
+		color: var(--text-2);
+		font-size: 12px;
+		white-space: nowrap;
+	}
+
+	.notes-date {
+		flex: none;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.notes-preview {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.notes-empty {
+		padding: 30px 10px;
+		color: var(--text-3);
+		text-align: center;
+	}
+
+	.notes-main {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.notes-head {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		min-height: 30px;
+		padding: 6px 12px 0;
+	}
+
+	.notes-back {
+		display: none;
+		place-items: center;
+		width: 34px;
+		height: 34px;
+		margin-inline-end: auto;
+		border-radius: 8px;
+		color: var(--text-2);
+		font-size: 18px;
+	}
+
+	/* The back arrow points to the start of the line */
+	:root[dir="rtl"] .notes-back svg {
+		scale: -1 1;
+	}
+
+	.notes-meta {
+		margin: 0;
+		color: var(--text-3);
+		font-size: 12px;
+
+		&.is-warn {
+			color: var(--warn);
+		}
+	}
+
+	.notes-text {
+		flex: 1;
+		min-height: 0;
+		margin: 0;
+		padding: 10px 22px 22px;
+		border: 0;
+		outline: 0;
+		resize: none;
+		background: none;
+		color: var(--reader-text);
+		font: 15px/1.6 var(--font);
+		overscroll-behavior: contain;
+		scrollbar-color: var(--scroll-thumb) transparent;
+		-webkit-user-select: text;
+		user-select: text;
+		caret-color: var(--text);
+
+		&::placeholder {
+			color: var(--text-3);
+		}
+	}
+
+	/* A narrow window: list or text, as on phones */
+	@container notes (max-width: 459px) {
+
+		.notes-side {
+			width: 100%;
+			border-inline-end: 0;
+		}
+
+		.notes-main {
+			display: none;
+		}
+
+		.notes.is-detail {
+
+			.notes-side {
+				display: none;
+			}
+
+			.notes-main {
+				display: flex;
+			}
+		}
+
+		.notes-back {
+			display: grid;
+		}
+
+		.notes-head {
+			justify-content: flex-start;
+		}
+
+		.notes-text {
+			padding-inline: 16px;
+		}
+	}
+}
+
+@layer compact {
+
+	body.compact {
+
+		/* 16px keeps iOS from zooming into the field */
+		.notes-text {
+			padding: 8px 16px 20px;
+			font-size: 16px;
+		}
+
+		.notes-side {
+			width: 100%;
+			border-inline-end: 0;
+		}
+
+		.notes-main {
+			display: none;
+		}
+
+		.notes.is-detail {
+
+			.notes-side {
+				display: none;
+			}
+
+			.notes-main {
+				display: flex;
+			}
+		}
+
+		.notes-back {
+			display: grid;
+		}
+
+		.notes-head {
+			justify-content: flex-start;
+		}
+	}
+}

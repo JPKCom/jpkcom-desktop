@@ -1,0 +1,47 @@
+/* JPKCom Desktop — public holidays: the holiday list in the calendar — © Jean Pierre Kolb — MIT License
+
+   The days themselves are marked by the calendar (.cal-grid .is-holiday in
+   src/modules/calendar/calendar.css); this is the list under the month. */
+
+@layer modules {
+
+	.cal-hols {
+		margin-block-start: 8px;
+		padding-block-start: 8px;
+		border-block-start: 1px solid var(--line);
+
+		ul {
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+
+		li {
+			display: grid;
+			grid-template-columns: 58px 1fr;
+			gap: 8px;
+			padding: 3px 6px;
+			border-radius: 6px;
+
+			&.is-today {
+				background: rgb(var(--ink) / 0.08);
+			}
+		}
+
+		time {
+			color: var(--cal-weekend);
+			font-variant-numeric: tabular-nums;
+		}
+
+		.cal-hols-name {
+			display: flex;
+			flex-direction: column;
+			color: var(--text);
+
+			small {
+				color: var(--text-2);
+				font-size: 11px;
+			}
+		}
+	}
+}

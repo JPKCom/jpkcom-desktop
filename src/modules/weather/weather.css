@@ -1,0 +1,149 @@
+/* JPKCom Desktop — weather: menu bar button and calendar section — © Jean Pierre Kolb — MIT License
+
+   The look of .mb-item itself belongs to the menu bar (shell); here only
+   what the weather adds. The calendar section reuses .cal-head, .cal-btn and
+   .cal-sub from src/modules/calendar/calendar.css. */
+
+@layer modules {
+
+	/* Weather next to the clock, menu bar order 85 (off until the site offers it and the user agrees) */
+	.mb-weather {
+		gap: 5px;
+		font-variant-numeric: tabular-nums;
+
+		.i {
+			font-size: 15px;
+		}
+
+		&:hover {
+			background: rgb(var(--ink) / 0.12);
+		}
+	}
+
+	/* Today's weather, between the holidays and the news */
+	.cal-weather {
+		margin-block-start: 10px;
+		padding-block-start: 8px;
+		border-block-start: 1px solid var(--line);
+
+		.cal-head {
+			margin: 0 0 2px;
+		}
+
+		.cal-sub {
+			flex: 1;
+			min-width: 0;
+			margin: 0 6px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.btn {
+			margin: 2px 6px 4px;
+		}
+
+		a {
+			color: inherit;
+			text-decoration: underline;
+			text-decoration-color: var(--line-strong);
+			text-underline-offset: 2px;
+
+			&:hover {
+				color: var(--text);
+			}
+		}
+
+		abbr {
+			text-decoration: none;
+		}
+	}
+
+	.cal-wx-note {
+		margin: 4px 6px 6px;
+		color: var(--text-2);
+	}
+
+	.cal-wx-now {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 2px 6px 6px;
+	}
+
+	.cal-wx-icon {
+		flex: none;
+		font-size: 34px;
+		color: var(--text);
+	}
+
+	.cal-wx-temp {
+		flex: none;
+		color: var(--text);
+		font-size: 30px;
+		font-weight: 300;
+		font-variant-numeric: tabular-nums;
+		line-height: 1;
+	}
+
+	.cal-wx-cond {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		color: var(--text);
+		font-weight: 600;
+
+		small {
+			display: flex;
+			flex-wrap: wrap;
+			column-gap: 8px;
+			color: var(--text-2);
+			font-size: 12px;
+			font-weight: 400;
+		}
+	}
+
+	.cal-wx-hours {
+		display: grid;
+		grid-template-columns: repeat(6, 1fr);
+		margin: 0 2px;
+		padding: 6px 0;
+		border-radius: 8px;
+		background: rgb(var(--ink) / 0.05);
+		font-variant-numeric: tabular-nums;
+		list-style: none;
+		text-align: center;
+
+		li {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 3px;
+		}
+
+		time {
+			color: var(--text-2);
+			font-size: 11px;
+		}
+
+		.i {
+			font-size: 17px;
+		}
+	}
+
+	.cal-wx-deg {
+		color: var(--text);
+		font-weight: 600;
+	}
+
+	.cal-wx-pop {
+		color: var(--cal-week);
+		font-size: 11px;
+	}
+
+	.cal-wx-foot {
+		margin: 6px 6px 2px;
+		color: var(--text-2);
+		font-size: 11px;
+	}
+}

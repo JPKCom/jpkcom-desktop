@@ -1,0 +1,213 @@
+/* JPKCom Desktop — Terminal app styles: an always-dark shell (dark island) — © Jean Pierre Kolb — MIT License
+
+   .term carries data-island="dark", so it keeps the dark token values in the
+   light theme as well. Colours only from tokens (src/css/tokens.css):
+   --reader-code-bg / --reader-text (ground and text), --term-user (prompt,
+   logo, ✓), --term-error, --reader-link, --cal-weekend (holidays). */
+
+@layer apps {
+
+	.term {
+		block-size: 100%;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 10px 14px 14px;
+		background: var(--reader-code-bg);
+		color: var(--reader-text);
+		font: 13px/1.5 var(--font-mono);
+		-webkit-user-select: text;
+		user-select: text;
+		scrollbar-color: var(--scroll-code-thumb) var(--reader-code-bg);
+		cursor: text;
+
+		&:focus {
+			outline: none;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: -2px;
+		}
+	}
+
+	.term-row {
+		min-block-size: 1.5em;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+
+		&.term-pre {
+			white-space: pre;
+			overflow-wrap: normal;
+		}
+
+		&.term-h {
+			color: var(--text);
+			font-weight: 700;
+		}
+
+		&.term-dim {
+			color: var(--text-3);
+		}
+
+		&.term-err,
+		&.term-error {
+			color: var(--term-error);
+		}
+
+		/* browser: a long value wraps under its own column (--kv = key width, set per row) */
+		&.term-kv {
+			padding-inline-start: var(--kv, 0);
+			text-indent: calc(-1 * var(--kv, 0));
+		}
+
+		/* man: sections indented, wrapped lines too */
+		&.term-indent {
+			padding-inline-start: 4ch;
+		}
+
+		&.term-block {
+			color: var(--text-2);
+		}
+
+		/* neofetch: block letters need a tight line to join up */
+		&.term-art {
+			min-block-size: 0;
+			line-height: 1.2;
+		}
+	}
+
+	.term-user {
+		color: var(--term-user);
+		font-weight: 600;
+	}
+
+	.term-path {
+		color: var(--reader-link);
+		font-weight: 600;
+	}
+
+	.term-key {
+		color: var(--text);
+	}
+
+	.term-logo {
+		color: var(--term-user);
+	}
+
+	/* neofetch: the art lies over a run of spaces, so the info column always starts at the
+	   same place even when the block glyphs come from a fallback font with other widths */
+	.term-art-col {
+		position: relative;
+
+		.term-logo {
+			position: absolute;
+			inset-block-start: 0;
+			inset-inline-start: 0;
+		}
+	}
+
+	.term-link {
+		color: var(--reader-link);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
+
+		&:is(button) {
+			padding: 0;
+			border: 0;
+			background: none;
+			font: inherit;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus);
+			outline-offset: 1px;
+			border-radius: 2px;
+		}
+	}
+
+	.term-code {
+		padding: 0 3px;
+		border-radius: 3px;
+		background: var(--line);
+		font: inherit;
+	}
+
+	/* browser: interfaces the browser has (✓) or lacks (✗) */
+	.term-yes {
+		color: var(--term-user);
+	}
+
+	.term-no {
+		color: var(--text-3);
+	}
+
+	.term-today {
+		background: var(--reader-text);
+		color: var(--reader-code-bg);
+	}
+
+	.term-holiday {
+		color: var(--cal-weekend);
+	}
+
+	.term-today.term-holiday {
+		background: var(--cal-weekend);
+		color: var(--reader-code-bg);
+	}
+
+	/* neofetch: the tint palette as small tiles */
+	.tile.term-swatch {
+		display: inline-block;
+		inline-size: 3ch;
+		block-size: 1.1em;
+		margin-inline-end: 2px;
+		border-radius: 3px;
+		box-shadow: none;
+		font-size: inherit;
+		vertical-align: middle;
+	}
+
+	.term-line {
+		display: flex;
+		align-items: baseline;
+		white-space: pre;
+	}
+
+	.term-input {
+		flex: 1;
+		min-inline-size: 0;
+		padding: 0;
+		border: 0;
+		outline: 0;
+		background: none;
+		color: var(--text);
+		font: inherit;
+		caret-color: var(--term-user);
+	}
+
+	/* rm -rf / */
+	.win.term-shake {
+		animation: term-shake 0.45s var(--ease);
+	}
+
+	@keyframes term-shake {
+		0%, 100% { translate: 0 0; }
+		20%, 60% { translate: -9px 0; }
+		40%, 80% { translate: 9px 0; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.win.term-shake {
+			animation: none;
+		}
+	}
+}
+
+@layer compact {
+
+	/* 16px keeps mobile browsers from zooming into the prompt */
+	body.compact .term-input {
+		font-size: 16px;
+	}
+}

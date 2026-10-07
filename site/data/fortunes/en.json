@@ -1,0 +1,62 @@
+{
+	"lang": "en",
+	"by": "JPKCom",
+	"categories": {
+		"desktop": "Desktop",
+		"keys": "Keyboard",
+		"web": "Web development",
+		"a11y": "Accessibility",
+		"fun": "Just for fun"
+	},
+	"items": [
+		{ "cat": "desktop", "text": "Double-click a window's title bar to zoom it. Double-click again and it returns to its old size." },
+		{ "cat": "desktop", "text": "Drag a window against the left or right edge of the screen and it fills that half. Drag it away to set it free again." },
+		{ "cat": "desktop", "text": "Rest the pointer on a window's zoom button for a moment: a small menu offers left half, right half, full size and both side by side." },
+		{ "cat": "desktop", "text": "Right-click a window's title bar for its layout options — minimise, zoom, left or right half." },
+		{ "cat": "desktop", "text": "The desktop remembers your windows. Close the tab, come back tomorrow, and everything is where you left it." },
+		{ "cat": "desktop", "text": "Right-click an app in the Dock and choose “Keep in Dock” — or drag your favourites into the order you like." },
+		{ "cat": "desktop", "text": "Deleted notes and tasks wait in the trash for 30 days. Changed your mind? Put them back." },
+		{ "cat": "desktop", "text": "Drop a text file onto the desktop and it opens in the editor. A picture opens in the image viewer." },
+		{ "cat": "desktop", "text": "Every wallpaper motif is drawn by your browser — nothing to download, sharp on every screen." },
+		{ "cat": "desktop", "text": "Light or dark, blue or green: Settings → Appearance changes the mode and the accent colour." },
+		{ "cat": "desktop", "text": "The best time for a backup was yesterday. The second best is now: Settings → Data → Backup saves notes, tasks and preferences in one file." },
+		{ "cat": "desktop", "text": "On a phone the desktop folds into one window at a time — the same apps, made for your thumb." },
+
+		{ "cat": "keys", "text": "Ctrl+K — or ⌘K on keyboards that have it — opens the search: apps, bookmarks, pages and more.", "url": "site/content/en/docs/keyboard.html" },
+		{ "cat": "keys", "text": "F3 shows all open windows side by side. Pick one with the arrow keys and press Enter.", "url": "site/content/en/docs/keyboard.html" },
+		{ "cat": "keys", "text": "Ctrl and the key to the left of 1 switch to the next window. Add Shift to go the other way." },
+		{ "cat": "keys", "text": "In the menu bar the arrow keys move between the menus and through their entries. No mouse needed." },
+		{ "cat": "keys", "text": "Esc closes an open menu and puts the focus back where it came from." },
+		{ "cat": "keys", "text": "In the editor, Alt+Z turns word wrap on and off." },
+		{ "cat": "keys", "text": "Here, Space or N shows the next fortune and the left arrow goes back — twenty steps at most." },
+		{ "cat": "keys", "text": "Ctrl+C without a text selection copies the fortune you are reading. The calculator does the same with its result." },
+		{ "cat": "keys", "text": "Shift+F10 or the context menu key opens the context menu of whatever has the focus." },
+
+		{ "cat": "web", "text": "Not a single node of this desktop is built with innerHTML. That is why a strict Content Security Policy costs it nothing." },
+		{ "cat": "web", "text": "Native ES modules need no bundler: the browser loads exactly the files a page imports, and nothing else." },
+		{ "cat": "web", "text": "Logical CSS properties such as margin-inline-start make a layout work in right-to-left languages — without a second stylesheet." },
+		{ "cat": "web", "text": "Plurals are not “add an s”. Intl.PluralRules knows that some languages have three, four or six forms." },
+		{ "cat": "web", "text": "A version in the file name plus Cache-Control: immutable — and returning visitors never download a file twice." },
+		{ "cat": "web", "text": "A JSON Feed is just JSON. If you can write an object, you can publish a feed — this desktop reads one for its notifications." },
+		{ "cat": "web", "text": "Static files on a good web server are hard to beat: fast, cheap, and nothing to patch at three in the morning." },
+		{ "cat": "web", "text": "Treat everything you read back from storage as a stranger. Today's bug report often starts with yesterday's data." },
+		{ "cat": "web", "text": "Want another language? Copy the locales/en folder, translate the texts, add the code to the configuration. That is all.", "url": "site/content/en/docs/configuration.html" },
+
+		{ "cat": "a11y", "text": "Every button here that shows only an icon has a name for screen readers. A tooltip alone is not a label." },
+		{ "cat": "a11y", "text": "Colour never carries a message on its own: an error also gets words." },
+		{ "cat": "a11y", "text": "Normal text needs a contrast of at least 4.5 to 1 against its background. Try a pair of colours in the contrast checker.", "url": "site/content/demos/contrast/" },
+		{ "cat": "a11y", "text": "Headings are the table of contents for people who listen to a page. Use them in order." },
+		{ "cat": "a11y", "text": "prefers-reduced-motion is a request, not a suggestion. This desktop skips its animations when you ask for it." },
+		{ "cat": "a11y", "text": "Focus should never get lost: when a window closes, it moves to the next one." },
+		{ "cat": "a11y", "text": "“Click here” tells nobody where a link goes. Good link texts make sense on their own." },
+
+		{ "cat": "fun", "text": "This fortune cookie has no calories and leaves no crumbs in your keyboard." },
+		{ "cat": "fun", "text": "The trash empties itself after 30 days. If only the inbox would do the same." },
+		{ "cat": "fun", "text": "Why did the developer keep the calculator in the Dock? Because in the end, everything has to add up." },
+		{ "cat": "fun", "text": "Lorem ipsum is not a language. We checked — it is not in the locales folder either." },
+		{ "cat": "fun", "text": "A window walks into a Dock. The Dock asks: why so minimised today?" },
+		{ "cat": "fun", "text": "There is no cloud. There is only someone else's computer — and this one, right here in your browser." },
+
+		{ "text": "JPKCom Desktop is free software under the MIT License: read it, change it, run it on your own site.", "url": "site/content/en/about.html" }
+	]
+}

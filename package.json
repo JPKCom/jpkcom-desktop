@@ -1,0 +1,33 @@
+{
+	"name": "jpkcom-desktop",
+	"version": "1.0.0",
+	"description": "A desktop-style web interface in vanilla JavaScript: windows, menu bar, dock and apps in the browser. No build step, no runtime dependencies, strict CSP.",
+	"type": "module",
+	"private": true,
+	"license": "MIT",
+	"author": "Jean Pierre Kolb (https://www.jpkc.com/)",
+	"homepage": "https://github.com/JPKCom/jpkcom-desktop",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/JPKCom/jpkcom-desktop.git"
+	},
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"serve": "node tools/serve.mjs",
+		"icons": "node tools/build-icons.mjs",
+		"icons:check": "node tools/build-icons.mjs --check",
+		"i18n:check": "node tools/i18n-check.mjs",
+		"test": "node --test \"tests/*.test.mjs\"",
+		"check:browser": "node tools/browser-check.mjs",
+		"validate": "node tools/validate-manifest.mjs",
+		"validate:strict": "node tools/validate-manifest.mjs --strict",
+		"seal": "node tools/seal-vault.mjs",
+		"icons:pwa": "node tools/build-pwa-icons.mjs"
+	},
+	"devDependencies": {
+		"@tabler/icons": "^3.49.0",
+		"playwright-core": "^1.63.0"
+	}
+}
