@@ -4,6 +4,11 @@
 
 **A desktop-style web interface in plain JavaScript: windows, a menu bar, a dock and apps, in the browser.**
 
+**[Live demo](https://jpkcom.github.io/jpkcom-desktop/)** ·
+**[Your own site in 10 minutes](docs/quickstart.md)** ·
+**Use this template** (the button at the top of the
+[repository page](https://github.com/JPKCom/jpkcom-desktop)) to start your own copy.
+
 JPKCom Desktop turns a website into a desktop built on the classic desktop metaphor. Pages open in
 windows that can be moved, snapped to an edge and restored on the next visit. A menu bar, a dock, desktop
 icons, an "All apps" grid and a quick search lead to the content. The project includes an editor, notes,
@@ -102,6 +107,11 @@ banners from a JSON Feed per language; and the **vault**, encrypted private book
 | ![Settings](docs/screenshots/settings.png) | ![Phone layout](docs/screenshots/mobile.png) |
 
 ## Quick start
+
+**For your own site, start with "Use this template"** on the
+[repository page](https://github.com/JPKCom/jpkcom-desktop): GitHub creates a repository of your own
+with all files, ready to change and to publish on GitHub Pages. Then clone that repository instead of
+this one. [Your own site in 10 minutes](docs/quickstart.md) walks through the five steps from there.
 
 You need Node.js 22 or newer, but only for the tools. The desktop itself is static files.
 
@@ -466,6 +476,15 @@ those folders for you.
 your own code there. Third-party demos belong on another origin, or in a `web` app with
 `sandbox: 'allow-scripts'` (never together with `allow-same-origin`).
 [docs/deploy.md §3](docs/deploy.md#3-at-the-web-root-or-in-a-sub-folder) explains why.
+
+**GitHub Pages.** The workflow `.github/workflows/pages.yml` publishes the site as it is, without a
+build step: the [live demo](https://jpkcom.github.io/jpkcom-desktop/), and your copy of the template at
+`https://<user>.github.io/<repo>/` once you choose "GitHub Actions" as the Pages source and set the
+repository variable `PAGES` to `true`. Unlike the upload list above, it also publishes `docs/` and the
+package and top-level files, which is harmless. Pages cannot send headers, so the workflow adds the policy as a
+`<meta>` tag. That tag cannot carry `frame-ancestors`, and `Permissions-Policy` and the other headers are
+missing. For the full set, use your own server.
+[docs/deploy.md](docs/deploy.md#github-pages) has the details.
 
 ### The Content Security Policy
 

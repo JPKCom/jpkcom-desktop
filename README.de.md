@@ -4,6 +4,11 @@
 
 **Eine Weboberfläche im Stil eines klassischen Desktops, in reinem JavaScript: Fenster, Menüleiste, Dock und Apps im Browser.**
 
+**[Live-Demo](https://jpkcom.github.io/jpkcom-desktop/)** ·
+**[Deine eigene Website in 10 Minuten](docs/quickstart.de.md)** ·
+**Use this template** (die Schaltfläche oben auf der
+[Repository-Seite](https://github.com/JPKCom/jpkcom-desktop)) legt deine eigene Kopie an.
+
 JPKCom Desktop macht aus einer Website einen Desktop nach dem klassischen Schreibtisch-Vorbild. Seiten
 öffnen sich in Fenstern, die du verschieben, an einen Rand andocken und beim nächsten Besuch
 wiederherstellen kannst. Menüleiste, Dock, Symbole auf dem Schreibtisch, „Alle Apps“ und eine
@@ -111,6 +116,12 @@ die sich mit `login` im Terminal öffnen.
 | ![Einstellungen](docs/screenshots/settings.png) | ![Auf dem Smartphone](docs/screenshots/mobile.png) |
 
 ## Schnellstart
+
+**Für deine eigene Website fängst du mit „Use this template“ an** — auf der
+[Repository-Seite](https://github.com/JPKCom/jpkcom-desktop). GitHub legt dir ein eigenes Repository mit
+allen Dateien an, bereit zum Ändern und zum Veröffentlichen auf GitHub Pages. Klone dann dieses
+Repository statt des Originals. [Deine eigene Website in 10 Minuten](docs/quickstart.de.md) führt von
+dort in fünf Schritten weiter.
 
 Du brauchst Node.js 22 oder neuer, allerdings nur für die Werkzeuge. Der Desktop selbst besteht aus
 statischen Dateien.
@@ -488,6 +499,15 @@ gespeicherten Daten lesen. Liefere dort nur deinen eigenen Code aus. Demos von D
 anderen Ursprung oder in eine `web`-App mit `sandbox: 'allow-scripts'` (nie zusammen mit
 `allow-same-origin`). [docs/deploy.md §3](docs/deploy.md#3-at-the-web-root-or-in-a-sub-folder) erklärt,
 warum.
+
+**GitHub Pages.** Der Workflow `.github/workflows/pages.yml` veröffentlicht die Website so, wie sie ist,
+ohne Build-Schritt: die [Live-Demo](https://jpkcom.github.io/jpkcom-desktop/) und deine Kopie der Vorlage
+unter `https://<user>.github.io/<repo>/`, sobald du als Pages-Quelle „GitHub Actions“ wählst und die
+Repository-Variable `PAGES` auf `true` setzt. Anders als die Upload-Liste oben veröffentlicht er auch
+`docs/` sowie die Paket- und Hauptverzeichnisdateien, was unbedenklich ist. Pages kann keine Header senden, deshalb fügt der Workflow
+die Richtlinie als `<meta>`-Tag ein. Dieses Tag kann kein `frame-ancestors` tragen, und
+`Permissions-Policy` und die übrigen Header fehlen. Den vollständigen Satz bekommst du nur mit einem
+eigenen Server. Details stehen in [docs/deploy.md](docs/deploy.md#github-pages).
 
 ### Die Content Security Policy
 

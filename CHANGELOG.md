@@ -10,6 +10,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ## [Unreleased]
 
+### Added
+
+- **Live demo on GitHub Pages** — `.github/workflows/pages.yml` publishes the shipped example site, as
+  it is and without a build step, to <https://jpkcom.github.io/jpkcom-desktop/> on every push to `main`
+  (or when started by hand). GitHub Pages cannot send response headers, so the workflow adds the
+  production Content-Security-Policy as a `<meta>` tag to the published copy of `index.html` (without
+  `frame-ancestors`, which a `<meta>` policy cannot carry). Copies made from the template publish only
+  when they set the repository variable `PAGES` to `true`; otherwise the job is skipped
+  ([`docs/deploy.md`](docs/deploy.md#github-pages)).
+- **Quickstart "Your own site in 10 minutes"** — five steps from the template to a published site, in
+  English ([`docs/quickstart.md`](docs/quickstart.md)) and German
+  ([`docs/quickstart.de.md`](docs/quickstart.de.md)).
+- **Template repository** — the repository is a GitHub template; the READMEs start with
+  "Use this template" and link the live demo and the quickstart.
+
 ## [1.0.0] — 2026-10-06
 
 Initial open-source release under the MIT License.
