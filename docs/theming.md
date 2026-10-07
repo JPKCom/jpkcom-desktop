@@ -27,7 +27,9 @@ Contents
    specificity of the rule it replaces.
 3. Reload the page.
 
-The file ships with a complete example, "square and flat". Remove the comment markers around it to try it:
+The file ships with a complete example, "square and flat", in a comment block of its own below the header.
+To try it, delete exactly the two comment markers of that block (the opening one in front of `@layer`, the
+closing one after its last brace), then reload:
 
 ```css
 @layer themes {
@@ -40,6 +42,7 @@ The file ships with a complete example, "square and flat". Remove the comment ma
 		--radius-small: 2px;
 		--radius-win: 4px;
 		--radius-menu: 3px;
+		--radius-dock: 6px;
 		--glass-backdrop: blur(12px) saturate(1.2);
 		--chrome-backdrop: blur(10px) saturate(1.1);
 	}
@@ -87,11 +90,17 @@ Colours work the same way, separately for light and dark:
    the same way: `:root[data-theme="light"]` and `:root[data-theme="dark"]`. Always add
    `[data-island="dark"]` to the dark selector. A dark island is an element that stays dark in both modes
    and reads its tokens from its own subtree: the menu bar, the desktop icons, the terminal, the
-   calculator, code blocks and the boot screen. Shadows use `--shade` and `--ink`, so a shadow you
-   override belongs on `:root, [data-island="dark"]` as well, or the islands resolve it wrongly.
+   calculator, code blocks and the boot screen. Shadows and rings use `--shade`, `--ink` and
+   other theme tokens, and the islands re-declare them with their own values: a shadow or ring you
+   override on `:root` alone does not reach the islands, so put it on `:root, [data-island="dark"]`.
 2. **Families change every part at once.** `--radius-control` changes buttons, tool buttons, rows and
    navigation entries together. Part tokens (`--radius-btn`, `--shadow-menu` …) fine-tune one role; most of
-   them are aliases of a family, a few carry their own value. Set families on `:root`.
+   them are aliases of a family, a few carry their own value. **Set families on `:root`** (with or without `[data-theme=…]`). The part
+   tokens are declared on `:root` as `var(--family)`, so they resolve there and everything below inherits
+   the finished value: a family set on `body.compact` or on `[data-island="dark"]` does not reach the
+   parts. On `body.compact` or on an island override the part tokens instead. Radius and glass tokens
+   set on `:root` already reach the islands; only shadow and ring tokens need
+   `:root, [data-island="dark"]` (rule 1).
 3. **Phones.** `--radius-win` and `--radius-dock` have their own values on `body.compact`, as have the
    bar, tile and window-control sizes ([Layout and phones](#layout-and-phones),
    [Window controls](#window-controls)). To change the window radius on phones, override it on
@@ -100,8 +109,12 @@ Colours work the same way, separately for light and dark:
    gradient are set inline by the desktop and win over every layer. Change accents and tints in
    `site/config.js` ([section 5](#5-what-a-theme-cannot-change)). Focus and selection rings are tokens:
    override `--ring-focus` and `--ring-selected`.
-5. **High contrast.** In forced-colours mode browsers drop shadows; that is intended and no theme
-   can bring them back.
+5. **High contrast.** In forced-colours mode browsers drop `box-shadow` and `text-shadow`; that is
+   intended and no theme can bring them back. `filter: drop-shadow()` tokens (`--tile-glyph-filter`,
+   `--about-logo-filter*`) stay.
+6. **Keep focus and edges visible.** A theme can remove focus indicators and the 3:1 contrast of control
+   edges (WCAG 1.4.11) by setting `--ring-focus`, `--ring-selected`, `--shadow-control-edge` or
+   `--shadow-pressed` to `none` or to a low-contrast value. Keep them visible.
 
 ## 3. Families
 
@@ -496,6 +509,8 @@ tints are `--t-<id>`; `tile()` sets `--tint: var(--t-<id>)` on the tile.
 - **Accents and tints** come from `site/config.js` (`theme.accents`, `theme.tints`), not from CSS.
   The built-in `--accent-<id>` and `--t-<id>` defaults can be overridden here, but a value from the
   config overrides them again.
+- **The accent swatch ring in Settings** (`src/css/components.css`, `0 0 0 2px var(--win-bg), 0 0 0 4px var(--c)`)
+  does not follow `--ring-selected`: its colour is the per-element `--c`.
 - **Structure.** A few corners and shadows are structural and stay literal in the CSS
   (`tests/theming.test.mjs` lists them). Layout and behaviour are not tokens.
 
@@ -505,4 +520,7 @@ tints are `--t-<id>`; `tile()` sets `--tint: var(--t-<id>)` on the tile.
 2. Switch light and dark in Settings, and check a dark island (the menu bar, a desktop icon, the terminal).
 3. Check the phone layout: narrow the window or use the browser's device mode (`body.compact`).
 4. Check high contrast (forced colours): shadows disappear, but borders and focus must stay visible.
-5. Run `npm test`. It checks that the shipped CSS uses tokens for radii, shadows and glass.
+5. Run `npm test`. It checks that the shipped CSS uses tokens for radii, shadows and glass. Once you write
+   rules into `site/theme.css`, the test "site/theme.css … ships without rules" fails, and the literal
+   guards also scan `site/theme.css` and `site/modules/`: adapt or delete those assertions in
+   `tests/theming.test.mjs` in your copy (see [quickstart](quickstart.md)).
