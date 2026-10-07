@@ -50,7 +50,7 @@
 		align-items: center;
 		height: calc(var(--mb-h) - 6px);
 		padding-inline: 9px;
-		border-radius: 5px;
+		border-radius: var(--radius-menu-item);
 		white-space: nowrap;
 
 		&[aria-expanded="true"] {

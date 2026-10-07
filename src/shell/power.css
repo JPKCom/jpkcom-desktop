@@ -28,14 +28,14 @@
 			width: 180px;
 			height: 4px;
 			overflow: hidden;
-			border-radius: 2px;
+			border-radius: var(--radius-boot-bar);
 			background: rgb(var(--ink) / 0.22);
 		}
 
 		.boot-fill {
 			width: 0;
 			height: 100%;
-			border-radius: 2px;
+			border-radius: var(--radius-boot-bar);
 			background: var(--boot-fg);
 		}
 
@@ -75,7 +75,7 @@
 		place-items: center;
 		width: 56px;
 		height: 56px;
-		border-radius: 50%;
+		border-radius: var(--radius-btn-round);
 		background: rgb(var(--ink) / 0.1);
 		box-shadow: inset 0 0 0 1px rgb(var(--ink) / 0.25);
 		color: var(--boot-fg);

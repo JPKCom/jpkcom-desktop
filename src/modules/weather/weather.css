@@ -108,7 +108,7 @@
 		grid-template-columns: repeat(6, 1fr);
 		margin: 0 2px;
 		padding: 6px 0;
-		border-radius: 8px;
+		border-radius: var(--radius-inset);
 		background: rgb(var(--ink) / 0.05);
 		font-variant-numeric: tabular-nums;
 		list-style: none;

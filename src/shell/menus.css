@@ -41,7 +41,7 @@
 		min-height: 24px;
 		padding-block: 3px;
 		padding-inline: 8px 10px;
-		border-radius: 5px;
+		border-radius: var(--radius-menu-item);
 		text-align: start;
 		white-space: nowrap;
 
@@ -93,7 +93,7 @@
 
 		.tile.mini {
 			--tile: 18px;
-			border-radius: 5px;
+			border-radius: var(--radius-tile-mini);
 			box-shadow: none;
 		}
 
@@ -142,7 +142,7 @@
 		max-width: none;
 		max-height: calc(100dvh - var(--mb-total) - 16px - env(safe-area-inset-bottom));
 		padding: 6px;
-		border-radius: 14px;
+		border-radius: var(--radius-menu-sheet);
 		font-size: 16px;
 		overscroll-behavior: contain;
 
@@ -151,7 +151,7 @@
 			min-height: 44px;
 			padding-block: 8px;
 			padding-inline: 8px 12px;
-			border-radius: 9px;
+			border-radius: var(--radius-menu-sheet-item);
 
 			&[aria-expanded="true"] {
 				background: rgb(var(--ink) / 0.1);
@@ -170,7 +170,7 @@
 
 		.tile.mini {
 			--tile: 26px;
-			border-radius: 7px;
+			border-radius: var(--radius-menu-sheet-tile);
 		}
 
 		.menu-arrow {

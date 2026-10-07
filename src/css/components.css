@@ -26,7 +26,7 @@
 		place-items: center;
 		width: var(--tile);
 		height: var(--tile);
-		border-radius: 23%;
+		border-radius: var(--radius-tile);
 		background: linear-gradient(180deg, var(--tint));
 		box-shadow: inset 0 1px 0 var(--tile-highlight), inset 0 -1px 0 var(--tile-edge), 0 3px 8px var(--tile-shadow);
 		color: var(--tile-fg);
@@ -61,7 +61,7 @@
 
 	.btn {
 		padding: 4px 14px;
-		border-radius: 6px;
+		border-radius: var(--radius-btn);
 		background: rgb(var(--ink) / 0.14);
 		box-shadow: inset 0 0.5px 0 rgb(var(--ink) / 0.25);
 		color: var(--text);
@@ -110,13 +110,13 @@
 
 	.seg {
 		padding: 2px;
-		border-radius: 7px;
+		border-radius: var(--radius-seg);
 		background: var(--line);
 
 		span {
 			display: block;
 			padding: 3px 12px;
-			border-radius: 5px;
+			border-radius: var(--radius-seg-item);
 			color: var(--text-2);
 		}
 
@@ -139,7 +139,7 @@
 			display: block;
 			width: 22px;
 			height: 22px;
-			border-radius: 50%;
+			border-radius: var(--radius-swatch);
 			background: var(--c);
 			box-shadow: inset 0 0 0 0.5px var(--swatch-edge);
 		}
@@ -162,7 +162,7 @@
 		width: 34px;
 		height: 20px;
 		margin: 0;
-		border-radius: 999px;
+		border-radius: var(--radius-switch);
 		background: var(--line-strong);
 		-webkit-appearance: none;
 		appearance: none;
@@ -175,7 +175,7 @@
 			inset-inline-start: 2px;
 			width: 16px;
 			height: 16px;
-			border-radius: 50%;
+			border-radius: var(--radius-switch-knob);
 			background: var(--switch-knob);
 			box-shadow: 0 1px 3px rgb(0 0 0 / calc(0.4 * var(--shade)));
 			transition: translate var(--dur) var(--ease);
@@ -226,7 +226,7 @@
 		max-width: 300px;
 		height: 28px;
 		padding: 0 8px;
-		border-radius: 7px;
+		border-radius: var(--radius-input);
 		background: rgb(var(--ink) / 0.08);
 		box-shadow: inset 0 0 0 1px var(--control-edge);
 		color: var(--text-3);
@@ -278,7 +278,7 @@
 	.sheet-box {
 		width: min(100%, 380px);
 		padding: 18px 18px 14px;
-		border-radius: 0 0 12px 12px;
+		border-radius: 0 0 var(--radius-sheet) var(--radius-sheet);
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: blur(24px) saturate(1.4);
 		backdrop-filter: blur(24px) saturate(1.4);
@@ -334,7 +334,7 @@
 
 	kbd {
 		padding: 1px 5px;
-		border-radius: 4px;
+		border-radius: var(--radius-kbd);
 		background: rgb(var(--ink) / 0.1);
 		font: 12px var(--font);
 	}
@@ -408,7 +408,7 @@
 	.set-confirm {
 		margin-top: 16px;
 		padding: 12px 14px;
-		border-radius: 8px;
+		border-radius: var(--radius-inset);
 		background: var(--line);
 		box-shadow: inset 0 0 0 0.5px var(--line-strong);
 

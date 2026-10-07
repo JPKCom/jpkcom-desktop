@@ -23,7 +23,7 @@
 			position: absolute;
 			inset: 12px;
 			border: 2px dashed var(--line-strong);
-			border-radius: 12px;
+			border-radius: var(--radius-dropzone);
 			background: var(--overlay);
 		}
 
@@ -45,7 +45,7 @@
 		gap: 4px;
 		max-width: min(420px, 100%);
 		padding: 22px 28px;
-		border-radius: 12px;
+		border-radius: var(--radius-popover);
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: blur(30px) saturate(1.8);
 		backdrop-filter: blur(30px) saturate(1.8);

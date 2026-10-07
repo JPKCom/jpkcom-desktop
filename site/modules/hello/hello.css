@@ -38,7 +38,7 @@
 		padding-block: 6px;
 		padding-inline: 10px;
 		border: 1px solid rgb(var(--ink) / 0.2);
-		border-radius: 6px;
+		border-radius: var(--radius-field-sm);
 		background: rgb(var(--ink) / 0.05);
 		color: inherit;
 		font: inherit;

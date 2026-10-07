@@ -122,13 +122,13 @@
 		&:focus-visible {
 			outline: 2px solid var(--focus);
 			outline-offset: 1px;
-			border-radius: 2px;
+			border-radius: var(--radius-term-link);
 		}
 	}
 
 	.term-code {
 		padding: 0 3px;
-		border-radius: 3px;
+		border-radius: var(--radius-term-code);
 		background: var(--line);
 		font: inherit;
 	}
@@ -162,7 +162,7 @@
 		inline-size: 3ch;
 		block-size: 1.1em;
 		margin-inline-end: 2px;
-		border-radius: 3px;
+		border-radius: var(--radius-term-swatch);
 		box-shadow: none;
 		font-size: inherit;
 		vertical-align: middle;

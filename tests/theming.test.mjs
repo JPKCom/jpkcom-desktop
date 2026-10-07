@@ -98,3 +98,37 @@ test('theming: every var(--x) without fallback in the desktop CSS is declared so
 	}
 	assert.deepEqual(missing, []);
 });
+
+/* Structural literals that stay (spec §2.3, appendix B "Kept literal"): file, property, value, reason */
+export const EXCEPTIONS = [
+	['src/wm/wm.css', 'border-radius', '0', 'maximised window, title bar and body flush with the screen edge'],
+	['src/shell/menus.css', 'border-radius', '0', 'compact inline submenu resets the .menu box'],
+	['src/shell/notifications.css', 'border-radius', 'inherit', 'follows .notif'],
+	['src/wm/wm.css', 'border-radius', '50%', 'spinner ring geometry'],
+	['src/shell/dock.css', 'border-radius', '50%', 'running-app status dot'],
+	['src/modules/notify/notify.css', 'border-radius', '50%', 'status dot'],
+	['src/apps/editor/editor.css', 'border-radius', '50%', 'status dot'],
+	['src/shell/notifications.css', 'border-radius', '50%', 'invisible 44px hit areas'],
+	['src/apps/editor/editor.css', 'border-radius', '1px', 'glyph geometry of a 2px bar'],
+	['src/panels/panels.css', 'border-radius', '21%', 'brand logo shape (brand asset, SVG draws the same clip)']
+];
+
+/* Declarations of a property family outside tokens.css that are neither var(…) nor an exception → ['file: prop: value'] */
+export function literals(props) {
+	const re = new RegExp(`(?:^|[;{\\s])(${props.join('|')})\\s*:\\s*([^;{}]+);`, 'g');
+	const bad = [];
+	for (const f of cssFiles()) {
+		if (f === 'src/css/tokens.css') continue;
+		for (const m of readCss(f).matchAll(re)) {
+			const value = m[2].trim();
+			if (/var\(/.test(value)) continue;
+			if (EXCEPTIONS.some(([ef, ep, ev]) => ef === f && ep === m[1].replace(/^-webkit-/, '') && ev === value)) continue;
+			bad.push(`${f}: ${m[1]}: ${value}`);
+		}
+	}
+	return bad;
+}
+
+test('theming: border-radius outside tokens.css only via tokens (or a documented exception)', () => {
+	assert.deepEqual(literals(['border-radius', 'border-(?:top|bottom)-(?:left|right)-radius', 'border-(?:start|end)-(?:start|end)-radius']), []);
+});

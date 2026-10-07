@@ -33,7 +33,7 @@
 		max-height: calc(100dvh - var(--search-top) - 24px);
 		margin-inline: auto;
 		overflow: hidden;
-		border-radius: 12px;
+		border-radius: var(--radius-popover);
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: blur(30px) saturate(1.8);
 		backdrop-filter: blur(30px) saturate(1.8);
@@ -108,7 +108,7 @@
 			gap: 10px;
 			min-height: 42px;
 			padding: 5px 10px;
-			border-radius: 8px;
+			border-radius: var(--radius-item-row);
 			cursor: default;
 
 			.tile {
@@ -143,7 +143,7 @@
 
 			mark {
 				padding: 0 1px;
-				border-radius: 4px;
+				border-radius: var(--radius-search-mark);
 				background: var(--highlight);
 				color: var(--text);
 			}
@@ -190,7 +190,7 @@
 			kbd {
 				margin-inline-end: 4px;
 				padding: 0 5px;
-				border-radius: 4px;
+				border-radius: var(--radius-kbd);
 				background: rgb(var(--ink) / 0.1);
 				box-shadow: inset 0 0 0 0.5px var(--line-strong);
 				color: var(--text-2);

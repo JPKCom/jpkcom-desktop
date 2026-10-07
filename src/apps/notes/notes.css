@@ -42,7 +42,7 @@
 		gap: 2px;
 		width: 100%;
 		padding: 8px 10px;
-		border-radius: 8px;
+		border-radius: var(--radius-item-row);
 		text-align: start;
 
 		&:hover {
@@ -107,7 +107,7 @@
 		width: 34px;
 		height: 34px;
 		margin-inline-end: auto;
-		border-radius: 8px;
+		border-radius: var(--radius-notes-back);
 		color: var(--text-2);
 		font-size: 18px;
 	}

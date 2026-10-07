@@ -21,7 +21,7 @@
 			grid-template-columns: 58px 1fr;
 			gap: 8px;
 			padding: 3px 6px;
-			border-radius: 6px;
+			border-radius: var(--radius-row);
 
 			&.is-today {
 				background: rgb(var(--ink) / 0.08);

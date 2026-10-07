@@ -61,7 +61,7 @@
 	.calc-key {
 		display: grid;
 		place-items: center;
-		border-radius: 999px;
+		border-radius: var(--radius-calc-key);
 		background: var(--calc-num);
 		color: var(--text);
 		font: 400 26px/1 var(--font);
@@ -140,7 +140,7 @@
 		align-items: flex-end;
 		width: 100%;
 		padding: 6px 8px;
-		border-radius: 6px;
+		border-radius: var(--radius-row);
 		font-variant-numeric: tabular-nums;
 
 		&:hover {

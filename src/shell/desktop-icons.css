@@ -47,7 +47,7 @@
 		.icon-label {
 			max-width: 100%;
 			padding: 1px 5px;
-			border-radius: 4px;
+			border-radius: var(--radius-label);
 			font-size: 12px;
 			font-weight: 500;
 			line-height: 1.3;

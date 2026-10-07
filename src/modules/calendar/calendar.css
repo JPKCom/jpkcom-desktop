@@ -15,7 +15,7 @@
 		max-height: calc(100dvh - var(--mb-total) - 12px);
 		overflow-y: auto;
 		padding: 12px 12px 10px;
-		border-radius: 12px;
+		border-radius: var(--radius-popover);
 		background: var(--glass-strong);
 		-webkit-backdrop-filter: blur(30px) saturate(1.8);
 		backdrop-filter: blur(30px) saturate(1.8);
@@ -66,7 +66,7 @@
 		place-items: center;
 		width: 28px;
 		height: 28px;
-		border-radius: 6px;
+		border-radius: var(--radius-tool-btn);
 		color: var(--text-2);
 		font-size: 16px;
 
@@ -87,7 +87,7 @@
 
 	.cal-today {
 		padding: 3px 9px;
-		border-radius: 6px;
+		border-radius: var(--radius-btn);
 		background: rgb(var(--ink) / 0.1);
 		font-size: 12px;
 
@@ -139,7 +139,7 @@
 			place-items: center;
 			width: 30px;
 			height: 30px;
-			border-radius: 50%;
+			border-radius: var(--radius-cal-day);
 		}
 
 		/* Week numbers: their own column, set off by a rule */
