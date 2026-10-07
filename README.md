@@ -261,6 +261,7 @@ apps: [ …, { id: 'my-app', src: 'site/modules/my-app/index.js' } ],
 [docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-module-descriptor) and
 [§21](docs/ARCHITECTURE.md#21-how-to-add-).
 
+### Pages for the Reader
 
 Plain HTML files in `site/content/<lang>/`. The default rule (`config.reader.rules`) takes the first
 `main article`, `article` or `main` as the content, its `h1` as the title and a `.lead` paragraph as the

@@ -279,6 +279,7 @@ apps: [ …, { id: 'meine-app', src: 'site/modules/meine-app/index.js' } ],
 [docs/ARCHITECTURE.md §8](docs/ARCHITECTURE.md#8-module-descriptor) und
 [§21](docs/ARCHITECTURE.md#21-how-to-add-).
 
+### Seiten für den Reader
 
 Schlichte HTML-Dateien in `site/content/<sprache>/`. Die Standardregel (`config.reader.rules`) nimmt das
 erste `main article`, `article` oder `main` als Inhalt, dessen `h1` als Titel und einen Absatz mit der
