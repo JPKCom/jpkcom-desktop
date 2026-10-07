@@ -1,0 +1,45 @@
+/* JPKCom Desktop — your site theme: token overrides in @layer themes — © Jean Pierre Kolb — MIT License
+
+   This file is loaded right after the desktop's own CSS (index.html), before the first paint, and kept
+   offline by the service worker. As shipped it changes nothing. Put your overrides inside @layer themes:
+   that layer comes last and wins over every other layer. All tokens: docs/theming.md.
+
+   Rules
+   1. Light and dark separately: :root[data-theme="light"] and :root[data-theme="dark"]. Dark values also
+      for [data-island="dark"] — the menu bar, desktop icons, terminal, calculator, code blocks and boot
+      screen stay dark in both modes and read their tokens there.
+   2. Families change every part at once (--radius-control → buttons, tool buttons, rows …); part tokens
+      (--radius-btn, --shadow-menu …) fine-tune one role. Set families on :root.
+   3. Phones: --radius-win and --radius-dock have their own values on body.compact.
+   4. Not possible here: the active accent, the accents and tints of site/config.js and the wallpaper
+      gradient are set inline by the desktop and win over every layer — change accents and tints in
+      site/config.js. For focus and selection rings override --ring-focus / --ring-selected.
+   5. In forced-colours (high contrast) mode browsers drop shadows; that is intended.
+
+   Example — square and flat (remove the comment markers to try it):
+
+@layer themes {
+	:root {
+		--radius-panel: 4px;
+		--radius-item: 3px;
+		--radius-field: 3px;
+		--radius-control: 2px;
+		--radius-control-sm: 2px;
+		--radius-small: 2px;
+		--radius-win: 4px;
+		--radius-menu: 3px;
+		--glass-backdrop: blur(12px) saturate(1.2);
+		--chrome-backdrop: blur(10px) saturate(1.1);
+	}
+	:root, [data-island="dark"] {
+		--shadow-popup: 0 0 0 1px rgb(0 0 0 / calc(0.5 * var(--shade))), 0 4px 10px rgb(0 0 0 / calc(0.3 * var(--shade)));
+		--shadow-popover: var(--shadow-popup);
+		--shadow-win: 0 0 0 1px rgb(0 0 0 / calc(0.6 * var(--shade))), 0 4px 12px rgb(0 0 0 / calc(0.25 * var(--shade)));
+		--shadow-win-active: 0 0 0 1px rgb(0 0 0 / calc(0.7 * var(--shade))), 0 8px 20px rgb(0 0 0 / calc(0.35 * var(--shade)));
+	}
+	body.compact {
+		--radius-win: 4px;
+		--radius-dock: 6px;
+	}
+}
+*/

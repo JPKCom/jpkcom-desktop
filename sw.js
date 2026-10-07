@@ -21,6 +21,8 @@
    desktop's own index (iframes of web apps, other pages of the site) — those only
    use the navigation preload response, so they cost no extra request.
 
+   site/theme.css (the operator's theme, loaded after the core CSS) is a shell file like site/config.js.
+
    Precache list: derived at install time from the module list. site/config.js is
    imported (importScripts — script-src 'self' allows it), so the service worker
    knows config.modules, config.apps, config.languages, site.data and friends.
@@ -72,7 +74,7 @@ const CORE_PARTS = ['wm', 'shell', 'panels'];
 
 /* Safety net: files every installation has, crawled even if index.html changes */
 const SHELL_FILES = ['./', 'manifest.webmanifest', 'site/config.js', 'src/boot/theme.js', 'src/boot/main.js',
-	'src/css/layers.css', 'src/css/tokens.css', 'src/css/base.css', 'src/css/components.css',
+	'src/css/layers.css', 'src/css/tokens.css', 'src/css/base.css', 'src/css/components.css', 'site/theme.css',
 	'assets/icons/favicon.svg', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png',
 	'assets/icons/apple-touch-icon.png'];
 

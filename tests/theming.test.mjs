@@ -189,3 +189,15 @@ test('theming: box-shadow/text-shadow values are token references only', () => {
 	}
 	assert.deepEqual(bad, []);
 });
+
+test('theming: site/theme.css is linked after the core CSS, kept offline, and ships without rules', () => {
+	const html = read('index.html');
+	const core = html.indexOf('src/css/components.css');
+	const theme = html.indexOf('href="site/theme.css"');
+	assert.ok(core > 0 && theme > core, 'index.html links site/theme.css after src/css/components.css');
+	assert.ok(theme < html.indexOf('site/config.js'), 'before site/config.js');
+	assert.match(read('sw.js'), /['"]site\/theme\.css['"]/, 'sw.js keeps it as a shell file');
+	const rules = readCss('site/theme.css').replace(/\s+/g, '');
+	assert.equal(rules, '', 'the shipped theme has comments only');
+	assert.match(read('site/theme.css'), /@layer themes/, 'the example shows @layer themes');
+});
