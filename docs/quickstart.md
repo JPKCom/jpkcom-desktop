@@ -211,6 +211,9 @@ your site or delete them from your copy:
 - "manifest: … brand defaults" in `tests/p12-deploy.test.mjs`: `name`, `short_name` and `theme_color` in
   `manifest.webmanifest` equal the defaults in `src/core/config.js`. Change the three
   `assert.equal(manifest.…, DEFAULTS.brand.…)` lines to compare with your own values.
+- `tests/theming.test.mjs`: "site/theme.css … ships without rules" fails as soon as you write a theme into
+  `site/theme.css`. The literal guards (no radius, shadow or glass literals) also scan `site/theme.css` and
+  `site/modules/`: adapt or delete these assertions in your copy.
 
 Until then, `npm test` fails, and so does the CI workflow of your copy (`.github/workflows/ci.yml`),
 which runs the same checks on every push to `main`. Added a language? Also run `npm run i18n:check`.

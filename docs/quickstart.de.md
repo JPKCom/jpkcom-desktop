@@ -220,6 +220,9 @@ deine eigene ersetzt. Pass sie an deine Website an oder lösche sie aus deiner K
 - „manifest: … brand defaults“ in `tests/p12-deploy.test.mjs`: `name`, `short_name` und `theme_color` in
   `manifest.webmanifest` gleich den Standardwerten in `src/core/config.js`. Ändere die drei Zeilen
   `assert.equal(manifest.…, DEFAULTS.brand.…)` so, dass sie mit deinen eigenen Werten vergleichen.
+- `tests/theming.test.mjs`: „site/theme.css … ships without rules“ schlägt fehl, sobald du ein Theme in
+  `site/theme.css` schreibst. Die Literal-Wächter (keine Radius-, Schatten- oder Glas-Literale) prüfen auch
+  `site/theme.css` und `site/modules/`: Passe diese Prüfungen in deiner Kopie an oder lösche sie.
 
 Bis dahin schlägt `npm test` fehl und ebenso der CI-Workflow deiner Kopie (`.github/workflows/ci.yml`),
 der bei jedem Push auf `main` dieselben Prüfungen ausführt.
