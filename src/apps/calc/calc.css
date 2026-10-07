@@ -109,8 +109,8 @@
 		gap: 8px;
 		padding: 12px;
 		background: var(--glass-strong);
-		-webkit-backdrop-filter: blur(20px);
-		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: var(--calc-hist-backdrop);
+		backdrop-filter: var(--calc-hist-backdrop);
 
 		h3 {
 			margin: 0;

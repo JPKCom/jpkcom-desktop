@@ -37,8 +37,8 @@
 		position: relative;
 		border-radius: var(--radius-notif);
 		background: var(--glass-strong);
-		-webkit-backdrop-filter: blur(30px) saturate(1.8);
-		backdrop-filter: blur(30px) saturate(1.8);
+		-webkit-backdrop-filter: var(--glass-backdrop);
+		backdrop-filter: var(--glass-backdrop);
 		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.6 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 12px 32px rgb(0 0 0 / calc(0.45 * var(--shade)));
 		color: var(--text);
 		opacity: 0;

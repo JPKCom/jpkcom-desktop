@@ -86,7 +86,7 @@
 	/* A light wallpaper (html[data-wp-tone=light], wallpaper.js): white labels get a dark
 	   backplate — a text shadow does not count as contrast (the selection still overrides it) */
 	:root[data-wp-tone="light"] .icon:not(.is-selected) .icon-label {
-		background: rgb(0 0 0 / 0.55);
+		background: var(--icon-label-plate);
 	}
 
 	/* Forced colours: no outline on every tile (a transparent one would be drawn), the

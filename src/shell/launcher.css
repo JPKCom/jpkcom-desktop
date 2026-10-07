@@ -16,8 +16,8 @@
 		padding-block: calc(var(--mb-total) + 28px) calc(110px + env(safe-area-inset-bottom));
 		padding-inline: max(24px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right));
 		background: var(--overlay);
-		-webkit-backdrop-filter: blur(30px) saturate(1.4);
-		backdrop-filter: blur(30px) saturate(1.4);
+		-webkit-backdrop-filter: var(--overlay-backdrop);
+		backdrop-filter: var(--overlay-backdrop);
 		color: var(--text);
 		opacity: 0;
 		transition: opacity var(--dur) var(--ease);

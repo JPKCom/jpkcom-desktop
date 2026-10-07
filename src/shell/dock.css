@@ -17,8 +17,8 @@
 		padding: 5px;
 		border-radius: var(--radius-dock);
 		background: var(--dock-bg);
-		-webkit-backdrop-filter: blur(24px) saturate(1.6);
-		backdrop-filter: blur(24px) saturate(1.6);
+		-webkit-backdrop-filter: var(--dock-backdrop);
+		backdrop-filter: var(--dock-backdrop);
 		box-shadow: 0 0 0 0.5px rgb(0 0 0 / calc(0.4 * var(--shade))), inset 0 0 0 0.5px var(--line-strong), 0 10px 30px rgb(0 0 0 / calc(0.3 * var(--shade)));
 
 		/* Empty (nothing registered yet): no glass pill */

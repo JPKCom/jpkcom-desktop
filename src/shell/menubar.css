@@ -19,8 +19,8 @@
 		padding-block: env(safe-area-inset-top) 0;
 		padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
 		background: var(--menubar-bg);
-		-webkit-backdrop-filter: blur(24px) saturate(1.6);
-		backdrop-filter: blur(24px) saturate(1.6);
+		-webkit-backdrop-filter: var(--menubar-backdrop);
+		backdrop-filter: var(--menubar-backdrop);
 		box-shadow: 0 1px 0 rgb(var(--ink) / 0.06);
 		font-size: 13px;
 	}
@@ -28,7 +28,7 @@
 	/* A light wallpaper (html[data-wp-tone=light], wallpaper.js): a darker layer over
 	   --menubar-bg keeps the white titles at 4.5:1 or more, even over white */
 	:root[data-wp-tone="light"] .menubar {
-		background: linear-gradient(rgb(0 0 0 / 0.35) 0 0), var(--menubar-bg);
+		background: linear-gradient(var(--menubar-dim) 0 0), var(--menubar-bg);
 	}
 
 	.mb-left,

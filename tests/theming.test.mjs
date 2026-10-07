@@ -132,3 +132,18 @@ export function literals(props) {
 test('theming: border-radius outside tokens.css only via tokens (or a documented exception)', () => {
 	assert.deepEqual(literals(['border-radius', 'border-(?:top|bottom)-(?:left|right)-radius', 'border-(?:start|end)-(?:start|end)-radius']), []);
 });
+
+EXCEPTIONS.push(
+	['src/shell/menus.css', 'backdrop-filter', 'none', 'compact inline submenu resets the .menu glass']
+);
+
+test('theming: backdrop-filter outside tokens.css only via tokens (or a documented exception)', () => {
+	assert.deepEqual(literals(['backdrop-filter', '-webkit-backdrop-filter']), []);
+});
+
+test('theming: the three colours that do not follow --shade are tokens', () => {
+	assert.match(readCss('src/shell/menubar.css'), /var\(--menubar-dim\)/);
+	assert.match(readCss('src/shell/desktop-icons.css'), /var\(--icon-label-plate\)/);
+	assert.doesNotMatch(readCss('src/shell/menubar.css'), /rgb\(0 0 0 \/ 0\.35\)/);
+	assert.doesNotMatch(readCss('src/shell/desktop-icons.css'), /rgb\(0 0 0 \/ 0\.55\)/);
+});
