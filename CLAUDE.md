@@ -59,8 +59,8 @@ docs/            ARCHITECTURE.md (Vertrag), packages/p01–p12, deploy.md, serve
 
 Default-Export von `src/modules/<id>/index.js` bzw. `src/apps/<id>/index.js`:
 
-- `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `locales: 'locales/'` (nur
-  Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`
+- `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `locales: 'locales/'`
+  (gedacht für Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`
 - `app: {…}` oder `apps: [...]` (Manifest-Felder: `icon`, `tint`, `size`, `name: '@ns.key'` …)
 - `storage` (Keys mit `validate`), `resetGroups`, `trash`, `consent: [{ id, hosts, label, hint }]`
 - Beiträge: `files`, `settingsSections`, `settings`, `shortcuts`, `terminal`, `search`, `calendar`, `contextMenu`

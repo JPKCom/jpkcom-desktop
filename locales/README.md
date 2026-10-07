@@ -50,6 +50,8 @@ export default {
    more languages the menu bar shows a language menu instead of a toggle.
 5. Check it: `npm run i18n:check -- fr` (or `node tools/i18n-check.mjs fr`) reports missing keys,
    placeholder mismatches and plural/string mix-ups against English.
+   Site modules that keep their texts in their own folder (`site/modules/*/locales/`, e.g. Hello)
+   need their `fr/<ns>.js` there too — the check reports each one that lacks it.
 6. Optional content in the new language:
    - `site/content/fr/…` pages and `{ fr: 'site/content/fr/…' }` entries in `site/apps.js`
    - `site/data/fortunes/fr.json` for the Fortune app — and add `'fr'` to `fortune.langs` in
