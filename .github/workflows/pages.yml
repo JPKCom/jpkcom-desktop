@@ -1,0 +1,109 @@
+# JPKCom Desktop — live demo on GitHub Pages — © Jean Pierre Kolb — MIT License
+#
+# Publishes the shipped example site, unchanged, to https://jpkcom.github.io/jpkcom-desktop/.
+# No build step: the checkout is copied without .git, .github, node_modules, tests/ and tools/, and
+# site/config.js stays as it is (online services off).
+#
+# GitHub Pages cannot send response headers. The staged copy of index.html therefore gets the base
+# Content-Security-Policy of docs/deploy.md §5 as a <meta http-equiv> tag, minus frame-ancestors
+# (browsers ignore it in a <meta> tag and log an error). Permissions-Policy, X-Frame-Options and the
+# other headers of §5 cannot be set on Pages at all; use your own server for the full set.
+#
+# One-time setup by the repository owner:
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Copies made with "Use this template" opt in as well:
+#   Settings → Secrets and variables → Actions → Variables → New repository variable: PAGES = true
+# Without that variable the job is skipped in a copy (no failing runs).
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a running deployment is never cancelled.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Stage the example site
+    if: github.repository == 'JPKCom/jpkcom-desktop' || vars.PAGES == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read   # configure-pages reads the Pages settings (needed in private copies)
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Copy the site
+        run: |
+          rsync -a \
+            --exclude=/.git/ --exclude=/.github/ --exclude=/node_modules/ \
+            --exclude=/tests/ --exclude=/tools/ --exclude=/_site/ \
+            ./ _site/
+
+      - name: Add the Content-Security-Policy as a meta tag
+        # Base policy of docs/deploy.md §5 without frame-ancestors (not allowed in <meta>).
+        # Inserted directly after <meta charset>, before every <link> and <script>.
+        # Fails if the anchor line is missing or not unique, or if the result is not as expected.
+        run: |
+          file=_site/index.html
+          anchor='<meta charset="utf-8">'
+          csp="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+          meta="<meta http-equiv=\"Content-Security-Policy\" content=\"$csp\">"
+          note='<!-- GitHub Pages demo: CSP from docs/deploy.md §5 as a meta tag (Pages sends no headers; frame-ancestors not possible here) -->'
+
+          found=$(grep -cxF "$anchor" "$file" || true)
+          if [ "$found" != 1 ]; then
+            echo "::error file=index.html::expected exactly one line '$anchor', found $found; the CSP meta tag was not added"
+            exit 1
+          fi
+
+          awk -v anchor="$anchor" -v meta="$meta" -v note="$note" \
+            '{ print } $0 == anchor { print meta; print note }' "$file" > "$file.tmp"
+          mv "$file.tmp" "$file"
+
+          tags=$(grep -cF 'http-equiv="Content-Security-Policy"' "$file" || true)
+          csp_line=$(grep -nF 'http-equiv="Content-Security-Policy"' "$file" | head -n 1 | cut -d: -f1 || true)
+          first_res=$(grep -nE '<(link|script)[ >]' "$file" | head -n 1 | cut -d: -f1 || true)
+          head_end=$(grep -nF '</head>' "$file" | head -n 1 | cut -d: -f1 || true)
+          if [ "$tags" != 1 ] || [ -z "$csp_line" ] || [ -z "$first_res" ] || [ -z "$head_end" ] \
+             || [ "$csp_line" -ge "$first_res" ] || [ "$csp_line" -ge "$head_end" ]; then
+            echo "::error file=index.html::CSP meta tag missing, duplicated or not ahead of the first <link>/<script> in <head>"
+            exit 1
+          fi
+          echo "CSP meta tag on line $csp_line (first <link>/<script> on line $first_res)"
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

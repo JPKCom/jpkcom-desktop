@@ -18,7 +18,7 @@ Contents
 7. [MIME types](#7-mime-types)
 8. [Caching](#8-caching)
 9. [Folders that need special care](#9-folders-that-need-special-care)
-10. [Server configurations](#10-server-configurations)
+10. [Server configurations](#10-server-configurations) — including [GitHub Pages](#github-pages)
 11. [Offline use and installation (PWA)](#11-offline-use-and-installation-pwa)
 12. [Checking a deployment](#12-checking-a-deployment)
 13. [Troubleshooting](#13-troubleshooting)
@@ -308,6 +308,59 @@ the exact policy, MIME types, `Cache-Control` per file type, `304` on a conditio
   with 2.44.0: 404). Obtain certificates with a DNS challenge or through the TLS proxy in front of it; if a
   file under `/.well-known/` must be served, set `ignore-hidden-files = false` and make sure the document
   root holds no other dotfiles (no `.git`, no `.env`).
+
+### GitHub Pages
+
+No server configuration here: the workflow [`.github/workflows/pages.yml`](../.github/workflows/pages.yml)
+publishes the repository on every push to `main` (and when started by hand under *Actions*). It copies
+the checked-out files into a folder without `.git`, `.github`, `node_modules`, `tests` and `tools`, adds
+the policy to that copy of `index.html` and deploys the folder. There is no build step: the result is
+exactly what the repository holds — for this repository the live demo at
+<https://jpkcom.github.io/jpkcom-desktop/> with the shipped example site and every online service off.
+Unlike [§2](#2-what-to-upload), the demo therefore also publishes `docs/`, `package.json`,
+`package-lock.json` and the top-level files (README, CHANGELOG …). They hold nothing secret, and the demo
+stays a complete copy of the repository.
+
+**Setting it up (once):**
+
+1. *Settings → Pages → Build and deployment → Source:* "GitHub Actions".
+2. In a copy made from the template, also *Settings → Secrets and variables → Actions → Variables:*
+   a repository variable `PAGES` with the value `true`. Without it the job is skipped (no failing runs),
+   so copies publish nothing until their owner opts in.
+3. Push to `main` or start the workflow by hand. The site appears at `https://<user>.github.io/<repo>/`
+   — a sub-folder installation, which works without changes ([§3](#3-at-the-web-root-or-in-a-sub-folder)).
+
+**The policy as a `<meta>` tag.** GitHub Pages cannot send response headers of your choice. The workflow
+therefore writes the policy of [§5](#5-security-headers) into the published `index.html` as
+`<meta http-equiv="Content-Security-Policy">`, directly after `<meta charset>` and before every
+stylesheet and script (a `<meta>` policy only applies to what comes after it); the job fails if it cannot
+place the tag there. The repository's `index.html`
+stays unchanged. The tag carries the policy **without** `frame-ancestors`:
+
+```
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
+```
+
+Its limits, compared with a server of your own:
+
+- **No `frame-ancestors`** — browsers ignore it in a `<meta>` policy and log an error, so the workflow
+  leaves it out. Together with the missing `X-Frame-Options`, any other site can show the desktop in a
+  frame.
+- **No `Permissions-Policy`**, and none of the other headers of §5 (`X-Content-Type-Options`,
+  `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Strict-Transport-Security`): the browser's defaults
+  apply.
+- **Only the desktop page is covered.** The service worker and other pages of the site (for example a
+  same-origin `web` app) are delivered without a policy.
+- **One origin for all Pages sites of an account.** Every site under `https://<user>.github.io` shares
+  that origin and can read the others' stored data, including a kept vault key
+  ([§3](#3-at-the-web-root-or-in-a-sub-folder): same origin = full trust). Host only code you trust
+  there; a separate `namespace` per desktop only keeps their settings, caches and events from colliding.
+- **Caching is GitHub's**, not the `no-cache` of [§8](#8-caching): right after a deployment a browser may
+  still use an older copy for a few minutes.
+
+For a public site with the full set of headers, use one of the configurations above. If your copy
+switches on online services, add their hosts ([§6](#6-online-services-opening-the-policy-step-by-step))
+to the policy in the workflow file as well.
 
 ### Other servers
 
