@@ -505,7 +505,8 @@ Der vollständige Vertrag steht in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md):
   Konfiguration unten tut das.
 - **Caching:** `Cache-Control: no-cache` für HTML, JS, CSS, JSON, das Manifest und `sw.js`, weil die
   Dateinamen keine Version tragen. Browser fragen bei ihrer Kopie nach (`304`), ein Update erscheint also
-  beim nächsten Neuladen. Bilder, Schriften und Medien bekommen einen Tag.
+  beim nächsten Neuladen (mit dem Schnellstart des Service Workers ein Neuladen später, nachdem der Desktop
+  es angeboten hat). Bilder, Schriften und Medien bekommen einen Tag.
 - **Keine Verzeichnislisten**, nirgends, und **keine Dotfiles** (`.git`, `.env`).
 - **Die Sicherheits-Header** unten, bei jeder Antwort, auch bei Fehlern.
 

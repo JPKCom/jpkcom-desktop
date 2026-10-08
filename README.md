@@ -481,7 +481,7 @@ public API (§9), services (§10), events (§11), i18n (§12), storage (§14), C
   below does this.
 - **Caching:** `Cache-Control: no-cache` for HTML, JS, CSS, JSON, the manifest and `sw.js`, because the
   file names carry no version. Browsers revalidate their copies (`304`), so an update shows on the next
-  reload. Images, fonts and media get one day.
+  reload (with the service worker's fast start: one reload later, after the desktop offered it). Images, fonts and media get one day.
 - **No directory listings** anywhere, and **no dotfiles** (`.git`, `.env`).
 - **The security headers** below, on every response including errors.
 

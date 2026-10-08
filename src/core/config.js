@@ -199,7 +199,7 @@ export const DEFAULTS = {
 	backup: { format: 'jpkcom-desktop-backup', filePrefix: 'jpkcom-desktop', maxBytes: 5242880 },
 	vault: { salt: '', iterations: 600000, dir: 'site/vault/', collection: 'bookmarks', maxBytes: 1048576 },
 	pwa: { enabled: true },
-	offline: { maxPages: 80, timeoutMs: 4000 }
+	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true }
 };
 
 /* ---------- Pure helpers (exported for tests) ---------- */

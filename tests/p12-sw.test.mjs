@@ -53,7 +53,7 @@ function basic(body, { status = 200, type = 'text/plain', headers = {} } = {}) {
  */
 function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false, delay = 0, online = true, origin = ORIGIN } = {}) {
 	const handlers = {};
-	const state = { online, delay, fetched: [], unregistered: false, claimed: false, skipped: false, preload: false };
+	const state = { online, delay, fetched: [], unregistered: false, claimed: false, skipped: false, preload: false, messages: [] };
 	const serve = async url => {
 		const u = new URL(url);
 		if (u.origin !== ORIGIN) throw new TypeError(`cross-origin fetch in test: ${url}`);
@@ -83,7 +83,11 @@ function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false,
 			navigationPreload: { enable: async () => { state.preload = true; } },
 			unregister: async () => { state.unregistered = true; return true; }
 		},
-		clients: { claim: async () => { state.claimed = true; } },
+		clients: {
+			claim: async () => { state.claimed = true; },
+			/* one open page that records what the worker tells it */
+			matchAll: async () => [{ postMessage: msg => state.messages.push(msg) }]
+		},
 		skipWaiting: async () => { state.skipped = true; },
 		addEventListener: (type, fn) => { handlers[type] = fn; },
 		importScripts: path => {
@@ -166,6 +170,7 @@ test('DEFAULTS mirror src/core/config.js', () => {
 	assert.equal(d.enabled, DEFAULTS.pwa.enabled);
 	assert.equal(d.maxPages, DEFAULTS.offline.maxPages);
 	assert.equal(d.timeoutMs, DEFAULTS.offline.timeoutMs);
+	assert.equal(d.fastStart, DEFAULTS.offline.fastStart);
 });
 
 /* ---------- Configuration ---------- */
@@ -494,7 +499,7 @@ test('pwa.enabled false: no precache, own caches deleted, the worker unregisters
 /* ---------- Strategies ---------- */
 
 test('network first: online answers are stored, offline the copy answers', async () => {
-	const sw = loadSW({ files: { ...MINI, '/desk/src/core/api.js': 'v1' } });
+	const sw = loadSW({ files: { ...MINI, '/desk/src/core/api.js': 'v1' }, config: CONFIG({ offline: { fastStart: false } }) });
 	const r1 = await sw.fetchEvent(req('/desk/src/core/api.js?cb=1', { destination: 'script' }));
 	assert.equal(await r1.response.text(), 'v1');
 	assert.ok(sw.state.fetched.length === 1);
@@ -517,7 +522,7 @@ test('the shell navigation keeps one copy and uses the navigation preload answer
 });
 
 test('a slow network gives way to the copy after offline.timeoutMs', async () => {
-	const sw = loadSW({ files: { ...MINI, '/desk/src/core/api.js': 'fresh' }, config: CONFIG({ offline: { timeoutMs: 500 } }) });
+	const sw = loadSW({ files: { ...MINI, '/desk/src/core/api.js': 'fresh' }, config: CONFIG({ offline: { timeoutMs: 500, fastStart: false } }) });
 	const cache = await sw.caches.open(sw.run('NAMES.shell'));
 	await cache.put(`${ORIGIN}/desk/src/core/api.js`, basic('old'));
 	sw.state.delay = 1500;
@@ -526,6 +531,87 @@ test('a slow network gives way to the copy after offline.timeoutMs', async () =>
 	assert.equal(await r.response.text(), 'old');
 	assert.ok(Date.now() - t0 >= 1400, 'the late network answer still refreshed the copy (waitUntil)');
 	assert.equal(await (await cache.match(`${ORIGIN}/desk/src/core/api.js`)).text(), 'fresh');
+});
+
+test('fast start: a copy answers without the network; without a copy the network answers and is kept', async () => {
+	const sw = loadSW({ files: { ...MINI, '/desk/src/core/api.js': 'fresh' } });
+	assert.equal(sw.run('CONFIG.fastStart'), true, 'the default');
+	const cache = await sw.caches.open(sw.run('NAMES.shell'));
+	await cache.put(`${ORIGIN}/desk/src/core/api.js`, basic('copy'));
+	const r1 = await sw.fetchEvent(req('/desk/src/core/api.js?v=2', { destination: 'script' }));
+	assert.equal(await r1.response.text(), 'copy');
+	assert.equal(sw.state.fetched.length, 0, 'no request on the way to the first paint');
+	const r2 = await sw.fetchEvent(req('/desk/src/wm/wm.css', { destination: 'style' }));
+	assert.equal(sw.state.fetched.length, 1);
+	assert.equal(await r2.response.text(), '');
+	assert.ok(await cache.match(`${ORIGIN}/desk/src/wm/wm.css`), 'kept for the next start');
+});
+
+test('fast start: the shell navigation answers from the copy and checks for an update', async () => {
+	const sw = loadSW({ files: MINI });
+	await sw.install();
+	sw.run('lastCheck = Date.now()');   // no check in this test (it waits CHECK_DELAY_MS)
+	const fetched = sw.state.fetched.length;
+	const r = await sw.fetchEvent(nav('/desk/'), { preload: basic('<!doctype html>new', { type: 'text/html' }) });
+	assert.equal(await r.response.text(), MINI['/desk/'], 'the copy, not the preload answer');
+	assert.equal(sw.state.fetched.length, fetched);
+});
+
+test('update check: unchanged files keep everything as it is; a change prepares a complete copy and tells the pages', async () => {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	const names = sw.run('NAMES');
+	const check = () => sw.run('checkForUpdate')(sw.run('CONFIG'), names);
+	assert.equal(await check(), false);
+	assert.equal(await sw.caches.has(names.next), false);
+	assert.deepEqual(sw.state.messages, []);
+
+	files['/desk/src/core/api.js'] = "export const x = 2; const later = () => import('./lazy.js'); import('./added.js');";
+	files['/desk/src/core/added.js'] = 'export {};';
+	assert.equal(await check(), true);
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+	const shell = await sw.caches.open(names.shell);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 1/, 'the running pages keep the old files');
+
+	/* the next start moves it in place before the first file is answered */
+	sw.run('lastCheck = Date.now()');
+	const r = await sw.fetchEvent(nav('/desk/'));
+	assert.ok(r.response);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 2/);
+	assert.ok(await shell.match(`${ORIGIN}/desk/src/core/added.js`), 'a new import came along');
+	assert.equal(await shell.match(`${ORIGIN}/desk/sw.js?complete`), undefined, 'the marker stays out of the shell');
+	assert.equal(await sw.caches.has(names.next), false);
+});
+
+test('update check: offline or an incomplete copy change nothing', async () => {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	const names = sw.run('NAMES');
+	files['/desk/src/core/api.js'] = 'changed';
+	sw.state.online = false;
+	assert.equal(await sw.run('checkForUpdate')(sw.run('CONFIG'), names), false);
+	assert.equal(await sw.caches.has(names.next), false);
+	/* a worker stopped halfway left '-next' without its marker: dropped, the shell stays */
+	const next = await sw.caches.open(names.next);
+	await next.put(`${ORIGIN}/desk/src/core/api.js`, basic('half'));
+	assert.equal(await sw.run('applyUpdate')(names), false);
+	assert.equal(await sw.caches.has(names.next), false);
+	const shell = await sw.caches.open(names.shell);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 1/);
+});
+
+test('a new worker that replaces an older generation tells the open pages', async () => {
+	const sw = loadSW({ files: MINI });
+	await sw.caches.open('jpkdesk:/desk/:0.9.0-deadbeef');
+	await sw.install();
+	await sw.activate();
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+	const first = loadSW({ files: MINI });
+	await first.install();
+	await first.activate();
+	assert.deepEqual(first.state.messages, [], 'not on the first install');
 });
 
 test('Reader pages: at most offline.maxPages, the oldest go first', async () => {

@@ -302,7 +302,7 @@ not offered). Invalid values → `console.warn` + default.
 | `trash` | `{ days: 30, max: 200 }` | |
 | `backup` | `{ format: 'jpkcom-desktop-backup', filePrefix: 'jpkcom-desktop', maxBytes: 5242880 }` | |
 | `vault` | `{ salt: '', iterations: 600000, dir: 'site/vault/', collection: 'bookmarks', maxBytes: 1048576 }` | `collection`: the collection (`site/apps.js`) unlocked bookmarks join; `maxBytes`: largest sealed file accepted |
-| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000 }` | P12 |
+| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000, fastStart: true }` — `fastStart`: the service worker answers the desktop's own files from the offline copy and looks for a new version in the background (the open pages get `{ type: 'desk:update' }`, the `install` service offers a reload); `false` = network first | P12 |
 
 `DEFAULTS` is the single source of defaults and holds **every key any shipped part reads** (so
 `Desk.config` shows the full shape and `sw.js`/the tools see the same defaults). Modules still clean their
@@ -709,6 +709,7 @@ Every event is also dispatched on `document` as `CustomEvent('<namespace>:<name>
 | `dock:change` | `{ pins }` | dock (P2) |
 | `trash:change` | `{ count }` | trash (P3) |
 | `install:change` | `{ state }` | install (P3): install offer arrived/used, app installed, display mode changed |
+| `install:update` | `{}` | install (P3): the service worker has a new version ready (`{ type: 'desk:update' }`, P12) — one reload away; the install service also shows a banner offering the reload |
 | `vault:change` | `{ unlocked, user }` | vault (P7): after every unlock, lock and `resume()` |
 | `calendar:open` | `{ section }` | calendar (P6) |
 | `calendar:close` | `{}` | calendar (P6) |
@@ -852,7 +853,9 @@ Other storage:
 - **IndexedDB** `<namespace>-vault` (`store.key('vault')`), object store `login`, one record
   `{ key: CryptoKey (non-extractable), file, user }` — only after "stay logged in" (P7).
 - **Cache Storage** (`sw.js`, P12): `<namespace>:<base>:<version>-<hash>` (the shell; `<base>` = the
-  installation path, `<hash>` over the precache-relevant config) and `<namespace>:<base>:pages` (Reader
+  installation path, `<hash>` over the precache-relevant config), `<namespace>:<base>:<version>-<hash>-next`
+  (a prepared update, `config.offline.fastStart`: complete only with its marker entry `sw.js?complete`; the
+  next start of the desktop moves it into the shell cache) and `<namespace>:<base>:pages` (Reader
   pages). Activation and the `offline` reset delete **every cache of this naming scheme for their own
   base**, whatever the namespace; other installations and other apps of the origin keep theirs. Answers
   with `Cache-Control: no-store` or `private` are never stored; `config.vault.dir` is never cached.

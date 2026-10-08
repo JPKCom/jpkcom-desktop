@@ -340,6 +340,8 @@ window.DESKTOP_CONFIG = {
 	   unregisters itself). */
 	pwa: { enabled: true },
 	/* Offline copy (sw.js): maxPages = Reader pages kept offline (0 = none, max 1000); timeoutMs = how long
-	   the network may take before a cached copy answers (500–60000 ms) */
-	offline: { maxPages: 80, timeoutMs: 4000 }
+	   the network may take before a cached copy answers (500–60000 ms); fastStart = start from the offline
+	   copy and look for a new version in the background (visitors are offered a reload) — false: every
+	   start asks the server first (network first, each update visible at once, a slower start) */
+	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true }
 };

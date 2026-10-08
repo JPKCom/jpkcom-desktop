@@ -8,7 +8,12 @@
 
    Service 'install': state ('installed' | 'offer' | 'share' | 'menu' | 'off'),
    run() (shows the browser's install question), enabled. Event
-   'install:change' { state } (new; documented in docs/packages/p03-panels.md). */
+   'install:change' { state } (new; documented in docs/packages/p03-panels.md).
+
+   New version: the worker starts the desktop from its offline copy and says
+   { type: 'desk:update' } when a complete new copy is ready (sw.js, fast start)
+   or a new worker took over — a banner offers the reload (once per page), and
+   the event 'install:update' {} tells anyone else. */
 
 import Desk from '../core/api.js';
 
@@ -57,6 +62,9 @@ export function initInstall() {
 	matchMedia('(display-mode: standalone)').addEventListener?.('change', changed);
 
 	if (ready && Desk.env.isSecure && 'serviceWorker' in navigator) {
+		navigator.serviceWorker.addEventListener('message', e => {
+			if (e.data?.type === 'desk:update') updateReady();
+		});
 		const register = () => navigator.serviceWorker.register(Desk.env.asset('sw.js'), { scope: Desk.env.root })
 			.catch(err => { if (Desk.config.debug) console.info('[install] no offline mode:', err?.message ?? err); });
 		if (document.readyState === 'complete') register();
@@ -64,14 +72,28 @@ export function initInstall() {
 	}
 }
 
+/* A new version is one reload away: say so once (a banner when the shell offers them) */
+let updateShown = false;
+function updateReady() {
+	if (updateShown) return;
+	updateShown = true;
+	Desk.emit('install:update', {});
+	const banner = Desk.notifyBanner({
+		title: Desk.t('settings.updateReady'), body: Desk.t('settings.updateReadyHint'),
+		icon: 'ti-refresh', timeout: 0, run: () => location.reload()
+	});
+	if (!banner) Desk.announce(Desk.t('settings.updateReady'));
+}
+
 /**
  * The cache names sw.js gives an installation at this root: '<namespace>:<base>:<version>-<hash>'
- * and '<namespace>:<base>:pages', whatever the namespace (one folder holds one installation) —
- * the same pattern as cacheNames().own in sw.js. Desktops in other folders are not matched. Pure.
+ * (+ '-next', a prepared update) and '<namespace>:<base>:pages', whatever the namespace (one folder
+ * holds one installation) — the same pattern as cacheNames().own in sw.js. Desktops in other folders
+ * are not matched. Pure.
  */
 export function ownCaches(root) {
 	const base = new URL(root).pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	return new RegExp(`^[a-z][a-z0-9-]{0,23}:${base}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}|pages)$`);
+	return new RegExp(`^[a-z][a-z0-9-]{0,23}:${base}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$`);
 }
 
 /** Reset group "Offline copies": unregisters this root's service worker and deletes its caches */

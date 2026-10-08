@@ -5,9 +5,21 @@
    the web root ('/') and in a sub-folder ('/desktop/'): every path below is resolved
    against its own location.
 
-   Network first, always: online you get the deployed files (revalidated with
-   cache: 'no-cache'), offline — or when the network takes longer than
-   config.offline.timeoutMs and a copy exists — the last good copy.
+   Fast start (config.offline.fastStart, the default): the desktop's own files
+   are answered from the offline copy when there is one — no network on the way
+   to the first paint. A few seconds after each start (at most once a minute)
+   the worker compares every copy with the server (cache: 'no-cache', mostly
+   304); when anything changed it fetches a complete new copy into a second
+   cache ('…-next', the same crawl as the install) and tells the open pages
+   ({ type: 'desk:update' } → "new version, reload"). The next start of the
+   desktop moves it in place before the first file is answered, so a page never
+   mixes old and new files. A changed sw.js or site/config.js still installs a
+   new worker as before (and tells the pages the same).
+
+   Network first (fastStart: false; always for Reader pages): online you get the
+   deployed files (revalidated with cache: 'no-cache'), offline — or when the
+   network takes longer than config.offline.timeoutMs and a copy exists — the
+   last good copy.
 
    What it caches (and nothing else):
      shell    the desktop itself: index.html (one copy, whatever the query), the
@@ -66,7 +78,8 @@ const DEFAULTS = Object.freeze({
 	feeds: { de: 'site/data/feed.de.json', en: 'site/data/feed.en.json' },
 	enabled: true,
 	maxPages: 80,
-	timeoutMs: 4000
+	timeoutMs: 4000,
+	fastStart: true
 });
 
 /* Required parts of the desktop (src/boot/main.js CORE_PARTS) */
@@ -84,6 +97,9 @@ const SHELL_ROOT_FILES = ['', 'index.html', 'manifest.webmanifest'];
 
 const MAX_FILES = 800;            // upper bound for the precache crawl
 const INSTALL_TIMEOUT_MS = 20000; // per file during the install
+const CHECK_DELAY_MS = 3000;      // fast start: the update check waits until the desktop has started
+const CHECK_GAP_MS = 60000;       // … and runs at most once in this time
+const CHECK_BATCH = 6;            // files compared at the same time
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const NS = /^[a-z][a-z0-9-]{0,23}$/;
@@ -144,7 +160,8 @@ function cleanConfig(raw) {
 		images: images.map(i => (isObj(i) ? i.src : null)).filter(v => !!local(v)),
 		enabled: !(isObj(c.pwa) && c.pwa.enabled === false),
 		maxPages: int(isObj(c.offline) ? c.offline.maxPages : undefined, 0, 1000, DEFAULTS.maxPages),
-		timeoutMs: int(isObj(c.offline) ? c.offline.timeoutMs : undefined, 500, 60000, DEFAULTS.timeoutMs)
+		timeoutMs: int(isObj(c.offline) ? c.offline.timeoutMs : undefined, 500, 60000, DEFAULTS.timeoutMs),
+		fastStart: !(isObj(c.offline) && c.offline.fastStart === false)
 	};
 	/* Files outside the standard folders that still belong to the desktop (absolute URLs):
 	     files  exact files — the site data file, wallpapers, feeds; a module file that has no folder of its own
@@ -197,20 +214,23 @@ function hash(text) {
 	return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-/** Cache names of this installation: '<namespace>:<base>:<version>' and '<namespace>:<base>:pages' */
+/** Cache names of this installation: '<namespace>:<base>:<version>-<hash>' (+ '-next', a prepared
+    update) and '<namespace>:<base>:pages' */
 function cacheNames(cfg, base = BASE) {
 	const prefix = `${cfg.namespace}:${base}:`;
 	/* only what changes the precache list; 'extra' is derived from it (and holds the origin) */
-	const { enabled, maxPages, timeoutMs, extra, ...relevant } = cfg;
+	const { enabled, maxPages, timeoutMs, fastStart, extra, ...relevant } = cfg;
 	const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const shell = `${prefix}${VERSION}-${hash(JSON.stringify(relevant))}`;
 	return {
 		prefix,
-		shell: `${prefix}${VERSION}-${hash(JSON.stringify(relevant))}`,
+		shell,
+		next: `${shell}-next`,
 		pages: `${prefix}pages`,
 		/* Every cache this worker's naming scheme gives an installation in this folder, whatever the
 		   namespace: one folder holds one installation, so they are all its own — also the ones of an
 		   earlier namespace (config.namespace changed) */
-		own: new RegExp(`^[a-z][a-z0-9-]{0,23}:${esc}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}|pages)$`)
+		own: new RegExp(`^[a-z][a-z0-9-]{0,23}:${esc}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$`)
 	};
 }
 
@@ -342,7 +362,7 @@ const clean = res => (res.redirected ? new Response(res.body, { status: res.stat
 /** Fetches one file into the cache; returns its text when it may hold further references */
 async function precacheOne(cache, url) {
 	const res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(url, { cache: 'no-cache', signal })));
-	if (!cacheable(res)) throw new Error(`${url}: HTTP ${res.status}`);
+	if (!cacheable(res)) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { status: res.status });
 	if (!keep(res)) throw new Error(`${url}: Cache-Control forbids keeping a copy`);
 	const type = res.headers.get('Content-Type') || '';
 	const text = /html|css|javascript|ecmascript/.test(type) || /\.(?:m?js|css|html)$|\/$/.test(new URL(url).pathname)
@@ -351,13 +371,15 @@ async function precacheOne(cache, url) {
 	return text === null ? { urls: [], namespaces: [] } : scan(text, url, type);
 }
 
-/** Crawls from the roots, level by level; every file is fetched once, failures are skipped */
+/** Crawls from the roots, level by level; every file is fetched once, failures are skipped.
+    → { files, failed, offline } — offline: how many failed without an answer (network, timeout) */
 async function precache(cfg, cacheName) {
 	const cache = await caches.open(cacheName);
 	const seen = new Set();
 	const namespaces = new Set();
 	const sources = new Map();
 	const failed = [];
+	let offline = 0;
 	const run = async list => {
 		let level = list.filter(u => !seen.has(shellKey(u)));
 		while (level.length && seen.size < MAX_FILES) {
@@ -366,7 +388,10 @@ async function precache(cfg, cacheName) {
 			const results = await Promise.allSettled(level.map(u => precacheOne(cache, u)));
 			const next = [];
 			results.forEach((r, i) => {
-				if (r.status === 'rejected') return failed.push(level[i]);
+				if (r.status === 'rejected') {
+					if (!r.reason?.status) offline++;
+					return failed.push(level[i]);
+				}
 				r.value.namespaces.forEach(ns => namespaces.add(ns));
 				for (const [ns, dir] of r.value.sources ?? []) sources.set(`${dir}\n${ns}`, [ns, dir]);
 				for (const u of r.value.urls) if (isShellUrl(u, cfg) && !seen.has(shellKey(u))) next.push(u);
@@ -377,7 +402,7 @@ async function precache(cfg, cacheName) {
 	await run(precacheRoots(cfg));
 	await run(localeUrls(cfg, [...namespaces], [...sources.values()]));
 	if (failed.length) console.info(`[sw] ${seen.size - failed.length} files kept offline; not available: ${failed.length}`, failed);
-	return { files: seen.size - failed.length, failed };
+	return { files: seen.size - failed.length, failed, offline };
 }
 
 /* ---------- Request routing ---------- */
@@ -492,6 +517,99 @@ function revalidating(req) {
 	}
 }
 
+/* ---------- Fast start: offline copy first, updates in the background ---------- */
+
+/* The key of the marker the update check writes last into the '-next' cache: only a complete
+   copy is moved in place (a worker stopped halfway leaves none) */
+const COMPLETE = () => new URL('sw.js?complete', ROOT_URL).href;
+
+const sameBytes = (a, b) => {
+	if (a.byteLength !== b.byteLength) return false;
+	const x = new Uint8Array(a);
+	const y = new Uint8Array(b);
+	for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+	return true;
+};
+
+/** A prepared, complete update ('-next') replaces the files of the shell cache; an incomplete one is dropped */
+async function applyUpdate(names) {
+	if (!(await caches.has(names.next))) return false;
+	if (checking) return false;
+	const next = await caches.open(names.next);
+	const complete = !!(await next.match(COMPLETE()));
+	if (complete) {
+		const shell = await caches.open(names.shell);
+		const keys = (await next.keys()).filter(k => k.url !== COMPLETE());
+		await Promise.all(keys.map(async k => shell.put(k, await next.match(k))));
+	}
+	await caches.delete(names.next);
+	return complete;
+}
+
+/** Tells every open page of this installation that a new version is ready (one reload away) */
+async function announceUpdate() {
+	const pages = await self.clients.matchAll({ type: 'window' });
+	for (const page of pages) page.postMessage({ type: 'desk:update' });
+}
+
+/**
+ * Compares every file of the shell cache (and of a prepared update) with the server. When
+ * anything changed, the whole desktop is fetched again into '-next' (the install's crawl, so
+ * new files join), the marker is written last and the pages hear about it. Offline, a timeout
+ * or a crawl that could not reach every file: nothing is kept, the next start tries again.
+ * fresh: the navigation preload answer for index.html (saves one request).
+ */
+async function checkForUpdate(cfg, names, fresh = null) {
+	const shell = await caches.open(names.shell);
+	const prepared = (await caches.has(names.next)) ? await caches.open(names.next) : null;
+	const keys = (await shell.keys()).map(r => r.url);
+	let changed = false;
+	const compare = async key => {
+		let res = key === ROOT_URL && fresh ? await fresh.catch(() => null) : null;
+		if (!res) res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(key, { cache: 'no-cache', signal })));
+		/* gone or not to be kept: the copy stays (a removed file is no reason to fetch everything) */
+		if (!keep(res)) return;
+		const copy = (prepared && (await prepared.match(key))) || (await shell.match(key));
+		const [now, before] = await Promise.all([res.arrayBuffer(), copy ? copy.arrayBuffer() : null]);
+		if (!before || !sameBytes(now, before)) changed = true;
+	};
+	for (let i = 0; i < keys.length && !changed; i += CHECK_BATCH) {
+		const results = await Promise.allSettled(keys.slice(i, i + CHECK_BATCH).map(compare));
+		if (results.some(r => r.status === 'rejected')) return false;
+	}
+	if (!changed) return false;
+	await caches.delete(names.next);
+	const { offline } = await precache(cfg, names.next);
+	if (offline) {
+		await caches.delete(names.next);
+		return false;
+	}
+	await (await caches.open(names.next)).put(COMPLETE(), new Response('', { headers: { 'Content-Type': 'text/plain' } }));
+	await announceUpdate();
+	return true;
+}
+
+let checking = null;
+let lastCheck = -Infinity;
+
+/** After a start: one check, a little later, not more often than CHECK_GAP_MS */
+function scheduleCheck(fresh) {
+	if (checking || Date.now() - lastCheck < CHECK_GAP_MS) return fresh ? fresh.catch(() => {}) : Promise.resolve();
+	lastCheck = Date.now();
+	checking = new Promise(resolve => setTimeout(resolve, CHECK_DELAY_MS))
+		.then(() => checkForUpdate(CONFIG, NAMES, fresh))
+		.catch(err => console.info('[sw] update check failed', err))
+		.finally(() => { checking = null; });
+	return checking;
+}
+
+/** A file of the desktop: the copy when there is one, else the network (stored, as network first) */
+async function cacheFirst(event, request, key) {
+	const copy = await caches.open(NAMES.shell).then(c => c.match(key));
+	if (copy) return copy;
+	return networkFirst(event, request, { cacheName: NAMES.shell, key, timeoutMs: CONFIG.timeoutMs });
+}
+
 /* ---------- Lifecycle ---------- */
 
 const CONFIG = readSiteConfig();
@@ -516,7 +634,10 @@ self.addEventListener('activate', event => {
 		if (preloadSupported()) {
 			try { await self.registration.navigationPreload.enable(); } catch { /* not supported */ }
 		}
+		/* Pages a worker of an older generation started run old files: a reload brings the new ones */
+		const replaced = keys.some(k => NAMES.own.test(k) && !current.includes(k) && k !== NAMES.next && !k.endsWith(':pages'));
 		await self.clients.claim();
+		if (replaced) await announceUpdate();
 	})());
 });
 
@@ -527,7 +648,18 @@ self.addEventListener('fetch', event => {
 	const preload = req.mode === 'navigate' ? event.preloadResponse : null;
 	switch (route.kind) {
 		case 'shell-nav':
-			event.respondWith(networkFirst(event, req, { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs, preload }));
+			if (CONFIG.fastStart) {
+				/* From the copy (after moving a prepared update in place); the check uses the preload answer */
+				event.respondWith((async () => {
+					await applyUpdate(NAMES).catch(() => false);
+					const copy = await caches.open(NAMES.shell).then(c => c.match(route.key));
+					if (!copy) return networkFirst(event, req, { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs, preload });
+					event.waitUntil(scheduleCheck(preload));
+					return copy;
+				})());
+			} else {
+				event.respondWith(networkFirst(event, req, { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs, preload }));
+			}
 			break;
 		case 'nav':
 			/* Not ours (an iframe of a web app, another page of the site): only use the preload answer;
@@ -546,7 +678,9 @@ self.addEventListener('fetch', event => {
 			event.respondWith(networkFirst(event, req, { cacheName: NAMES.pages, key: route.key, max: CONFIG.maxPages, timeoutMs: CONFIG.timeoutMs }));
 			break;
 		case 'asset':
-			event.respondWith(networkFirst(event, revalidating(req), { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs }));
+			event.respondWith(CONFIG.fastStart
+				? cacheFirst(event, revalidating(req), route.key)
+				: networkFirst(event, revalidating(req), { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs }));
 			break;
 		default:
 	}

@@ -80,12 +80,22 @@ keep their caches.
     browser has no navigation preload the request is not intercepted at all;
   - non-navigation `Accept: text/html` fetches (the Reader; also outside `<base>`) → pages cache, query kept;
   - files under `index.html`, `manifest.webmanifest`, `assets/icons/`, `src/`, `locales/`, `site/` (and site
-    module folders) → shell cache, revalidated (`cache: 'no-cache'`);
+    module folders) → shell cache: from the copy (fast start) or revalidated (`cache: 'no-cache'`);
   - never: other origins, `sw.js`, `vault.dir`, everything else (e.g. `/tools/` of the surrounding site).
   - A site module whose file sits at the installation root (`src: 'demo.js'`) or above it (`'../demo.js'`)
     adds only that file to the shell, not its folder — otherwise the whole site would be cached. The same
     holds for a fortune folder at or above the root (only `<dir><lang>.json` of the language chain).
-- **Strategy**: network first with `offline.timeoutMs`; the network answer is stored inside `waitUntil`
+- **Fast start** (`offline.fastStart`, default `true`): `shell-nav` and shell assets answer from the shell
+  cache when it has the file (else network first, stored). The shell navigation first moves a complete
+  prepared update in place (`applyUpdate`: `<shell>-next` with its marker `sw.js?complete` → copied into the
+  shell cache, `-next` deleted; without the marker `-next` is only deleted), then schedules
+  `checkForUpdate` (`CHECK_DELAY_MS` 3 s after the start, at most every `CHECK_GAP_MS` 60 s, inside
+  `waitUntil`): every shell file is fetched with `cache: 'no-cache'` (index.html from the navigation
+  preload answer) in batches of `CHECK_BATCH` and compared byte for byte with the copy (or the prepared
+  one). A difference → the install crawl into `-next`; a crawl with network failures (not HTTP errors) is
+  dropped, else the marker is written last and every window client gets `{ type: 'desk:update' }`. A new
+  worker generation that deleted older shell caches on activation posts the same message.
+- **Strategy** (`fastStart: false`; Reader pages always): network first with `offline.timeoutMs`; the network answer is stored inside `waitUntil`
   (only `200`, `type: 'basic'`, and never an answer with `Cache-Control: no-store` or `private` — at a root
   install other scripts of the site may fetch personal HTML fragments; the precache skips such files too;
   redirected responses are re-wrapped so they may answer a navigation); after

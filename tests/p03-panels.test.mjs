@@ -301,6 +301,8 @@ test('about: rowParts accepts a text or parts with lang and abbr, nothing half-v
 test('install: ownCaches matches the service worker\'s cache names of this folder only', () => {
 	const sub = ownCaches('https://example.com/desk/');
 	assert.ok(sub.test('jpkdesk:/desk/:1.0.0-0123abcd'));
+	assert.ok(sub.test('jpkdesk:/desk/:1.0.0-0123abcd-next'), 'a prepared update (fast start)');
+	assert.ok(!sub.test('jpkdesk:/desk/:1.0.0-0123abcd-later'));
 	assert.ok(sub.test('other:/desk/:pages'), 'whatever the namespace');
 	assert.ok(!sub.test('jpkdesk:/:pages'), 'the desktop at the root');
 	assert.ok(!sub.test('jpkdesk-x'), 'an old prefix scheme');

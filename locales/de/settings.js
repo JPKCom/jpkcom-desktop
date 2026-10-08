@@ -18,6 +18,8 @@ export default {
 	install: 'Als App installieren',
 	installHint: 'Eigenes Fenster ohne Browserleiste, auch offline',
 	installBtn: 'Installieren',
+	updateReady: 'Eine neue Version des Desktops ist bereit',
+	updateReadyHint: 'Neu laden, um sie zu verwenden',
 	'install.installed': 'Installiert',
 	'install.share': 'Im Teilen-Menü des Browsers: Zum Home-Bildschirm',
 	'install.menu': 'Im Browsermenü: App installieren',

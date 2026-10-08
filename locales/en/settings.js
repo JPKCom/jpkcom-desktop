@@ -23,6 +23,8 @@ export default {
 	install: 'Install as an app',
 	installHint: 'Its own window without the browser bar, also offline',
 	installBtn: 'Install',
+	updateReady: 'A new version of the desktop is ready',
+	updateReadyHint: 'Reload to use it',
 	'install.installed': 'Installed',
 	'install.share': 'Browser share menu: Add to Home Screen',
 	'install.menu': 'Browser menu: Install app',

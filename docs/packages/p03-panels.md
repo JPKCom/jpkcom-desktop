@@ -127,6 +127,7 @@ Rows whose service is missing are left out, so the section list follows what is 
 | `wallpaper:change` | `{ value }` | `wallpaper.set()` |
 | `trash:change` | `{ count }` | any change of the trash (also from another tab) |
 | `install:change` | `{ state }` | **new**: install offer arrived/used, app installed, display mode changed |
+| `install:update` | `{}` | **new**: the service worker has a new version ready (`desk:update`); a banner (`notifyBanner`, `settings.updateReady`/`updateReadyHint`, run = reload) is shown once per page |
 
 Listened to: `store:change`, `storage:reset`, `consent:change`, `consent:register`, `service:provide`,
 `module:loaded`, `module:failed`, `dock:change`, `vault:change`, `install:change`, `env:motion`.

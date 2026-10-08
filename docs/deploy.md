@@ -205,8 +205,10 @@ is the registered type).
 
 The files carry no version in their names, so the configurations send `Cache-Control: no-cache` for
 everything except images, fonts and media: browsers keep their copies but revalidate them on every use
-(`ETag` / `Last-Modified` → `304 Not Modified`, a few hundred bytes). An update is therefore visible on the
-next reload, and the service worker never holds on to an old file. Images, fonts and media get
+(`ETag` / `Last-Modified` → `304 Not Modified`, a few hundred bytes). Without a service worker an update is
+therefore visible on the next reload. With it (fast start, the default) visitors start from their offline
+copy; the worker notices the update in the background and offers a reload — see
+[the service worker](#11-pwa-icons-and-the-service-worker) below. Images, fonts and media get
 `public, max-age=86400` (one day) — after replacing a wallpaper or icon under the same name, visitors may
 see the old one for up to a day.
 
@@ -417,9 +419,15 @@ Some mobile browsers take the home-screen icon not from the manifest but from
 
 **The service worker** (`sw.js`, a classic script at the installation root):
 
-- *Network first, always.* Online you get the deployed files; offline — or when the network takes longer
-  than `offline.timeoutMs` (default 4000 ms) while a copy exists — the last good copy answers. A late
-  network answer still refreshes the copy.
+- *Fast start* (`offline.fastStart`, default `true`). The desktop's own files are answered from the offline
+  copy, so a repeat visit starts without waiting for the network. A few seconds after each start (at most
+  once a minute) the worker compares every copy with your server — conditional requests, mostly
+  `304 Not Modified`. When something changed it fetches a complete new copy in the background and the
+  open desktop offers "reload"; the next start uses the new copy as a whole, never a mix of old and new
+  files. A visitor therefore sees an update one reload later than without a worker.
+- *Network first* (`offline.fastStart: false`, and always for Reader pages). Online you get the deployed
+  files; offline — or when the network takes longer than `offline.timeoutMs` (default 4000 ms) while a copy
+  exists — the last good copy answers. A late network answer still refreshes the copy.
 - *What it keeps:* the desktop itself (one copy of `index.html` whatever the query string, the manifest,
   `assets/icons/`, `src/`, `locales/`, `site/` without the vault folder) and up to `offline.maxPages`
   (default 80) pages the Reader opened; the oldest go first.

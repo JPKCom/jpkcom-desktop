@@ -24,6 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
   requests every file of the boot at once instead of one import level after the other; language metadata,
   strings and site data load side by side. Upgrade note: `index.html` loads `src/boot/preload.js` right
   after `site/config.js` — copy that line into an adapted `index.html`.
+- **Faster repeat visits: fast start from the offline copy** — the service worker answers the desktop's
+  own files from its copy and checks for a new version in the background; a complete new copy is prepared
+  and the open desktop offers a reload. `config.offline.fastStart: false` restores "network first".
 - **Supply chain** — Node.js ≥ 24; `.npmrc` with `ignore-scripts`, `save-exact`, `engine-strict`; exact
   versions of the two development tools (playwright-core 1.64.0); `npm run browsers` instead of `npx`;
   GitHub Actions pinned to commit SHAs, CI on Node 24 with `npm ci --ignore-scripts` and
