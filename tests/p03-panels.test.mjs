@@ -1,12 +1,13 @@
-/* JPKCom Desktop — tests: panels (colour contrast, wallpaper values, trash items, backup and reset summaries, motifs) — © Jean Pierre Kolb — MIT License */
+/* JPKCom Desktop — tests: panels (colour contrast, wallpaper values, trash items, backup and reset summaries, motifs, window code on demand) — © Jean Pierre Kolb — MIT License */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
 	luminance, contrast, onAccent, accentRing, gradientCss, cleanWallpaper, wallpaperKey, cleanTrash, trashId, ITEM_ID,
-	copyrightYears, legacyBackup, dateStamp, summarize, groupState, mergeById, DIRS,
-	LEGACY_MOTIFS, splitAt, nameParts, brightest, wallpaperTone, rowParts
+	dateStamp, mergeById, DIRS, LEGACY_MOTIFS, brightest, wallpaperTone
 } from '../src/panels/pure.js';
+import { copyrightYears, legacyBackup, summarize, groupState, splitAt, nameParts, rowParts } from '../src/panels/pure-window.js';
 import { BUILTIN_MOTIFS, checkMotif } from '../src/wallpapers/index.js';
 import { DEFAULTS } from '../src/core/config.js';
 import { ownCaches } from '../src/panels/install.js';
@@ -323,4 +324,33 @@ test('help: the search row names its shortcut, or says nothing about keys withou
 		assert.ok(strings.searchText.includes('{keys}'));
 		assert.ok(strings.searchTextNoKeys && !strings.searchTextNoKeys.includes('{keys}'));
 	}
+});
+
+/* ---------- Window code on demand ---------- */
+
+const PANELS = new URL('../src/panels/', import.meta.url);
+const source = file => readFileSync(new URL(file, PANELS), 'utf8');
+/* Static imports of a panels file (relative ones inside src/panels/) */
+const staticImports = file => [...source(file).matchAll(/^import\s[^;]*?from\s+'\.\/([^']+)'/gm)].map(m => m[1]);
+
+test('panels: the boot does not import the window files; each panel app loads its own', () => {
+	const WINDOWS = ['settings-window.js', 'wallpaper-window.js', 'trash-window.js', 'backup-window.js', 'about.js', 'help.js', 'pure-window.js'];
+	/* Everything index.js reaches through static imports */
+	const seen = new Set();
+	const walk = file => {
+		if (seen.has(file)) return;
+		seen.add(file);
+		for (const dep of staticImports(file)) walk(dep);
+	};
+	walk('index.js');
+	for (const w of WINDOWS) assert.ok(!seen.has(w), `${w} is not in the boot (reached: ${[...seen].join(', ')})`);
+
+	/* The loads are literal import('./…') calls (the service worker and the preload list read the source) */
+	const index = source('index.js');
+	for (const [app, file] of [['about-desktop', 'about.js'], ['settings', 'settings-window.js'], ['wallpaper', 'wallpaper-window.js'],
+		['backup', 'backup-window.js'], ['trash', 'trash-window.js'], ['help', 'help.js']]) {
+		assert.match(index, new RegExp(`id: '${app}'[^\\n]*load: \\(\\) => import\\('\\./${file.replace('.', '\\.')}'\\)`), `${app} loads ${file}`);
+	}
+	assert.match(index, /windowStyles: \['settings\.css', 'wallpaper\.css', 'panels\.css'\]/);
+	assert.doesNotMatch(index, /^\s*styles:/m, 'no panel sheet in the boot');
 });

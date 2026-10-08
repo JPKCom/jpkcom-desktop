@@ -12,10 +12,13 @@
    holder is a name or its parts with their languages —
    [{ text: 'Jean Pierre', lang: 'fr' }, { text: 'Kolb', lang: 'de' }] — so
    screen readers pronounce each part right (as the original did). The author's
-   name in the credit carries the same parts. */
+   name in the credit carries the same parts.
+
+   The whole file is the window: loaded when it first opens (app field load
+   in src/panels/index.js, which also provides the service 'about'). */
 
 import Desk from '../core/api.js';
-import { copyrightYears, splitAt, nameParts, rowParts } from './pure.js';
+import { copyrightYears, splitAt, nameParts, rowParts } from './pure-window.js';
 
 const { h, t, L } = Desk;
 const cfg = Desk.config.about ?? {};
@@ -118,7 +121,7 @@ function copyright() {
 	return h('p', { class: 'about-copy' }, withName('about.copyright', { years: copyrightYears(c.since, year) }, 'holder', parts));
 }
 
-export function renderAbout() {
+function renderAbout() {
 	const logo = Desk.icons.logo();
 	const rows = siteRows() ?? autoRows();
 	return h('div', { class: 'panel about-panel' },
@@ -131,6 +134,4 @@ export function renderAbout() {
 		copyright());
 }
 
-export const aboutService = Object.freeze({
-	open: () => Desk.launch('about-desktop')
-});
+export default { render: renderAbout };

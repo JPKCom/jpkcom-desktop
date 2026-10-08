@@ -2,14 +2,15 @@
 
    index.html loads, in this order:
      site/config.js      classic script: window.DESKTOP_CONFIG
+     src/boot/preload.js classic script (generated): preload hints for every file the boot needs
      src/boot/theme.js   classic script: theme, accent, colours before the first paint
      src/boot/main.js    this module (deferred by nature)
 
    Boot steps (each one awaited, a failure in an optional part never stops the rest):
      1. environment: body.compact / body.standalone, live changes as bus events
-     2. i18n: language metadata, start language, 'core' strings; <html lang dir>
-     3. site data: site/apps.js (apps, collections, menus, files) into the registry,
-        plus one link app per author profile
+     2. i18n: language metadata, start language, 'core' strings; <html lang dir> — and at
+     3. the same time site data: site/apps.js (apps, collections, menus, files) into the
+        registry, plus one link app per author profile
      4. window.JPKDesk (the frozen public API)
      5. modules: core parts (wm, shell, panels), then config.modules, then config.apps —
         imported in parallel, set up in dependency order
@@ -50,12 +51,11 @@ async function boot() {
 	/* theme.js set it from the raw config already; this is the validated value */
 	document.documentElement.style.setProperty('--anim', `${config.ui.animMs}ms`);
 
-	await initI18n();
+	/* Strings and site data side by side: registry.load() resolves texts only when they are read */
+	await Promise.all([initI18n(), loadSiteData()]);
 	document.title = config.brand.name;
 	const heading = document.getElementById('desk-title');
 	if (heading) heading.textContent = config.brand.name;
-
-	await loadSiteData();
 	expose();
 
 	await modules.loadAll([

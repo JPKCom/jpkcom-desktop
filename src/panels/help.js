@@ -6,7 +6,10 @@
    and the shortcut list is generated from the shortcuts service
    (shortcuts.list(): { id, keys, display, label }), so it never disagrees
    with the keys that really work. The window overview row names its keys
-   (and those of the next window) from the same list. */
+   (and those of the next window) from the same list.
+
+   The whole file is the window: loaded when it first opens (app field load
+   in src/panels/index.js, which also provides the service 'help'). */
 
 import Desk from '../core/api.js';
 
@@ -96,7 +99,7 @@ function searchCombo() {
 	return Desk.i18n.keys(usable ? k : 'Mod+K');
 }
 
-export function renderHelp() {
+function renderHelp() {
 	const list = listed();
 	const keys = shortcuts(list);
 	const combo = searchCombo();
@@ -115,6 +118,4 @@ export function renderHelp() {
 		] : null);
 }
 
-export const helpService = Object.freeze({
-	open: () => Desk.launch('help')
-});
+export default { render: renderHelp };

@@ -421,16 +421,17 @@ export const i18n = createI18n({
 	}
 });
 
-/** Boot: metadata of every language, the start language and the 'core' namespace. */
+/** Boot: metadata of every language, the start language and the 'core' namespace (metadata and strings
+    load side by side: the start language needs no metadata, only <html dir> does) */
 export async function initI18n() {
-	await i18n.loadMetas();
+	const metas = i18n.loadMetas();
 	const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 	i18n.init(i18n.detect({
 		query: params.get('lang'),
 		stored: store.get('lang'),
 		preferred: typeof navigator !== 'undefined' ? (navigator.languages?.length ? navigator.languages : [navigator.language]) : []
 	}));
-	await i18n.use(['core']);
+	await Promise.all([metas, i18n.use(['core'])]);
 	apply();
 }
 

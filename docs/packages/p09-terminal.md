@@ -11,9 +11,11 @@ modules and site scripts extend.
 
 | File | Purpose |
 |---|---|
-| `src/apps/terminal/index.js` | descriptor, the window (output log, prompt, keys, completion, `readLine`), the `io` given to commands, the registry wiring, service `terminal` |
-| `src/apps/terminal/registry.js` | the command registry (pure): `createCommands()`, `cleanDef()`, `textOf()` |
-| `src/apps/terminal/lib.js` | pure helpers: `parse`, `fold` (the shared rule of `src/core/text.js`, ß → ss), `distance`, `nearest`, `resolve`, `completeLine`, `cleanState`, `pushHistory`, `historyLine`, `cleanConfig`, `cleanDoh`, `cleanFiles`, `fillTemplate`, `isSafeHref`, `markdownRows`, `human` |
+| `src/apps/terminal/index.js` | descriptor (loaded at boot): the command registry with the reserved built-in names, the `terminal` contributions (also of modules loaded later), service `terminal`, storage, consent, config; the `io` contract |
+| `src/apps/terminal/config.js` | what the descriptor needs at boot (pure): `cleanConfig`, `cleanDoh`, `cleanState`, `isRelPath`, `NAME`, `MAX_LINE`, `HISTORY_DEFAULT`, `HISTORY_MAX` |
+| `src/apps/terminal/registry.js` | the command registry (pure, boot): `createCommands()` (with `reserve()`), `cleanDef()`, `textOf()` |
+| `src/apps/terminal/window.js` | **loaded with the first window** (app field `load`): the window (output log, prompt, keys, completion, `readLine`), the `io` given to commands; registers the built-in commands when imported |
+| `src/apps/terminal/lib.js` | pure helpers (loaded with the window; re-exports `config.js`): `parse`, `fold` (the shared rule of `src/core/text.js`, ß → ss), `distance`, `nearest`, `resolve`, `completeLine`, `pushHistory`, `historyLine`, `cleanFiles`, `fillTemplate`, `isSafeHref`, `markdownRows`, `human` |
 | `src/apps/terminal/catalog.js` | directories, `open` targets and counts from the app registry; the validated `files` of `site/apps.js` |
 | `src/apps/terminal/commands/core.js` | `help`, `history`, `clear`, `echo`, `search`, `exit` |
 | `src/apps/terminal/commands/fs.js` | `ls`, `cd`, `pwd`, `open`, `cat`, `man` |
@@ -22,14 +24,17 @@ modules and site scripts extend.
 | `src/apps/terminal/commands/storage.js` | `df`, `du` |
 | `src/apps/terminal/commands/net.js` | `dig`, `host`, `nslookup` over DNS-over-HTTPS (only when configured) |
 | `src/apps/terminal/commands/eggs.js` | hidden easter eggs |
-| `src/apps/terminal/terminal.css` | `@layer apps` + `@layer compact` |
+| `src/apps/terminal/terminal.css` | `@layer apps` + `@layer compact` — `windowStyles` (injected with the first window; every rule is inside the terminal window) |
 | `locales/{en,de}/terminal.js` | namespace `terminal` |
 | `tests/p09-terminal.test.mjs` | unit tests of the pure parts and the descriptor |
 
 ## App
 
 `terminal`, kind `app`, icon `ti-terminal-2`, tint `black`, 760 × 480, name `@terminal.appName`.
-Hooks: `mount`, `focus` (an open question field first, else the prompt), `relabel` (accessible names —
+**Window code on demand** (ARCHITECTURE §8 `load`): `app.load: () => import('./window.js')`, `windowStyles:
+['terminal.css']`. The boot loads only `index.js`, `config.js` and `registry.js` (≈ 16 KB); `window.js`,
+`lib.js`, `catalog.js`, `commands/*.js` and `terminal.css` (≈ 88 KB) come with the first window. Hooks
+(all in `window.js`): `mount`, `focus` (an open question field first, else the prompt), `relabel` (accessible names —
 old output stays in the language it was printed in, as in the original), `menu` (Clear output, Clear
 history), `unmount` (saves, cancels a running command, answers open questions with `null`).
 No `serialize`: a restored terminal starts with a fresh screen, as before.
@@ -96,6 +101,13 @@ Sources, in this order: built-ins → `Desk.modules.contributions('terminal')` (
 `'module:loaded'`; a `'module:failed'` module's commands are withdrawn) → eggs (weak). The first
 registration of a name wins; later ones are refused with `console.warn` — except over a weak one; a weak one over a taken name is dropped without a warning.
 
+The built-ins load with the window code, so `setup()` **reserves** their names (`commands.reserve(names,
+'builtin')`, `ORDER` in `index.js`; `dig`/`host`/`nslookup` only when DNS is on): a reserved name keeps its
+place in the order (`help` lists the built-ins first, as before) and refuses every other source at once
+(`register()` → `null` + the "exists already (builtin)" warning), but counts as a command (`get`, `has`,
+`list`, completion) only once `window.js` registered it. The eggs are registered with the built-ins.
+`tests/p09-terminal.test.mjs` checks that `ORDER` names every built-in.
+
 `io`: `say(text | nodes[], cls?)`, `print(nodes, cls?)`, `err`, `dim`, `heading`, `blank`,
 `table(rows, { gap, wrap })`, `link(text, href, base?)`, `markdown(text, baseUrl)`, `progress(text) → done()`,
 `readLine(label, { secret })` → `string | null`, `clear()`, `cols()`, `win`, `signal`.
@@ -109,6 +121,10 @@ Desk.terminal.register(name, def) → remove() | null    // [a-z][a-z0-9-]{0,31}
 Desk.terminal.list() → [{ name, hidden, source }]
 Desk.terminal.has(name) → boolean
 ```
+
+Until the first terminal window has opened (its code loaded), `list()` and `has()` know the contributed
+and runtime commands only; the built-ins and eggs join when `window.js` is imported. `register()` behaves
+as before: a built-in name is refused from the start (reserved).
 
 Contributions consumed: `terminal` (e.g. the vault's `login`/`logout`, which use `io.readLine` with
 `{ secret: true }` and `i18n.isYes()`; the Fortune app's `fortune`). Services used (all optional, null-safe): `vault`, `search`,

@@ -1,9 +1,11 @@
-/* JPKCom Desktop — tests: Catalog helpers — © Jean Pierre Kolb — MIT License */
+/* JPKCom Desktop — tests: Catalog helpers, P4 window code on demand — © Jean Pierre Kolb — MIT License */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fold, matches, gridMove, columnsOf } from '../src/modules/catalog/util.js';
 import { isSafeUrl } from '../src/core/url.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 test('search folds case and diacritics, every word must occur', () => {
 	assert.equal(fold('Ärger Ünd ÉTÉ'), 'arger und ete');
@@ -56,4 +58,37 @@ test('URLs from data', () => {
 	/* the shared rule (core/url.js): parser tricks the old local copy let through */
 	assert.equal(isSafeUrl('java\tscript:alert(1)'), false);
 	assert.equal(isSafeUrl('/\t/evil.example/x'), false);
+});
+
+/* The window code of the P4 kinds (§19.3 load) stays out of the boot: the descriptor reaches
+   kind.js through a literal dynamic import only, never through a static import chain of its folder */
+test('P4 descriptors load their window code on demand (kind.js), never statically', () => {
+	const staticImports = file => [...readFileSync(file, 'utf8').matchAll(/^\s*import\s[^;]*?from\s+'(\.[^']+)'/gm)]
+		.map(m => join(dirname(file), m[1]));
+	const lazy = { reader: ['kind.js', 'extract.js', 'sanitize.js'], viewer: ['kind.js'], catalog: ['kind.js'] };
+	for (const [mod, files] of Object.entries(lazy)) {
+		const dir = `src/modules/${mod}`;
+		const seen = new Set();
+		const walk = file => {
+			if (seen.has(file) || !file.startsWith(dir + '/')) return;
+			seen.add(file);
+			for (const f of staticImports(file)) walk(f);
+		};
+		walk(`${dir}/index.js`);
+		for (const f of files) assert.equal(seen.has(`${dir}/${f}`), false, `${mod}: ${f} is imported statically by the descriptor`);
+		assert.match(readFileSync(`${dir}/index.js`, 'utf8'), /load: \(\) => import\('\.\/kind\.js'\)/, `${mod}: literal import('./kind.js')`);
+	}
+});
+
+test('reader: acceptUrl stays in the descriptor (asked before any window exists)', async () => {
+	const kinds = {};
+	const { default: reader } = await import('../src/modules/reader/index.js');
+	reader.setup({
+		modules: { config: () => null }, config: { reader: {} }, env: { root: 'http://localhost/' },
+		wm: { defineKind: (k, def) => { kinds[k] = def; } }, provide: () => {}
+	});
+	assert.deepEqual(Object.keys(kinds), ['page']);
+	assert.equal(typeof kinds.page.acceptUrl, 'function');
+	assert.equal(typeof kinds.page.load, 'function');
+	assert.equal(kinds.page.mount, undefined, 'mount comes with kind.js');
 });

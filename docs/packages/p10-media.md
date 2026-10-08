@@ -10,12 +10,12 @@ cover; they are read locally in the browser.
 
 | File | Content |
 |---|---|
-| `src/apps/media/index.js` | descriptor (`apps: [audio, video]`, `files` contributions, `configKey`, service `media`) |
-| `src/apps/media/player.js` | `player(kind)` → the window hooks (`mount focus relabel menu unmount`) |
+| `src/apps/media/index.js` | descriptor (`apps: [audio, video]` with `load` and the direct `canPopOut`/`canLink` guards, `files` contributions, `configKey`, service `media`) |
+| `src/apps/media/player.js` | `player(kind)` → the window hooks (`mount focus relabel menu unmount`); **loaded on demand** with the first player window (§8 `load`), together with `tags.js` and `media.css` |
 | `src/apps/media/types.js` | **the shared list** of audio/video extensions and MIME patterns, `kindOf()`, accept strings, format names |
 | `src/apps/media/tags.js` | ID3v2.2/2.3/2.4 and FLAC tag reader (pure; `readTags(blob)`, `parseTags(bytes)`) |
 | `src/apps/media/util.js` | pure helpers: `clock()`, `ratioParts()`, `bitRate()`, `nextIndex()`, `repeatAfter()`, `cleanMediaConfig()` |
-| `src/apps/media/media.css` | `@layer apps` + `@layer compact` |
+| `src/apps/media/media.css` | `@layer apps` + `@layer compact` — only rules inside the player window, so the descriptor lists it as `windowStyles` |
 | `locales/{en,de}/media.js` | namespace `media` |
 | `tests/p10-media-tags.test.mjs`, `tests/p10-media-util.test.mjs` | tag parser with synthetic buffers; types, helpers, config |
 
@@ -27,6 +27,12 @@ cover; they are read locally in the browser.
 | `video` | `ti-movie` | `indigo` | 860 × 560 | `@media.videoName` (Video Player / Videoplayer) |
 
 Both are kind `app`; a site may override fields with override records (`{ id: 'audio', dock: true }`).
+
+**Window code on demand** (ARCHITECTURE §8 `load`): the boot imports only the descriptor (`index.js`,
+`types.js`, `util.js`). Each app definition has `load: () => import('./player.js').then(m => m.player(kind))`;
+the first `wm.open('audio' | 'video')` loads `player.js` (and with it `tags.js`) and `media.css`
+(`windowStyles`) — the window shows a spinner until then. `canPopOut` and `canLink` are given directly
+in the app definitions (`guards` in `index.js`, also spread into `player()`), so they hold before the code is there.
 
 ## Behaviour (ported 1:1 from the original)
 
@@ -102,14 +108,21 @@ files: {
 ## Service `media`
 
 ```ts
-Desk.media.open(files) → number          // sorts files into the players (opens/shows them); files added
-Desk.media.add('audio' | 'video', files) → number
+Desk.media.open(files) → Promise<number>  // sorts files into the players (opens/shows them); files added
+Desk.media.add('audio' | 'video', files) → Promise<number>  // opens/shows the player, adds once win.ready
 Desk.media.kindOf({ name, type }) → 'audio' | 'video' | null
 Desk.media.types() → { extensions: { audio, video }, mime: { audio, video }, accept: { audio, video }, formats }
 ```
 
-`win.state.media` of an open player additionally offers `add(files)`, `clear()`, `snapshot()` (count, index,
-repeat, playing, panels, message, items — used by the browser checks).
+`open` and `add` are **asynchronous** (since the window code loads on demand): the window opens at once
+(`wm.open`), the files go in when it is built (`await win.ready`); the promise resolves with the number of
+files added — `0` for an unknown kind, no files, or a window that could not be built or was closed
+meanwhile. Both players of one `open()` open right away, audio first. The shell's drop awaits the handler's
+`open()`.
+
+`win.state.media` of an open player (set by `mount()`, so only after `win.ready`) additionally offers
+`add(files)` (synchronous, → number), `clear()`, `snapshot()` (count, index, repeat, playing, panels,
+message, items — used by the browser checks).
 
 ## Config
 
@@ -123,7 +136,7 @@ Optional section `media` (cleaned by the descriptor's `validateConfig`, read thr
 
 ## Consumed
 
-`Desk.wm` (`requires: ['wm']`; `win.addActions`, `win.setTitle`, `wm.open`), `Desk.tile`, `Desk.icon`,
+`Desk.wm` (`requires: ['wm']`; `win.addActions`, `win.setTitle`, `wm.open`, `win.ready`), `Desk.tile`, `Desk.icon`,
 `Desk.i18n` formatters (`fmtNumber` incl. percent, `fmtBytes`, `fmtDate`), `Desk.announce`,
 `Desk.service('drop')` (only to know whether the window must take drops itself).
 

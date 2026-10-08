@@ -11,23 +11,37 @@ appearance preferences (theme, accent), the wallpaper layer with its motif gener
 
 | File | Purpose |
 |---|---|
-| `src/panels/index.js` | descriptor: apps, storage keys, reset groups, services |
-| `src/panels/settings.js` | theme/accent preferences, the settings window, section and row registry, reset section |
-| `src/panels/wallpaper.js` | wallpaper layer, motif registry, wallpaper panel |
-| `src/panels/backup.js` | backup download, import preview, restore |
-| `src/panels/trash.js` | trash store and window |
-| `src/panels/about.js` | About this desktop |
-| `src/panels/help.js` | How it works (generated) |
+| `src/panels/index.js` | descriptor: apps (each with `load: () => import('./…')`), storage keys, reset groups, services; `windowStyles` |
+| `src/panels/settings.js` | theme/accent preferences, row helpers, section and row registry (`sections()`, built-in rows as `{ id, section, order, when }`), `redraw()`, `show()` |
+| `src/panels/settings-window.js` | *window* — the sidebar, what each built-in row draws, the reset section; the hooks `mount`/`relabel`/`reopen`/`serialize`/`restore` |
+| `src/panels/wallpaper.js` | wallpaper layer, motif registry, service |
+| `src/panels/wallpaper-window.js` | *window* — the wallpaper panel (previews, swatches, custom colour and gradient) |
+| `src/panels/backup.js` | backup download (service) |
+| `src/panels/backup-window.js` | *window* — summary, import preview, restore |
+| `src/panels/trash.js` | trash store, the question before emptying, service, dock menu |
+| `src/panels/trash-window.js` | *window* — the list of deleted items |
+| `src/panels/about.js` | *window* — About this desktop |
+| `src/panels/help.js` | *window* — How it works (generated) |
 | `src/panels/install.js` | service worker registration, install offer, offline reset |
-| `src/panels/pure.js` | pure helpers (contrast, wallpaper values, trash items, summaries) — unit-tested |
-| `src/panels/settings.css`, `wallpaper.css`, `panels.css` | `@layer panels` + `@layer compact` |
+| `src/panels/pure.js` | pure helpers the boot needs (contrast, wallpaper values, trash items, file dates, row order) — unit-tested |
+| `src/panels/pure-window.js` | *window* — pure helpers only the windows use (backup and reset summaries, About name and row parts) — unit-tested |
+| `src/panels/settings.css`, `wallpaper.css`, `panels.css` | `@layer panels` + `@layer compact` — `windowStyles`: every rule is inside a panel window |
 | `src/wallpapers/kit.js` | the motif contract (`checkMotif`) and SVG building blocks |
 | `src/wallpapers/author.js` | author motifs: `author-monogram` (glyph `jpk`), `author-emblem` (`icons.logo('jpkcom')`), `author-blueprint` |
 | `src/wallpapers/motifs.js` | `waves`, `dunes`, `aurora` (heavy), `orbit`, `horizon`, `graphite` |
 | `src/wallpapers/index.js` | `BUILTIN_MOTIFS` |
-| `tests/p03-panels.test.mjs` | unit tests of `pure.js` and the motif list |
+| `tests/p03-panels.test.mjs` | unit tests of `pure.js`/`pure-window.js` and the motif list; the boot does not reach the window files |
 
 ## Apps (kind `native`)
+
+**Window code on demand** (§8 `load`): every panel app names its window file with
+`load: () => import('./…')`; the six files *window* above and the three sheets (`windowStyles`) come with
+the first panel window that opens, everything else stays in the boot. `about.js` and `help.js` are
+window files as a whole (their services `about`/`help` — `open()` — are in `index.js`). A window opens at
+once with a spinner and mounts when its code is there (`win.ready`); what the boot keeps reaches the open
+panels through `views` sets the window files fill (`redraw()`, the wallpaper panel's `sync()`), and
+`Desk.launch('settings', { section })` hands the section over (mount on a new window, `reopen` on an open
+one — an open while the code still loads keeps its options for the mount, §19.1).
 
 | Id | Name | Icon | Notes |
 |---|---|---|---|
@@ -43,8 +57,10 @@ appearance preferences (theme, accent), the wallpaper layer with its motif gener
 **`settings`**
 
 ```ts
-show(sectionId?)                 // opens the window at a section (Desk.showSettings)
-sections() → [{ id, label, icon, tint, order }]   // sections that have rows now
+show(sectionId?)                 // opens the window at a section (Desk.showSettings) — Desk.launch('settings', { section });
+                                 //   a section without rows now leaves the window where it was
+sections() → [{ id, label, icon, tint, order }]   // sections that have rows now (built-in rows by their when(),
+                                 //   contributed ones by what their render(ctx) gives — without loading the window)
 redraw()                         // rebuilds open settings windows (focus kept via data-key)
 row(label, hint, control)        | row({ label, hint, control })
 toggle(key, label, hint, checked, onChange, plain)        | toggle({ key, label, hint, checked, onChange, plain, disabled })
@@ -67,8 +83,8 @@ stored choice is kept), `unregister(id) → boolean` (module motifs only), `set(
 items for a context menu), `motifs() → [{ id, name }]`, `keyOf(value)`, `open()`.
 
 **`backup`**: `download()`, `snapshot()`, `open()`. **`trash`**: `add(type, title, data) → boolean`,
-`count()`, `list()`, `putBack(id) → Promise<boolean>`, `purge(id)`, `empty()`, `askEmpty()` (opens the
-window and asks), `open()`. **`about`**, **`help`**: `open()`. **`install`**: `state`
+`count()`, `list()`, `putBack(id) → Promise<boolean>`, `purge(id)`, `empty()`, `askEmpty() → Promise` (opens the
+window and asks once its content is there; resolves when the question is answered), `open()`. **`about`**, **`help`**: `open()`. **`install`**: `state`
 (`'installed' | 'offer' | 'share' | 'menu' | 'off'`), `enabled`, `run()`.
 
 ## Contributions consumed

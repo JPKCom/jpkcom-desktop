@@ -52,5 +52,8 @@ jobs:
       - name: Icon subset up to date
         run: npm run icons:check
 
+      - name: Preload hints up to date
+        run: npm run preload:check
+
       - name: Site manifest
         run: node tools/validate-manifest.mjs

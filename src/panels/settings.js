@@ -1,4 +1,4 @@
-/* JPKCom Desktop — settings: appearance, dock and desktop preferences, and the window that gathers every switch — © Jean Pierre Kolb — MIT License
+/* JPKCom Desktop — settings: appearance preferences, the row helpers and the section and row registry — © Jean Pierre Kolb — MIT License
 
    Own preferences (storage keys, reset group 'settings'):
      theme      'dark' | 'light' | 'auto'          → html[data-theme] (always resolved), 'theme:change'
@@ -18,20 +18,23 @@
    row helpers (row, toggle, segments, select, button) and redraw(). A redraw
    rebuilds the pane and keeps the keyboard focus on the control with the same
    data-key. Service 'settings': show(section), sections(), redraw(), the row
-   helpers, addSection(), addRow(), get()/set() of the own preferences. */
+   helpers, addSection(), addRow(), get()/set() of the own preferences.
+
+   The window itself (sidebar, what the built-in rows draw, the reset
+   section) is settings-window.js, loaded when it first opens; this file
+   keeps what the boot and other modules need: the preferences, the helpers,
+   the registry and sections(). */
 
 import Desk from '../core/api.js';
-import { HEX, onAccent, accentRing, contrast, mergeById, groupState } from './pure.js';
+import { HEX, onAccent, accentRing, mergeById } from './pure.js';
 import { installService } from './install.js';
-import { download as downloadBackup } from './backup.js';
 
-const { h, t, L, store, storage } = Desk;
+const { h, t, L, store } = Desk;
 const tcfg = Desk.config.theme;
-const MODES = ['dark', 'light', 'auto'];
-const SIZES = ['small', 'medium', 'large'];
-const SECTION_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const accents = tcfg.accents ?? {};
-const allowCustom = tcfg.allowCustomAccent !== false;
+export const MODES = ['dark', 'light', 'auto'];
+export const SECTION_ID = /^[a-z][a-z0-9-]{0,31}$/;
+export const accents = tcfg.accents ?? {};
+export const allowCustom = tcfg.allowCustomAccent !== false;
 const systemLight = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: light)') : null;
 
 /* ============================================================
@@ -39,7 +42,7 @@ const systemLight = typeof matchMedia === 'function' ? matchMedia('(prefers-colo
    ============================================================ */
 
 /** A method of a service, bound — or null (the service or the method is missing) */
-function fnOf(obj, name) {
+export function fnOf(obj, name) {
 	return typeof obj?.[name] === 'function' ? obj[name].bind(obj) : null;
 }
 
@@ -51,8 +54,8 @@ export const validAccent = v => {
 };
 
 const defaultTheme = () => validTheme(tcfg.default) ?? 'dark';
-const theme = () => validTheme(store.get('theme')) ?? defaultTheme();
-const accent = () => validAccent(store.get('accent')) ?? validAccent(tcfg.accent) ?? Object.keys(accents)[0] ?? 'blue';
+export const theme = () => validTheme(store.get('theme')) ?? defaultTheme();
+export const accent = () => validAccent(store.get('accent')) ?? validAccent(tcfg.accent) ?? Object.keys(accents)[0] ?? 'blue';
 
 /** Storage declarations of the own preferences (registered by src/panels/index.js) */
 export const SETTINGS_KEYS = {
@@ -60,7 +63,7 @@ export const SETTINGS_KEYS = {
 	accent: { type: 'text', reset: 'settings', label: '@settings.accent', validate: validAccent }
 };
 
-const accentHex = a => (HEX.test(a) ? a : accents[a] ?? null);
+export const accentHex = a => (HEX.test(a) ? a : accents[a] ?? null);
 let last = null;   // the last theme:change payload (events only on real changes)
 
 /* theme.js did this before the first paint; here it follows every change */
@@ -98,32 +101,21 @@ export function setPref(key, value, { quiet = false } = {}) {
 	return true;
 }
 
-/* ---------- Dock and desktop icons (owned by the shell's services) ---------- */
-
-const dockSize = () => fnOf(Desk.dock, 'size')?.() ?? 'medium';
-const dockSizes = () => fnOf(Desk.dock, 'sizes')?.() ?? SIZES;
-const magnify = () => !!fnOf(Desk.dock, 'magnify')?.();
-const iconsHidden = () => !!fnOf(Desk.desktop, 'hidden')?.();
-
-function setDockSize(v) {
-	Desk.dock.setSize(v);
-	/* the dock's height changed: windows keep clear of it */
-	requestAnimationFrame(() => Desk.wm?.relayout?.());
-	redraw();
-}
-
 /* ============================================================
    Row helpers — positional (as in the original) or one options object
    ============================================================ */
 
 let uid = 0;
-const views = new Set();
+/** A number for element ids, unique on the page (the window's ids use it as well) */
+export const nextUid = () => ++uid;
+/** The open settings panes (settings-window.js adds them; redraw() rebuilds them) */
+export const views = new Set();
 const optsOf = (args, names) => (args.length === 1 && args[0] && typeof args[0] === 'object' && !args[0].nodeType && !Array.isArray(args[0])
 	? args[0]
 	: Object.fromEntries(names.map((n, i) => [n, args[i]])));
 /* A text to append: '@ns.key' and { lang: text } that fell back to another language come as
    <span lang> (Desk.dom.langText), so screen readers read them with the right voice */
-const marked = v => (v == null || v === false ? null : typeof v === 'object' && v?.nodeType ? v : Desk.dom.langText(v));
+export const marked = v => (v == null || v === false ? null : typeof v === 'object' && v?.nodeType ? v : Desk.dom.langText(v));
 const label = (content, hint, props = {}) => h('span', { class: 'set-label', ...props }, marked(content), hint ? h('small', {}, marked(hint)) : null);
 
 /** A label/control row: row(label, hint, control) | row({ label, hint, control }) */
@@ -205,278 +197,82 @@ const BUILTIN_SECTIONS = [
 	{ id: 'reset', label: '@settings.secReset', icon: 'ti-arrow-back-up', tint: 'pink', order: 90, always: true }
 ];
 
-
-/* Session restore (P1): keeping() may be a method or a flag */
-const keeping = () => {
-	const s = Desk.session;
-	return typeof s?.keeping === 'function' ? s.keeping() : !!s?.keeping;
-};
-const dockCustom = () => {
-	const d = Desk.dock;
-	return typeof d?.isCustom === 'function' ? d.isCustom() : d?.isCustom !== false;
-};
-const clockSeconds = () => {
-	const c = Desk.clock;
-	return typeof c?.seconds === 'function' ? c.seconds() : !!c?.seconds;
-};
-
-let refocus = null;   // a selector to focus after the next render (language switch rebuilds the window)
-
-function langRow() {
-	const codes = Desk.i18n.available();
-	const list = codes.map(c => [c, Desk.i18n.displayName(c), c]);
-	const change = v => {
-		refocus = codes.length <= 3 ? `[data-key="lang"][value="${Desk.dom.cssEscape(v)}"]` : '[data-key="lang"]';
-		Desk.i18n.setLang(v);
-	};
-	/* Up to three languages as segments, more in a list */
-	return codes.length <= 3
-		? segments('lang', '@settings.language', null, list, Desk.lang(), change)
-		: select('lang', '@settings.language', null, list, Desk.lang(), change);
-}
-
-function installRow() {
-	const st = installService.state;
-	return row('@settings.install', '@settings.installHint', st === 'offer'
-		? button('install', '@settings.installBtn', () => installService.run())
-		: h('span', { class: 'set-value', text: t(`settings.install.${st}`) }));
-}
-
-const accentName = id => (HEX.test(id) ? t('settings.accentCustomName', { color: id })
-	: Desk.i18n.has(`settings.accent.${id}`) ? t(`settings.accent.${id}`) : id);
-
-let customColor = null;   // the custom accent last picked (kept while a named one is chosen)
-
-function accentRow() {
-	const id = `set-g${++uid}`;
-	const current = accent();
-	const custom = HEX.test(current);
-	if (custom) customColor = current;
-	const pick = customColor ?? accentHex(current) ?? '#3571c0';
-	const hint = () => {
-		const a = accent();
-		const hex = accentHex(a);
-		if (!HEX.test(a) || !hex) return accentName(a);
-		const on = onAccent(hex);
-		/* Two whole sentences: the colour word must agree with the sentence in every language */
-		return t(on === '#fff' ? 'settings.accentContrastWhite' : 'settings.accentContrastBlack', {
-			name: accentName(a),
-			ratio: Desk.i18n.fmtNumber(contrast(on, hex), { maximumFractionDigits: 1 })
-		});
-	};
-	const small = h('small', { text: hint() });
-	const customSpan = h('span', { style: { '--c': pick } });
-	const customRadio = allowCustom ? h('input', {
-		type: 'radio', name: `set-accent-${uid}`, value: 'custom', 'data-key': 'accent', checked: custom,
-		'aria-label': t('settings.accentCustom'), onchange: () => setPref('accent', picker.value)
-	}) : null;
-	/* While the picker is dragged: live, without rebuilding the pane (that would close the picker) */
-	const picker = allowCustom ? h('input', {
-		type: 'color', class: 'set-color', value: pick, 'data-key': 'accent-color', 'aria-label': t('settings.accentPick'),
-		oninput: e => {
-			const v = e.target.value.toLowerCase();
-			customColor = v;
-			customSpan.style.setProperty('--c', v);
-			customRadio.checked = true;
-			setPref('accent', v, { quiet: true });
-			small.textContent = hint();
-		},
-		onchange: () => redraw()
-	}) : null;
-
-	return h('div', { class: 'set-row' },
-		h('span', { class: 'set-label', id }, t('settings.accent'), small),
-		h('div', { class: 'set-accents' },
-			h('div', { class: 'swatches', role: 'radiogroup', 'aria-labelledby': id },
-				Object.entries(accents).map(([a, hex]) => h('label', { title: accentName(a) },
-					h('input', { type: 'radio', name: `set-accent-${uid}`, value: a, 'data-key': 'accent', checked: a === current, 'aria-label': accentName(a), onchange: () => setPref('accent', a) }),
-					h('span', { style: { '--c': hex } }))),
-				allowCustom ? h('label', { title: t('settings.accentCustom'), class: 'set-custom-accent' }, customRadio, customSpan) : null),
-			picker));
-}
-
-function consentRows() {
-	return Desk.consent.list().map(s => {
-		const hosts = s.hosts.length ? Desk.i18n.list(s.hosts) : null;
-		const hint = s.hint ? (hosts ? t('settings.serviceHint', { hint: L(s.hint), hosts }) : L(s.hint)) : hosts;
-		return toggle(`consent-${s.id}`, s.label, hint, Desk.consent.granted(s.id), on => {
-			Desk.consent.set(s.id, on);
-			redraw();
-		});
-	});
-}
-
-/* ---------- Reset: groups of stored keys back to the start ---------- */
-
-const picked = new Set();
-let resetAsk = false;
-let askFresh = false;   // the question just appeared: it takes the focus and scrolls into view
-
-function stateText(g) {
-	if (g.id === 'offline') return t('settings.resetOfflineState');
-	const keys = g.keys.map(name => {
-		const k = storage.key(name);
-		const stored = store.get(name) != null;
-		return { stored, value: stored ? storage.read(name) : null, count: k?.count, backup: k?.backup };
-	});
-	const s = groupState(keys);
-	switch (s.kind) {
-		case 'default': return t('settings.stateDefault');
-		case 'empty': return t('settings.stateEmpty');
-		case 'count': return t('settings.stateCount', { n: s.n });
-		case 'text': return s.text;
-		case 'stored': return t('settings.stateStored');
-		case 'custom': return t('settings.stateCustom');
-		default: return null;
-	}
-}
-
-function restart() {
-	if (typeof Desk.power?.restart === 'function') Desk.power.restart();
-	else location.reload();
-}
-
-/* Open apps write what they still hold first (closing flushes), then the keys go,
-   then the desktop restarts — nothing in memory can write them back */
-async function runReset() {
-	const groups = storage.resetGroups();
-	const ids = groups.filter(g => picked.has(g.id)).map(g => g.id);
-	if (!ids.length) return;
-	const everything = ids.length === groups.length;
-	const wm = Desk.wm;
-	for (const w of wm?.list?.() ?? []) wm.close(w, { force: true });
-	await storage.reset(ids);
-	/* Everything means every key of the desktop, also ones no group knows (yet) */
-	if (everything) {
-		for (const name of store.names()) store.remove(name);
-		try {
-			await Desk.vault?.forget?.();
-		} catch { /* nothing kept */ }
-	}
-	picked.clear();
-	resetAsk = false;
-	restart();
-}
-
-function resetRows() {
-	const groups = storage.resetGroups();
-	const all = groups.length > 0 && groups.every(g => picked.has(g.id));
-	const names = groups.filter(g => picked.has(g.id)).map(g => L(g.label));
-	const pick = (id, on) => {
-		if (on) picked.add(id);
-		else picked.delete(id);
-		resetAsk = false;
-		redraw();
-	};
-	return [
-		h('p', { class: 'set-intro', text: t('settings.resetIntro') }),
-		...groups.map(g => {
-			const hint = g.hint ? L(g.hint) : null;
-			const state = stateText(g);
-			return toggle(`rs-${g.id}`, g.label, hint && state ? t('settings.hintState', { hint, state }) : hint ?? state,
-				picked.has(g.id), on => pick(g.id, on), true);
-		}),
-		h('div', { class: 'set-actions' },
-			button('rs-all', t(all ? 'settings.resetNone' : 'settings.resetAll'), () => {
-				if (all) picked.clear();
-				else groups.forEach(g => picked.add(g.id));
-				resetAsk = false;
-				redraw();
-			}),
-			button({ key: 'rs-go', label: '@settings.resetGo', danger: true, disabled: !picked.size || resetAsk, run: () => { resetAsk = true; askFresh = true; redraw(); } })),
-		...(resetAsk && picked.size ? [h('div', { class: 'set-confirm', role: 'alert' },
-			h('p', { text: all ? t('settings.resetAskAll') : t('settings.resetAsk', { names: Desk.i18n.list(names) }) }),
-			h('div', { class: 'set-actions' },
-				button('rs-cancel', t('core.cancel'), () => { resetAsk = false; redraw(); }),
-				button('rs-backup', '@settings.resetBackup', () => downloadBackup()),
-				button({ key: 'rs-do', label: '@settings.resetDo', danger: true, run: runReset })))] : [])
-	];
-}
-
-/* Built-in rows: { id, section, order, when?, render(ctx) } */
+/*
+ * Built-in rows: { id, section, order, when? } — what they draw is in settings-window.js
+ * (by id), loaded with the window. A row without when() always shows something.
+ */
 const BUILTIN_ROWS = [
-	{ id: 'lang', section: 'general', order: 10, when: () => Desk.i18n.available().length > 1, render: langRow },
-	{ id: 'restore', section: 'general', order: 20, when: () => !!fnOf(Desk.session, 'setKeeping'),
-		render: () => toggle('restore', '@settings.restore', '@settings.restoreHint', keeping(), on => { Desk.session.setKeeping(on); redraw(); }) },
-	{ id: 'seconds', section: 'general', order: 40, when: () => !!fnOf(Desk.clock, 'setSeconds'),
-		render: () => toggle('seconds', '@settings.seconds', '@settings.secondsHint', clockSeconds(), on => { Desk.clock.setSeconds(on); redraw(); }) },
-	{ id: 'install', section: 'general', order: 60, when: () => installService.enabled, render: installRow },
+	{ id: 'lang', section: 'general', order: 10, when: () => Desk.i18n.available().length > 1 },
+	{ id: 'restore', section: 'general', order: 20, when: () => !!fnOf(Desk.session, 'setKeeping') },
+	{ id: 'seconds', section: 'general', order: 40, when: () => !!fnOf(Desk.clock, 'setSeconds') },
+	{ id: 'install', section: 'general', order: 60, when: () => installService.enabled },
 
-	{ id: 'theme', section: 'look', order: 10,
-		render: () => segments('theme', '@settings.theme', theme() === 'auto' ? '@settings.themeAutoHint' : null,
-			MODES.map(x => [x, `@settings.theme.${x}`]), theme(), v => setPref('theme', v)) },
-	{ id: 'accent', section: 'look', order: 20, when: () => Object.keys(accents).length > 0 || allowCustom, render: accentRow },
-	{ id: 'wallpaper', section: 'look', order: 30, when: () => Desk.apps.available('wallpaper'),
-		render: () => row('@settings.wallpaper', null, button('wallpaper', '@settings.wallpaperMore', () => Desk.launch('wallpaper'))) },
+	{ id: 'theme', section: 'look', order: 10 },
+	{ id: 'accent', section: 'look', order: 20, when: () => Object.keys(accents).length > 0 || allowCustom },
+	{ id: 'wallpaper', section: 'look', order: 30, when: () => Desk.apps.available('wallpaper') },
 
-	{ id: 'icons', section: 'dock', order: 10, when: () => !!fnOf(Desk.desktop, 'setHidden') && fnOf(Desk.desktop, 'enabled')?.() !== false,
-		render: () => toggle('icons', '@settings.icons', null, !iconsHidden(), on => { Desk.desktop.setHidden(!on); redraw(); }) },
-	{ id: 'docksize', section: 'dock', order: 20, when: () => !!fnOf(Desk.dock, 'setSize'),
-		render: () => segments('docksize', '@settings.dockSize', '@settings.dockSizeHint',
-			dockSizes().map(x => [x, Desk.i18n.has(`settings.size.${x}`) ? `@settings.size.${x}` : x]), dockSize(), setDockSize) },
-	{ id: 'magnify', section: 'dock', order: 30, when: () => !!fnOf(Desk.dock, 'setMagnify'),
-		render: () => toggle('magnify', '@settings.magnify', '@settings.magnifyHint', magnify(), on => { Desk.dock.setMagnify(on); redraw(); }) },
-	{ id: 'dockreset', section: 'dock', order: 40, when: () => !!fnOf(Desk.dock, 'reset'),
-		render: () => row('@settings.dockReset', '@settings.dockResetHint', button('dockreset', '@settings.dockReset', () => { Desk.dock.reset(); redraw(); }, !dockCustom())) },
+	{ id: 'icons', section: 'dock', order: 10, when: () => !!fnOf(Desk.desktop, 'setHidden') && fnOf(Desk.desktop, 'enabled')?.() !== false },
+	{ id: 'docksize', section: 'dock', order: 20, when: () => !!fnOf(Desk.dock, 'setSize') },
+	{ id: 'magnify', section: 'dock', order: 30, when: () => !!fnOf(Desk.dock, 'setMagnify') },
+	{ id: 'dockreset', section: 'dock', order: 40, when: () => !!fnOf(Desk.dock, 'reset') },
 
-	{ id: 'consent', section: 'online', order: 10, render: consentRows },
+	/* One switch per offered service: nothing to show without one */
+	{ id: 'consent', section: 'online', order: 10, when: () => Desk.consent.list().length > 0 },
 
-	{ id: 'storage', section: 'data', order: 10,
-		render() {
-			const u = store.usage();
-			return row('@settings.storage', '@settings.storageHint', h('span', { class: 'set-value',
-				text: t('settings.storageValue', { own: Desk.i18n.fmtBytes(u.own), all: Desk.i18n.fmtBytes(u.all) }) }));
-		} },
-	{ id: 'backup', section: 'data', order: 20, when: () => Desk.apps.available('backup'),
-		render: () => row('@backup.title', null, button('backup', '@settings.backupOpen', () => Desk.launch('backup'))) },
-	{ id: 'trash', section: 'data', order: 30, when: () => Desk.apps.available('trash'),
-		render: () => row(Desk.apps.get('trash')?.name ?? Desk.apps.name(Desk.apps.get('trash')), t('settings.trashValue', { n: Desk.trash?.count?.() ?? 0 }),
-			button('trash', '@core.open', () => Desk.launch('trash'))) },
+	{ id: 'storage', section: 'data', order: 10 },
+	{ id: 'backup', section: 'data', order: 20, when: () => Desk.apps.available('backup') },
+	{ id: 'trash', section: 'data', order: 30, when: () => Desk.apps.available('trash') },
 
-	{ id: 'reset', section: 'reset', order: 10, render: resetRows }
-];
+	{ id: 'reset', section: 'reset', order: 10 }
+].map(r => Object.freeze(r));
 
-const ctx = section => Object.freeze({ section, row, toggle, segments, select, button, redraw, h, t, L });
+/** The ctx a row's render(ctx) gets: the row helpers and redraw() */
+export const ctx = section => Object.freeze({ section, row, toggle, segments, select, button, redraw, h, t, L });
 
 /* Contributed rows and sections (descriptor settings / settingsSections, addRow / addSection) */
 const contributedRows = () => [...Desk.modules.contributions('settings'), ...extraRows]
 	.filter(r => typeof r.id === 'string' && typeof r.section === 'string' && typeof r.render === 'function');
 
-function rowsOf(sectionId) {
-	const defs = mergeById([
+/**
+ * The rows of a section in order — built-in ones (without render(): the window draws them)
+ * and contributed ones, a contribution replacing the built-in row of its id.
+ */
+export function rowDefs(sectionId) {
+	return mergeById([
 		...BUILTIN_ROWS.filter(r => r.section === sectionId),
 		...contributedRows().filter(r => r.section === sectionId)
 	]);
+}
+
+/* Does a section show anything now? A built-in row counts once its when() agrees,
+   a contributed one when its render(ctx) gives a node */
+function hasRows(sectionId) {
 	const c = ctx(sectionId);
-	const nodes = [];
-	for (const r of defs) {
+	return rowDefs(sectionId).some(r => {
 		try {
-			if (r.when && !r.when()) continue;
-			const out = r.render(c);
-			for (const n of [out].flat(Infinity)) if (n?.nodeType) nodes.push(n);
+			if (r.when && !r.when()) return false;
+			if (typeof r.render !== 'function') return true;
+			return [r.render(c)].flat(Infinity).some(n => n?.nodeType);
 		} catch (err) {
 			console.error(`[settings] row '${r.id}'${r.module ? ` of '${r.module}'` : ''} failed:`, err);
+			return false;
 		}
-	}
-	/* Online services: the explanation only when there is something to switch */
-	if (sectionId === 'online' && nodes.length) nodes.unshift(h('p', { class: 'set-intro', text: t('settings.onlineIntro') }));
-	return nodes;
+	});
 }
 
 /** Sections that have rows, in order: [{ id, label, icon, tint, order }] */
 export function sections() {
 	const list = mergeById([...BUILTIN_SECTIONS, ...Desk.modules.contributions('settingsSections'), ...extraSections])
 		.filter(s => SECTION_ID.test(s.id));
-	return list.filter(s => s.always || rowsOf(s.id).length > 0)
+	return list.filter(s => s.always || hasRows(s.id))
 		.map(s => ({ id: s.id, label: s.label ?? s.id, icon: typeof s.icon === 'string' ? s.icon : 'ti-settings', tint: s.tint ?? 'graphite', order: s.order }));
 }
 
 /* ============================================================
-   Window
+   Window (settings-window.js, loaded when it first opens)
    ============================================================ */
 
-let section = 'general';
-
+/** Rebuilds the open settings panes (the keyboard focus stays on the control with the same data-key) */
 export function redraw() {
 	for (const v of views) {
 		if (v.isConnected) v.redraw();
@@ -484,88 +280,10 @@ export function redraw() {
 	}
 }
 
-export function renderSettings() {
-	const root = h('div', { class: 'settings' });
-	const titleId = `set-title-${++uid}`;
-
-	root.redraw = () => {
-		const focused = root.contains(document.activeElement) ? document.activeElement : null;
-		const key = focused?.dataset.key;
-		const keep = key ? `[data-key="${Desk.dom.cssEscape(key)}"]${focused.type === 'radio' ? `[value="${Desk.dom.cssEscape(focused.value)}"]` : ''}` : null;
-		const scroll = root.querySelector('.set-main')?.scrollTop ?? 0;
-		const list = sections();
-		if (!list.some(s => s.id === section)) section = list[0]?.id ?? 'general';
-		const current = list.find(s => s.id === section);
-
-		const side = h('nav', { class: 'set-side', 'aria-label': t('settings.title') },
-			h('ul', {}, list.map(s => h('li', {},
-				h('button', {
-					type: 'button', class: 'set-cat', 'data-key': `cat-${s.id}`, 'aria-current': s.id === section ? 'true' : null,
-					onclick: () => {
-						section = s.id;
-						root.redraw();
-						root.querySelector('.set-main').scrollTop = 0;
-					}
-				}, Desk.tile({ icon: s.icon, tint: s.tint }), h('span', {}, marked(s.label)))))));
-		const main = h('section', { class: 'set-main', 'aria-labelledby': titleId },
-			Desk.dom.markLang(h('h2', { id: titleId, text: current ? L(current.label) : '' }), current ? Desk.i18n.resolve(current.label).lang : null),
-			rowsOf(section));
-		root.replaceChildren(side, main);
-		main.scrollTop = scroll;
-
-		/* Keep the keyboard where it was after a change redrew the pane; a new question takes it */
-		const ask = root.querySelector('[data-key="rs-do"]');
-		if (ask && askFresh) {
-			askFresh = false;
-			ask.focus({ preventScroll: true });
-			/* By hand: scrollIntoView() would scroll the desktop as well */
-			const over = ask.closest('.set-confirm').getBoundingClientRect().bottom - main.getBoundingClientRect().bottom;
-			if (over > 0) main.scrollTop += over + 16;
-		} else if (keep) {
-			root.querySelector(keep)?.focus({ preventScroll: true });
-		}
-	};
-
-	views.add(root);
-	root.redraw();
-	if (refocus) {
-		const sel = refocus;
-		refocus = null;
-		requestAnimationFrame(() => root.querySelector(sel)?.focus({ preventScroll: true }));
-	}
-	return root;
-}
-
-/** Opens the settings at a section */
+/** Opens the settings at a section (the window keeps its section when that one has no rows now) */
 export function show(id) {
-	if (typeof id === 'string' && sections().some(s => s.id === id)) section = id;
-	Desk.launch('settings');
-	redraw();
+	Desk.launch('settings', typeof id === 'string' ? { section: id } : {});
 }
-
-/* Window hooks of the settings app: mount() (not render()) so the native kind passes the
-   open options — Desk.launch('settings', { section }) also picks the section of a new window */
-export const settingsHooks = {
-	mount(win, body, bar, opts) {
-		if (typeof opts?.section === 'string' && sections().some(s => s.id === opts.section)) section = opts.section;
-		body.append(renderSettings());
-	},
-	/* A language switch: rebuilt in the new language (focus comes back through refocus) */
-	relabel(win) {
-		win.body.replaceChildren(renderSettings());
-	},
-	/* Desk.launch('settings', { section }) on the open window */
-	reopen(win, opts) {
-		if (typeof opts?.section === 'string') show(opts.section);
-	},
-	serialize: () => ({ section }),
-	restore(win, state) {
-		if (typeof state?.section === 'string' && SECTION_ID.test(state.section)) {
-			section = state.section;
-			redraw();
-		}
-	}
-};
 
 /* ============================================================
    Setup

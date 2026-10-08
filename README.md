@@ -1471,6 +1471,8 @@ Step by step: [site/vault/README.md](site/vault/README.md).
 | `npm run validate` / `validate:strict` | checks `site/apps.js` against the configuration (strict also fails on warnings) |
 | `npm run i18n:check [-- <lang>]` | compares every language with English: missing keys, placeholders, plural forms |
 | `npm run icons` / `icons:check` | builds or verifies `src/icons/tabler.js` from the Tabler icons the sources use |
+| `npm run preload` / `preload:check` | builds or verifies `src/boot/preload.js`, the preload hints that let the start fetch all its files at once — run it after adding or changing a module, app or site module |
+| `npm run browsers` | downloads the headless Chromium for the browser checks and `icons:pwa` |
 | `npm run icons:pwa` | renders the PNG app icons from `assets/icons/favicon.svg` and `maskable.svg` (headless Chromium) |
 | `npm run seal` | seals private bookmarks for the vault |
 | `npm run check:browser` | headless browser check under the production headers |

@@ -8,7 +8,7 @@ and **`tools/validate-manifest.mjs`**, a zero-dependency check of `site/apps.js`
 
 | Part | Files |
 |---|---|
-| Fortune app | `src/apps/fortune/index.js` (descriptor, window), `model.js` (pure: data cleaning, deck, languages), `providers.js` (pure: online sources), `fortune.css`; `locales/{en,de}/fortune.js` |
+| Fortune app | `src/apps/fortune/index.js` (descriptor: config, sources, built-in sayings, consent, service, terminal), `window.js` (the window, loaded on demand), `model.js` (pure: data cleaning, deck, languages), `providers.js` (pure: online sources), `fortune.css`; `locales/{en,de}/fortune.js` |
 | Example site | `site/apps.js`, `site/content/**` (pages, Markdown twin, demo, image, `content.css`), `site/data/fortunes/{en,de}.json`, `site/data/feed.{en,de}.json`, `site/wallpapers/README.md` |
 | Validator | `tools/validate-manifest.mjs` (`npm run validate`) |
 | Tests | `tests/p11-fortune.test.mjs`, `tests/p11-site.test.mjs` |
@@ -98,7 +98,7 @@ first language; the quote carries the answer's `lang`.
 
 | Item | Value |
 |---|---|
-| Descriptor | `kind: 'app'`, `i18n: ['fortune']`, `styles: ['fortune.css']`, hooks `mount focus relabel menu unmount` |
+| Descriptor | `kind: 'app'`, `i18n: ['fortune']`, `windowStyles: ['fortune.css']`, `app.load: () => import('./window.js')` — the window hooks `mount focus relabel menu unmount` (and the online requests) come with the first window (ARCHITECTURE §8 `load`); `win.state.fortune` is the open window's handle |
 | Service `fortune` | `random({ cat }) → Promise<{ text, lang, cat, by, url } \| null>` (a built-in saying), `addProvider(def) → boolean` (a site module adds an online source; definition in `providers.js`: `id`, `name`, `hosts`, `langs`, `categories` with optional per-category `langs`, `emptyStatus` — HTTP statuses that mean "nothing found", `url()`, `parse()`, which may throw an error with `code: 'empty'`), `providers() → ids`, `source() → 'local' \| 'remote'` |
 | Terminal | contribution `terminal: { fortune }` — `fortune` prints a built-in saying (`service.random()`) and, when it has one, its signature (`@fortune.by`, dimmed); never the online source (the terminal asks no consent). Strings `fortune.cmd` (help line), `fortune.cmdMan` (`man fortune`), error `fortune.localError`. The command exists only while the module is loaded |
 | Consent | `{ id: 'fortune', hosts: <provider hosts>, label: '@fortune.service', hint: '@fortune.serviceHint' }` — registered in `setup()` (module `fortune`) only when `config.fortune.remote` names a known provider (or later through `addProvider`) |

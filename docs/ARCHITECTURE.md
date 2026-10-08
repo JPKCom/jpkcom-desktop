@@ -120,6 +120,10 @@ so the desktop booted cleanly at every stage. All of them are replaced now; the 
 <head>
   <link> src/css/layers.css, tokens.css, base.css, components.css
   <script src="site/config.js">        window.DESKTOP_CONFIG
+  <script src="src/boot/preload.js">   GENERATED (tools/build-preload.mjs): <link rel=modulepreload> for the static
+                                        import graph of main.js, the core parts and the configured modules/apps,
+                                        <link rel=preload as=style> for their styles, the locale files of the likely
+                                        start language — all requested at once instead of one import level at a time
   <script src="src/boot/theme.js">     data-theme, data-wc, --accent/--on-accent, config accents/tints,
                                         --wallpaper-from/to + data-wp-dir (glow|down|diag|radial), --anim,
                                         data-boot="pending" (boot cover), meta theme-color — before the first paint
@@ -127,9 +131,10 @@ so the desktop booted cleanly at every stage. All of them are replaced now; the 
 main.js
   1. initEnv()           body.compact (config.ui.compactQuery), body.standalone; scroll lock
                          (main.js then re-sets --anim from the validated config.ui.animMs)
-  2. initI18n()          _meta of all languages → start language (?lang → stored → navigator → default)
-                         → 'core' namespace for the whole fallback chain → <html lang dir>
+  2. initI18n()          start language (?lang → stored → navigator → default); _meta of all languages and
+                         the 'core' namespace for the whole fallback chain side by side → <html lang dir>
   3. site data           import(config.site.data) → registry.load(); registry.authorLinks(config.author.links)
+                         (2 and 3 run at the same time)
   4. expose()            window.JPKDesk = the frozen Desk API
   5. modules.loadAll()   [core: wm, shell, panels] → config.modules → config.apps
                          imported in parallel; ordered by `requires`; all i18n namespaces + styles loaded;
@@ -395,9 +400,12 @@ export default {
 	                                   //   (a relative folder inside the module's folder, ending in '/'; §12) —
 	                                   //   for site modules ({ id, src }) that keep their texts next to their code
 	styles: ['notes.css'],             // relative to this file; injected as <link>, awaited before setup()
+	windowStyles: ['window.css'],      // relative to this file; loaded with the first window of one of its apps or of a
+	                                   //   window kind it defined with load() (awaited before mount) — CSS only windows use
 
 	/* Apps: one (app + top-level hooks) or several (apps: [...], hooks inside each) */
-	app: { icon: 'ti-notes', tint: 'orange', size: [780, 520], fixed: false, name: '@notes.appName' },
+	app: { icon: 'ti-notes', tint: 'orange', size: [780, 520], fixed: false, name: '@notes.appName',
+	       load: () => import('./window.js') },   // optional: the window hooks, loaded when the first window opens
 	// apps: [{ id: 'audio', kind: 'app', icon, tint, size, name, mount, focus, … }, { id: 'video', … }],
 
 	storage: {                         // keys (without namespace prefix) → backup/reset registries
@@ -452,6 +460,29 @@ export default {
 The hook names are `HOOKS` in `src/core/modules.js` (`mount render focus relabel menu unmount reopen
 serialize restore locationOf acceptUrl reload popOut canPopOut canLink beforeClose`): in an app definition they go
 to the implementation (`registry.impl(app)`, `win.impl`), every other field is manifest.
+
+**Window code on demand** (`load`). The boot imports every configured module; what only a window needs
+(its DOM, its CSS, the libraries behind it) does not have to come along. An app definition with
+`load: () => import('./window.js')` keeps it in a file of its own:
+
+- `load()` resolves to the window hooks — a module whose **default export** is the hooks object, or the
+  object itself (`() => import('./player.js').then(m => m.player('audio'))`). Only `HOOKS` functions are
+  taken; without `mount()` or `render()` the window shows "not available". The import must be a literal
+  `import('./…')` (the service worker and `tools/build-preload.mjs` read the source).
+- **Hooks given directly in the definition are there from the start** and win over a loaded hook of the
+  same name. `acceptUrl(app, path)` belongs here when the app has one: the WM asks it before any window
+  exists (session restore, deep links).
+- The first `wm.open()` of the app loads it (`registry.loadImpl(app)`, once; a failed load is tried again on
+  the next open) together with the descriptor's `windowStyles`. `wm.open()` still returns the window at
+  once — with a spinner (`.win-loading`, `aria-busy`) until the code is there; `win.ready` → `Promise<boolean>`
+  resolves after `mount()` (and `restore(opts.state)`), `'window:ready'` follows (§19). A window closed
+  before its code arrived is never mounted — and gets no `unmount()` either: whatever a module registers
+  for a window before it is mounted, it drops on `'window:close'`.
+- Everything outside the window — storage, trash, settings rows, search, terminal commands, drop handlers,
+  services, `setup()` — stays in the descriptor file and **must not import the window file statically**
+  (that would put it back into the boot). It reaches an open window through `wm.get(id)?.state.<x>`
+  (set by `mount()`), hands data over through `wm.open(id, opts)` (`mount`/`reopen` read `opts`), or waits
+  for `await win.ready`. The window file may import the descriptor file (it is loaded already).
 
 `locales` is checked when the module is imported: only a relative path that ends in `/` and stays inside
 the module's own folder (no scheme, no leading `/`, no `\` or control character, no `..` out of the
@@ -563,7 +594,7 @@ Desk.announce(text, { assertive = false })
 Desk.store     Desk.V     Desk.storage
 
 // Apps, collections, URLs (§15)
-Desk.apps                                      // registry: get has list available impl register … items collection data
+Desk.apps                                      // registry: get has list available impl implReady loadImpl register … items collection data
 Desk.launch(id, opts?) → boolean
 Desk.openUrl(url, base?) → boolean
 Desk.router: { resolveUrl, isExternal, relPath, route, pageApp, pageAllowed, openUrl, acceptPath }
@@ -624,7 +655,7 @@ each service offers; arguments, return values and behaviour in detail are in the
 | `langmenu` | P2 | `render()`, `set(code)`, `items()`, `button` |
 | `settings` | P3 | `show(section?)`, `sections()`, `redraw()`; row helpers `row()`, `toggle()`, `segments()`, `select()`, `button()` (positional arguments or one options object); `addSection(def) → remove()`, `addRow(def) → remove()`; `get() → { theme, accent, resolved }`, `set('theme' \| 'accent', value) → boolean` |
 | `wallpaper` | P3 | `register(motif, { module }?) → boolean` (withdrawn on that module's `'module:failed'`), `unregister(id)`, `set(value)`, `get()`, `menuItems()`, `motifs() → [{ id, name }]`, `keyOf(value)`, `open()` |
-| `trash` | P3 | `add(type, title, data) → boolean`, `count()`, `list()`, `putBack(id) → Promise<boolean>`, `purge(id)`, `empty()`, `askEmpty()`, `open()` |
+| `trash` | P3 | `add(type, title, data) → boolean`, `count()`, `list()`, `putBack(id) → Promise<boolean>`, `purge(id)`, `empty()`, `askEmpty() → Promise` (waits for the trash window's code), `open()` |
 | `install` | P3 | `state` (getter: `'installed' \| 'offer' \| 'share' \| 'menu' \| 'off'`), `enabled` (getter), `run()` |
 | `backup`, `about`, `help` | P3 | `backup.download()`, `.snapshot()`, `.open()`; `about.open()`; `help.open()` |
 | `reader` | P4 | `open(url) → boolean` |
@@ -636,8 +667,8 @@ each service offers; arguments, return values and behaviour in detail are in the
 | `weather` | P6 | `addProvider(def)`, `providers()`, `provider()`, `refresh(force)`, `current()`, `place()`, `setPlace(id)`, `locate()` |
 | `notify` | P6 | `check(banners = true)`, `clear()`, `enabled()`, `setEnabled(on)`, `items()` |
 | `vault` | P7 | `available()`, `unlock(user, pass) → 'ok' \| 'denied' \| 'offline' \| 'unsupported'`, `keep()`, `lock()`, `forget()`, `resume()`, `user()`, `unlocked()`, `summary() → [{ id, name, count }]` |
-| `terminal` | P9 | `register(name, def) → remove() \| null`, `list() → [{ name, hidden, source }]`, `has(name)` |
-| `media` | P10 | `open(files) → number`, `add('audio' \| 'video', files) → number`, `kindOf(file)`, `types()` |
+| `terminal` | P9 | `register(name, def) → remove() \| null`, `list() → [{ name, hidden, source }]`, `has(name)` — the built-in commands (and eggs) join `list()`/`has()` with the terminal's window code, i.e. once the first terminal window opened (their names are reserved from the start) |
+| `media` | P10 | `open(files) → Promise<number>`, `add('audio' \| 'video', files) → Promise<number>` (the players' window code loads on demand; 0 when nothing was added), `kindOf(file)`, `types()` |
 | `fortune` | P11 | `random({ cat }?) → Promise<{ text, lang, cat, by, url } \| null>`, `addProvider(def) → boolean` (`{ id, name, hosts, langs, categories (each with optional own langs), emptyStatus, url(), parse() }` — `parse()` may throw an error with `code: 'empty'` for "nothing found"), `providers()`, `source() → 'local' \| 'remote'` |
 
 Popovers/overlays (menus, calendar, launcher, search, overview, tile menu) close each other via the
@@ -853,8 +884,9 @@ launch(id, opts?) → boolean                // alias → target; launcher → t
 
 **Availability**: `registry.available(app)` is true only when the app can open now — its kind passes the
 registry's kind check (set by the WM: `'link'`, `'launcher'` while a launcher service exists, or a kind
-defined with `wm.defineKind`), module-backed kinds (`app`, `native`) have their implementation, aliases
-their target. Unavailable apps leave All apps, the dock, menus and search (`registry.list()` skips
+defined with `wm.defineKind`), module-backed kinds (`app`, `native`) have their implementation (or a
+`load()` for it, §8), aliases their target. `registry.implReady(app)` → false while window code loaded on
+demand is still missing; `registry.loadImpl(app)` → `Promise<impl | null>` loads it once. Unavailable apps leave All apps, the dock, menus and search (`registry.list()` skips
 them); `'wm:kind'` and a new launcher re-announce `'apps:change'`. Tests and other hosts set the check
 with `registry.setKindCheck(fn)` (`createRegistry({ kindCheck })`).
 
@@ -990,10 +1022,13 @@ an optional module, so there is no cycle. One window per app id.
 
 ```ts
 wm.open(app | appId, opts?) → Win | null
-   // opts: { url?: string, scroll?: number, state?: any, restore?: boolean }
+   // opts: { url?: string, scroll?: number, state?: any, restore?: boolean } — an app may read more options
    // An open window is shown instead; the kind's reopen(win, opts) receives the options (Reader: a new URL).
    // null: unknown app, missing implementation (registry.available), or no kind registered for app.kind.
    // An alias opens its target. restore: true = session restore (no open animation; 'window:open' carries restore).
+   // Window code on demand (§8 load): the window opens at once with a spinner and mounts when the code is
+   // there — win.ready (Promise<boolean>) resolves then. Until then serialize() answers with opts.state,
+   // reopen() options wait for the mount, the other hooks of 'app'/'native' do nothing.
 wm.close(win, { force = false }?) → boolean      // the kind's beforeClose(win) may veto (false) or answer later (Promise<boolean>)
 wm.closeAll()                                     // every window; each beforeClose still asks
 wm.show(win)                                      // from the dock if minimised, to the front, focus inside, kind focus()
@@ -1035,7 +1070,9 @@ wm.active() → Win | null   wm.get(appId) → Win | null   wm.has(appId)   wm.i
 | `app` | the frozen registry entry (`app.id` is the key in `wm.get()`) |
 | `kind` | `app.kind` |
 | `def` | the kind definition (§19.3) |
-| `impl` | the module implementation for kinds `app`/`native` (`registry.impl(app)`), else `null` (was `win.ext`) |
+| `impl` | the module implementation for kinds `app`/`native` (`registry.impl(app)`), else `null` (was `win.ext`); with `load` (§8) the loaded hooks once `ready` resolved |
+| `ready` | `Promise<boolean>`: `true` once the content is mounted, `false` when it could not be built (also for windows that mount at once) |
+| `pending` | while the window code loads: `{ state, reopen }` (what `open()`/`reopen()` asked for), else `null` |
 | `el` | `section.win.win-<kind>[role=dialog][aria-labelledby][tabindex=-1][data-app]` |
 | `bar` | `header.win-bar` (controls, title, optional `.win-nav`, `.win-actions`) — passed to `mount()` as `bar` |
 | `body` | `div.win-body` — passed to `mount()` as `body`; `.has-frame` for iframes |
@@ -1069,7 +1106,10 @@ Window markup (CSS classes in `src/wm/wm.css`): `.win` + `.is-active .is-max .is
 wm.defineKind(kind, def) → boolean     wm.hasKind(kind) → boolean     wm.kinds() → string[]
 // module export only (tests): kindDef(kind) → the frozen definition | null
 def = {
-  mount(win, body, bar, opts),        // required: build the content (throwing → a "not available" notice)
+  mount(win, body, bar, opts),        // required (or load): build the content (throwing → a "not available" notice)
+  load?() → Promise<hooks>,            // window code on demand (§8): resolves to the hooks this definition leaves out
+                                       //   (a module's default export or an object); loaded with the first window of
+                                       //   the kind, the hooks given here win; keep acceptUrl here (asked without a window)
   focus?(win),                         // after open and every show()
   relabel?(win),                       // language switch; without it the WM resets the title to the app name
   unmount?(win),                       // closing: flush, release blob URLs, remove listeners
@@ -1114,6 +1154,7 @@ or imports `defineKind` from `src/wm/wm.js`.
 | Event | Payload | When |
 |---|---|---|
 | `window:open` | `{ win, restore }` | a new window is in the DOM (after its first `window:focus`) |
+| `window:ready` | `{ win, ok }` | its content is built (`ok`) or could not be — right after `window:open`, or when window code loaded on demand (§8) arrived; menus, session and deep links read the window again |
 | `window:focus` | `{ win \| null }` | the active window changed (also to none) |
 | `window:change` | `{ win, reason }` | `reason`: `'geometry'` (drag/resize end, `rect()`), `'layout'`, `'min'`, `'title'`, `'location'` (iframe loaded), `'state'` (`win.changed()`) |
 | `window:minimize` | `{ win, min }` | minimised (`min: true`) or back (`false`) |
@@ -1299,6 +1340,8 @@ for the CSP in §16, the README, `docs/deploy.md` and the server snippets (`docs
 |---|---|
 | `npm run serve` (`node tools/serve.mjs --port 8080 --base / --connect https://… --frame https://… --wasm`) | static server with the production headers; directory → `index.html`; dotfiles, `node_modules`, `tools`, `tests` are 404; `--connect`/`--frame` add https origins to `connect-src`/`frame-src`, `--wasm` adds `'wasm-unsafe-eval'` (Pagefind) — §5 |
 | `npm run icons` / `npm run icons:check` | build / verify `src/icons/tabler.js` (sources + `site/icons.json`) |
+| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed) |
+| `npm run browsers` | downloads the headless Chromium that `playwright-core` drives (`check:browser`, `icons:pwa`) — install scripts are off (`.npmrc`), so this is a separate step |
 | `npm run icons:pwa` (`node tools/build-pwa-icons.mjs`) | renders the PNG app icons (`assets/icons/icon-*.png`, `maskable-*.png`, `apple-touch-icon.png`) from `favicon.svg` / `maskable.svg` in headless Chromium; run after changing either SVG and commit the PNGs |
 | `npm run i18n:check [-- <lang>…]` | compare locales with `en`; warns about plural categories a language lacks |
 | `npm run validate` / `npm run validate:strict` (`node tools/validate-manifest.mjs [--manifest …] [--config …] [--strict] [--quiet] [--json]`) | checks `site/apps.js` against the config before it goes online: ids, kinds and the modules they need, references (aliases, overrides, menus, `site.legal`, `notify.app`, `vault.collection`, …), collections, urls (local files exist), icons, tints, language maps for every configured language, the fortunes and feeds; exit 0 / 1 (errors, or warnings with `--strict`) / 2 (not loadable) |

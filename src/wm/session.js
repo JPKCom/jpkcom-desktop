@@ -258,7 +258,7 @@ export function initSession() {
 		}
 	}
 
-	for (const ev of ['window:open', 'window:close', 'window:focus', 'window:change', 'window:minimize']) on(ev, persist);
+	for (const ev of ['window:open', 'window:ready', 'window:close', 'window:focus', 'window:change', 'window:minimize']) on(ev, persist);
 
 	/* Synchronously, as the first 'desk:ready' listener (the WM is set up first): deep links open on top */
 	on('desk:ready', () => {

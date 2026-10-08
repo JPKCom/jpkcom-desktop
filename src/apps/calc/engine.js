@@ -1,9 +1,11 @@
 /* JPKCom Desktop — calculator engine: input state, precedence, percent, number format — © Jean Pierre Kolb — MIT License
 
-   Pure (no DOM, no Desk): the calculator window (index.js) and the unit
+   Pure (no DOM, no Desk): the calculator window (window.js) and the unit
    tests (tests/p08-calc.test.mjs) both use it. No eval — an expression is a
    flat list of canonical number strings and operators ('12.5', '*', '-3'),
-   evaluated point before line, left to right.
+   evaluated point before line, left to right. The stored history's checks
+   (HISTORY, keepLast, cleanCalc) live in history.js — the descriptor needs
+   them at boot — and are re-exported here.
 
    Numbers are kept as canonical strings ("-12.5") with at most 12
    significant digits, which hides binary noise (0.1 + 0.2 → 0.3); they are
@@ -15,8 +17,8 @@ export const OPS = Object.freeze({ '+': '+', '-': '−', '*': '×', '/': '÷' })
 export const isOp = t => typeof t === 'string' && Object.hasOwn(OPS, t);
 /** Digits one number may have */
 export const MAX_DIGITS = 15;
-/** Calculations the history keeps */
-export const HISTORY = 50;
+/** Calculations the history keeps, keepLast, cleanCalc (history.js) */
+export { HISTORY, keepLast, cleanCalc } from './history.js';
 
 /** Point before line: × and ÷ first, then + and − (left to right). parts: ['2', '+', '3', '*', '4'] */
 export function compute(parts) {
@@ -65,19 +67,6 @@ export function formatNum(str, fmt) {
 
 /** An expression for display: '2 + 3 × 4' */
 export const formatExpr = (parts, fmt) => parts.map(p => (isOp(p) ? OPS[p] : formatNum(p, fmt))).join(' ');
-
-/** The last n entries of a list; n = 0 keeps none (slice(-0) would keep all) */
-export const keepLast = (list, n) => (n > 0 ? list.slice(-n) : []);
-
-/** Stored history { history: [{ e: '2 + 3', r: 5 }] } → cleaned (at most max), or null */
-export function cleanCalc(v, max = HISTORY) {
-	if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-	const history = Array.isArray(v.history)
-		? v.history.filter(x => x && typeof x.e === 'string' && x.e.length <= 200 && /^[-+*/0-9.e ]+$/.test(x.e)
-			&& typeof x.r === 'number' && Number.isFinite(x.r)).map(x => ({ e: x.e, r: x.r }))
-		: [];
-	return { history: keepLast(history, max) };
-}
 
 /**
  * The calculator's input state. press(key) with keys '0'–'9', '+', '-', '*',

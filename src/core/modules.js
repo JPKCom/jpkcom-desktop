@@ -14,6 +14,9 @@
    A module that fails at any step is reported and skipped; the rest load.
    A descriptor with `locales` (a folder inside its own folder) has its namespaces read from
    there (i18n addSource), unless the core or another module already uses the namespace.
+   An app definition with `load: () => import('./window.js')` keeps its window code out of the
+   boot: the hooks (the module's default export) and the descriptor's `windowStyles` are loaded
+   when the first window of the app opens (registry loadImpl, wm open → win.ready).
    When setup() throws, what the loader registered for it is withdrawn (apps,
    storage keys, reset groups, trash types, consent services, contributions,
    its config section), and so is what setup() registered through the shared
@@ -40,7 +43,7 @@ const KINDS = new Set(['core', 'module', 'app']);
 export const HOOKS = ['mount', 'render', 'focus', 'relabel', 'menu', 'unmount', 'reopen', 'serialize', 'restore',
 	'locationOf', 'acceptUrl', 'reload', 'popOut', 'canPopOut', 'canLink', 'beforeClose'];
 /* Descriptor fields the loader handles itself; any other array/object field is a contribution */
-const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'locales', 'styles', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
+const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'locales', 'styles', 'windowStyles', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
 	'setup', 'stub', 'version', 'description', 'configKey', 'validateConfig', ...HOOKS]);
 
 const loaded = new Map();       // id → descriptor (frozen view)
@@ -48,6 +51,7 @@ const failed = new Map();       // id → reason
 const contributions = new Map(); // point → [{ module, ...item }]
 const sections = new Map();      // id → its cleaned config section (descriptor configKey + validateConfig)
 const styleLinks = new Set();
+const windowStyleSets = new Map(); // id → absolute URLs of its windowStyles
 
 /** Where a reference lives: 'reader' → src/modules/reader/index.js; { id, src } → src (relative to the root) */
 export function resolveRef(ref, kind) {
@@ -135,23 +139,52 @@ function withdraw(id) {
 	dropServices(id);
 	dropStorage(id);
 	sections.delete(id);
+	windowStyleSets.delete(id);
 }
 
 function splitApp(def, fallbackId) {
 	const manifest = {};
 	const impl = {};
+	let load = null;
 	for (const [k, v] of Object.entries(def)) {
 		if (HOOKS.includes(k) && typeof v === 'function') impl[k] = v;
+		else if (k === 'load') load = typeof v === 'function' ? v : null;
 		else manifest[k] = v;
 	}
 	manifest.id ??= fallbackId;
 	manifest.kind ??= 'app';
-	return { manifest, impl: Object.keys(impl).length ? Object.freeze(impl) : null };
+	return { manifest, impl: Object.keys(impl).length ? Object.freeze(impl) : null, load };
+}
+
+/**
+ * What load() resolved to → the window hooks: a module namespace gives its default export, an object
+ * itself; only HOOKS functions are kept. Without mount() or render() there is no window to build.
+ */
+export function hooksOf(value, appId) {
+	const src = value && typeof value === 'object' && value.default && typeof value.default === 'object' ? value.default : value;
+	const hooks = {};
+	if (src && typeof src === 'object') for (const k of HOOKS) if (typeof src[k] === 'function') hooks[k] = src[k];
+	if (!hooks.mount && !hooks.render) throw new Error(`app '${appId}': load() gave no mount() or render()`);
+	return Object.freeze(hooks);
+}
+
+/**
+ * A module's windowStyles, injected once (resolves when they are in, or failed) — for its apps' load()
+ * and for window kinds it defined with load() (src/wm/wm.js loadKind). Unknown id → resolves at once.
+ */
+export const windowStyles = id => Promise.all((windowStyleSets.get(id) ?? []).map(injectStyle)).then(() => {});
+
+/** The loader the registry calls for an app with load(): its hooks and the module's windowStyles, together */
+function lazyLoader(d, load, appId) {
+	return () => Promise.all([Promise.resolve().then(load), windowStyles(d.id)]).then(([value]) => hooksOf(value, appId));
 }
 
 /** Registers what a descriptor declares (apps, storage, trash, consent, contributions). */
 function registerParts(d) {
 	const id = d.id;
+	if (Array.isArray(d.windowStyles)) {
+		windowStyleSets.set(id, d.windowStyles.filter(s => typeof s === 'string').map(s => new URL(s, d.url).href));
+	}
 	const appDefs = [];
 	if (Array.isArray(d.apps)) appDefs.push(...d.apps.map(a => splitApp(a ?? {}, id)));
 	if (d.app && typeof d.app === 'object') {
@@ -159,7 +192,9 @@ function registerParts(d) {
 		const hooks = Object.fromEntries(HOOKS.filter(k => typeof d[k] === 'function').map(k => [k, d[k]]));
 		appDefs.push(splitApp({ ...d.app, ...hooks }, id));
 	}
-	for (const { manifest, impl } of appDefs) registry.register(manifest, { source: 'module', module: id, impl });
+	for (const { manifest, impl, load } of appDefs) {
+		registry.register(manifest, { source: 'module', module: id, impl, load: load ? lazyLoader(d, load, manifest.id) : null });
+	}
 
 	for (const [name, def] of Object.entries(d.storage ?? {})) registerKey(name, def, id);
 	for (const g of Array.isArray(d.resetGroups) ? d.resetGroups : []) registerGroup(g, id);

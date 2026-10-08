@@ -430,7 +430,8 @@ Some mobile browsers take the home-screen icon not from the manifest but from
   navigation preload request, so there is no extra request).
 - *Precache:* at installation it reads `site/config.js` (`importScripts`), starts at `index.html`, the
   boot scripts and the `index.js` of every core part, module and app in the configuration, and follows
-  their imports, `styles: [...]`, `i18n: [...]`, stylesheet `url()`s, plus the strings of every offered
+  their imports (also the window code they load on demand), `styles: [...]`, `windowStyles: [...]`,
+  `i18n: [...]`, stylesheet `url()`s, plus the strings of every offered
   language. Each file is fetched on its own; a missing file never breaks the installation. Whatever this
   misses (for example files a module loads with a computed name) is kept the first time the page loads it.
 - *Updates:* browsers check `sw.js` **and** `site/config.js` for changes on every visit. A changed module

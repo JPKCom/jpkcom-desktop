@@ -297,7 +297,16 @@ test('cache names: <namespace>:<base>:<version>, per installation and config', (
 
 /* ---------- Scanning ---------- */
 
-test('scanJs finds static, re-exported and dynamic imports, styles and i18n namespaces', () => {
+test('the reset group "Offline copies" (src/panels/install.js ownCaches) matches exactly the worker\'s own caches', async () => {
+	const { ownCaches } = await import('../src/panels/install.js');
+	const sw = loadSW();
+	for (const base of ['/desk/', '/', '/a.b+c/']) {
+		const own = sw.run('cacheNames')(sw.run('CONFIG'), base).own;
+		assert.equal(ownCaches(`${ORIGIN}${base}`).source, own.source, base);
+	}
+});
+
+test('scanJs finds static, re-exported and dynamic imports, styles, windowStyles and i18n namespaces', () => {
 	const scanJs = loadSW().run('scanJs');
 	const src = `import Desk from '../../core/api.js';
 		import { a, b } from "./util.js";
@@ -306,10 +315,11 @@ test('scanJs finds static, re-exported and dynamic imports, styles and i18n name
 		const lazy = () => import('./lazy.js');
 		import x from 'bare-package';
 		import y from 'https://cdn.example/y.js';
-		export default { id: 'notes', i18n: ['notes', 'kit'], styles: ['notes.css', "extra.css"] };`;
+		export default { id: 'notes', i18n: ['notes', 'kit'], styles: ['notes.css', "extra.css"], windowStyles: ['win.css'] };`;
 	const { urls, namespaces } = scanJs(src, `${ORIGIN}/desk/src/apps/notes/index.js`);
 	assert.deepEqual([...urls].sort(), [
 		`${ORIGIN}/desk/src/apps/notes/extra.css`, `${ORIGIN}/desk/src/apps/notes/lazy.js`, `${ORIGIN}/desk/src/apps/notes/more.js`,
+		`${ORIGIN}/desk/src/apps/notes/win.css`,
 		`${ORIGIN}/desk/src/apps/notes/notes.css`, `${ORIGIN}/desk/src/apps/notes/side-effect.js`, `${ORIGIN}/desk/src/apps/notes/util.js`,
 		`${ORIGIN}/desk/src/core/api.js`
 	].sort());

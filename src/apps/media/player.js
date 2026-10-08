@@ -1,9 +1,13 @@
 /* JPKCom Desktop — media players: the player window (audio and video) — © Jean Pierre Kolb — MIT License
 
    player(kind) → the window hooks of the app 'audio' or 'video' (one
-   implementation, two apps). Files come from the device (Open, Mod+O, dropped
-   on the desktop or on the window) and play from blob URLs — nothing is
-   uploaded and nothing is stored: the playlist lives as long as the window.
+   implementation, two apps), loaded when the first player opens (index.js
+   has the descriptor and the service). win.state.media is the open window's
+   handle: the service adds files through it once win.ready resolved.
+
+   Files come from the device (Open, Mod+O, dropped on the desktop or on the
+   window) and play from blob URLs — nothing is uploaded and nothing is
+   stored: the playlist lives as long as the window.
 
      audio  cover (from the tags) and names, own transport: seek bar with the
             elapsed and remaining time, previous / play / next, the repeat
@@ -30,6 +34,7 @@ import Desk from '../../core/api.js';
 import { ACCEPT, kindOf, stem, formatName } from './types.js';
 import { readTags, TAG_BYTES } from './tags.js';
 import { clock, ratioParts, bitRate, nextIndex, repeatAfter, mediaBlob, MEDIA_DEFAULTS } from './util.js';
+import { guards } from './index.js';
 
 const { h, t } = Desk;
 const PROBE_MS = 5000;
@@ -636,9 +641,7 @@ export function player(kind) {
 		},
 		menu: win => win.state.media?.menu() ?? [],
 		unmount: win => win.state.media?.unmount(),
-		/* Defence in depth: never "Open in new tab" — a file from the device must not become a document */
-		canPopOut: () => false,
-		/* Every item comes from the device: a link (#app=audio) would only reopen an empty player */
-		canLink: win => !(win.state.media?.snapshot().count > 0)
+		/* canPopOut (never) and canLink (not with items) — the descriptor gives them directly as well */
+		...guards
 	};
 }

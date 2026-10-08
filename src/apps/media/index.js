@@ -5,6 +5,10 @@
    and nothing is stored. MP3 (ID3v2) and FLAC tags give title, artist, album
    and cover (tags.js, read locally).
 
+   This file is the descriptor; the player window (player.js with tags.js,
+   media.css) is loaded when the first player opens (app field load,
+   windowStyles).
+
    Contributions:
      files.audio / files.video   drop handler of the shell: everything of one
                                  kind goes into that player's playlist at once.
@@ -14,8 +18,10 @@
                                  first, then extension), so a file always ends
                                  up in the right player.
    Service 'media':
-     open(files) → number        sorts files into the players (launches them)
-     add(kind, files) → number   files into one player
+     open(files) → Promise<number>       sorts files into the players (launches
+                                         them); resolves with the files added
+     add(kind, files) → Promise<number>  files into one player, once its window
+                                         is built (win.ready)
      kindOf(file) → 'audio' | 'video' | null
      types() → { extensions, mime, accept, formats }
    Config (optional section `media`, cleaned by validateConfig):
@@ -23,9 +29,10 @@
 
    Security: the players have no popOut and no locationOf on purpose — a file
    from the device must never open as a document in the desktop's origin. Keep
-   it that way; the blob URLs carry a media type (util.js mediaBlob). */
+   it that way; the blob URLs carry a media type (util.js mediaBlob), and
+   canPopOut/canLink (guards) are given here, so they hold before the window
+   code is there. */
 
-import { player } from './player.js';
 import { EXTENSIONS, MIME, KINDS, kindOf, types } from './types.js';
 import { cleanMediaConfig } from './util.js';
 
@@ -33,26 +40,37 @@ export { EXTENSIONS, MIME, ACCEPT, kindOf, types } from './types.js';
 
 let desk = null;
 
-/** Files into the player of one kind: opens (or shows) its window and adds them. → number of files added */
-function add(kind, files) {
+/**
+ * Hooks the window manager asks without the window code (given directly, they win over player.js).
+ * Defence in depth: never "Open in new tab" — a file from the device must not become a document;
+ * every item comes from the device: a link (#app=audio) would only reopen an empty player.
+ */
+export const guards = Object.freeze({
+	canPopOut: () => false,
+	canLink: win => !(win.state.media?.snapshot().count > 0)
+});
+
+/**
+ * Files into the player of one kind: opens (or shows) its window and adds them once the window is
+ * built (its code loads with the first window). → Promise<number of files added>
+ */
+async function add(kind, files) {
 	if (!KINDS.includes(kind)) return 0;
 	const list = [...(files || [])];
 	if (!list.length) return 0;
 	const win = desk?.wm?.open(kind);
-	return win?.state.media ? win.state.media.add(list) : 0;
+	if (!win || !(await win.ready)) return 0;
+	return win.state.media?.add(list) ?? 0;
 }
 
-/** Sorts files into the players by kind (MIME type first, then extension). → number of files added */
-function open(input) {
+/** Sorts files into the players by kind (MIME type first, then extension). → Promise<number of files added> */
+async function open(input) {
 	const files = Array.isArray(input) ? input
 		: input && typeof input.length === 'number' && !(typeof Blob !== 'undefined' && input instanceof Blob) ? [...input]
 			: input ? [input] : [];
-	let n = 0;
-	for (const kind of KINDS) {
-		const mine = files.filter(f => kindOf(f) === kind);
-		if (mine.length) n += add(kind, mine);
-	}
-	return n;
+	/* The players open now, in this order (the last one in front); the files follow when each is built */
+	const added = KINDS.map(kind => add(kind, files.filter(f => kindOf(f) === kind)));
+	return (await Promise.all(added)).reduce((a, b) => a + b, 0);
 }
 
 /* The drop handler of the shell hands over all files of a handler at once (multiple: true).
@@ -74,11 +92,17 @@ export default {
 	kind: 'app',
 	requires: ['wm'],
 	i18n: ['media'],
-	styles: ['media.css'],
+	windowStyles: ['media.css'],
 
 	apps: [
-		{ id: 'audio', kind: 'app', icon: 'ti-music', tint: 'pink', size: [720, 520], name: '@media.audioName', desc: '@media.audioDesc', ...player('audio') },
-		{ id: 'video', kind: 'app', icon: 'ti-movie', tint: 'indigo', size: [860, 560], name: '@media.videoName', desc: '@media.videoDesc', ...player('video') }
+		{
+			id: 'audio', kind: 'app', icon: 'ti-music', tint: 'pink', size: [720, 520], name: '@media.audioName', desc: '@media.audioDesc', ...guards,
+			load: () => import('./player.js').then(m => m.player('audio'))
+		},
+		{
+			id: 'video', kind: 'app', icon: 'ti-movie', tint: 'indigo', size: [860, 560], name: '@media.videoName', desc: '@media.videoDesc', ...guards,
+			load: () => import('./player.js').then(m => m.player('video'))
+		}
 	],
 
 	files: {

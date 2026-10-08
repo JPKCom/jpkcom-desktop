@@ -28,7 +28,7 @@
    knows config.modules, config.apps, config.languages, site.data and friends.
    Starting from index.html, the boot scripts and the index.js of every core part,
    module and app, it follows static and dynamic imports, the descriptor fields
-   styles: [...] and i18n: [...], stylesheet url()s, and adds locales/<lang>/<ns>.js
+   styles: [...], windowStyles: [...] and i18n: [...], stylesheet url()s, and adds locales/<lang>/<ns>.js
    for every offered language — or, for a module that keeps its namespaces in its own
    folder (descriptor field locales, same rule as src/core/modules.js), <that folder>
    <lang>/<ns>.js instead. Each entry is fetched on its own (Promise.allSettled):
@@ -73,7 +73,7 @@ const DEFAULTS = Object.freeze({
 const CORE_PARTS = ['wm', 'shell', 'panels'];
 
 /* Safety net: files every installation has, crawled even if index.html changes */
-const SHELL_FILES = ['./', 'manifest.webmanifest', 'site/config.js', 'src/boot/theme.js', 'src/boot/main.js',
+const SHELL_FILES = ['./', 'manifest.webmanifest', 'site/config.js', 'src/boot/preload.js', 'src/boot/theme.js', 'src/boot/main.js',
 	'src/css/layers.css', 'src/css/tokens.css', 'src/css/base.css', 'src/css/components.css', 'site/theme.css',
 	'assets/icons/favicon.svg', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png',
 	'assets/icons/apple-touch-icon.png'];
@@ -283,7 +283,7 @@ function scanJs(text, fileUrl) {
 	for (const m of text.matchAll(/\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(['"])([^'"\n]+?)\1/g)) specs.push(m[2]);
 	for (const m of text.matchAll(/\bimport\s*\(\s*(['"])([^'"\n]+?)\1\s*\)/g)) specs.push(m[2]);
 	const urls = specs.filter(s => /^(?:\.{1,2}\/|\/(?!\/))/.test(s)).map(s => local(s, fileUrl));
-	for (const m of text.matchAll(/\bstyles\s*:\s*\[([^\]]*)\]/g)) urls.push(...strings(m[1]).map(s => local(s, fileUrl)));
+	for (const m of text.matchAll(/\b(?:windowS|s)tyles\s*:\s*\[([^\]]*)\]/g)) urls.push(...strings(m[1]).map(s => local(s, fileUrl)));
 	const namespaces = [];
 	for (const m of text.matchAll(/\bi18n\s*:\s*\[([^\]]*)\]/g)) namespaces.push(...strings(m[1]).filter(s => ID.test(s)));
 	const own = text.match(/\blocales\s*:\s*(['"])([^'"\n]{1,256}?)\1/);

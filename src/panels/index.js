@@ -7,15 +7,18 @@
      - the wallpaper layer (#wallpaper) and the motif registry (src/wallpapers/),
      - the trash store, the backup file format, the PWA registration.
    Services: settings, wallpaper, backup, trash, about, help, install
-   (docs/packages/p03-panels.md lists their API, events and storage keys). */
+   (docs/packages/p03-panels.md lists their API, events and storage keys).
+
+   The windows' code comes when one first opens (app field load: the files
+   *-window.js, about.js, help.js; windowStyles) — what the boot and other
+   modules need (preferences, row helpers, wallpaper layer, trash store,
+   backup download, services) is imported here. */
 
 import { hasIcon } from '../core/icons.js';
-import { SETTINGS_KEYS, settingsHooks, settingsService, initSettings } from './settings.js';
-import { renderWallpaper, initWallpaper, wallpaperService, validateStored as validWallpaper } from './wallpaper.js';
-import { renderTrash, initTrash, trashService, dockMenu as trashMenu, validateStored as validTrash, ICON_EMPTY, ICON_FULL } from './trash.js';
-import { renderBackup, backupService } from './backup.js';
-import { renderAbout, aboutService } from './about.js';
-import { renderHelp, helpService } from './help.js';
+import { SETTINGS_KEYS, settingsService, initSettings } from './settings.js';
+import { initWallpaper, wallpaperService, validateStored as validWallpaper } from './wallpaper.js';
+import { initTrash, trashService, dockMenu as trashMenu, validateStored as validTrash, ICON_EMPTY, ICON_FULL } from './trash.js';
+import { backupService } from './backup.js';
 import { initInstall, installService, forgetOffline, offlinePossible } from './install.js';
 import { config } from '../core/config.js';
 import Desk from '../core/api.js';
@@ -27,15 +30,16 @@ export default {
 	id: 'panels',
 	kind: 'core',
 	i18n: ['settings', 'wallpaper', 'backup', 'trash', 'about', 'help'],
-	styles: ['settings.css', 'wallpaper.css', 'panels.css'],
+	/* Every rule of these sheets is inside a panel window: they come with the first one */
+	windowStyles: ['settings.css', 'wallpaper.css', 'panels.css'],
 
 	apps: [
-		{ id: 'about-desktop', kind: 'native', icon: aboutIcon, tint: 'slate', size: [360, 500], fixed: true, name: '@about.title', render: renderAbout },
-		{ id: 'settings', kind: 'native', icon: 'ti-settings', tint: 'graphite', size: [720, 500], name: '@settings.title', ...settingsHooks },
-		{ id: 'wallpaper', kind: 'native', icon: 'ti-wallpaper', tint: 'teal', size: [680, 620], name: '@wallpaper.appName', render: renderWallpaper },
-		{ id: 'backup', kind: 'native', icon: 'ti-archive', tint: 'green', size: [480, 580], name: '@backup.appName', render: renderBackup },
-		{ id: 'trash', kind: 'native', icon: ICON_EMPTY, iconFull: ICON_FULL, tint: 'graphite', size: [520, 520], nodock: true, name: '@trash.title', render: renderTrash },
-		{ id: 'help', kind: 'native', icon: 'ti-help-circle', tint: 'graphite', size: [460, 480], name: '@help.appName', render: renderHelp }
+		{ id: 'about-desktop', kind: 'native', icon: aboutIcon, tint: 'slate', size: [360, 500], fixed: true, name: '@about.title', load: () => import('./about.js') },
+		{ id: 'settings', kind: 'native', icon: 'ti-settings', tint: 'graphite', size: [720, 500], name: '@settings.title', load: () => import('./settings-window.js') },
+		{ id: 'wallpaper', kind: 'native', icon: 'ti-wallpaper', tint: 'teal', size: [680, 620], name: '@wallpaper.appName', load: () => import('./wallpaper-window.js') },
+		{ id: 'backup', kind: 'native', icon: 'ti-archive', tint: 'green', size: [480, 580], name: '@backup.appName', load: () => import('./backup-window.js') },
+		{ id: 'trash', kind: 'native', icon: ICON_EMPTY, iconFull: ICON_FULL, tint: 'graphite', size: [520, 520], nodock: true, name: '@trash.title', load: () => import('./trash-window.js') },
+		{ id: 'help', kind: 'native', icon: 'ti-help-circle', tint: 'graphite', size: [460, 480], name: '@help.appName', load: () => import('./help.js') }
 	],
 
 	storage: {
@@ -70,8 +74,8 @@ export default {
 		desk.provide('wallpaper', wallpaperService);
 		desk.provide('backup', backupService);
 		desk.provide('trash', trashService);
-		desk.provide('about', aboutService);
-		desk.provide('help', helpService);
+		desk.provide('about', Object.freeze({ open: () => Desk.launch('about-desktop') }));
+		desk.provide('help', Object.freeze({ open: () => Desk.launch('help') }));
 		desk.provide('install', installService);
 	}
 };

@@ -7,6 +7,7 @@ import {
 	cleanLangs, fetchCodes, DEFAULT_LANGS
 } from '../src/apps/fortune/model.js';
 import { jokeapi, uselessfacts, cleanProvider, checkRequestUrl, categoriesFor } from '../src/apps/fortune/providers.js';
+import { readFileSync } from 'node:fs';
 
 const plain = s => normalizeText(String(s).replace(/<[^>]*>/g, '').replace(/&quot;/g, '"'));
 
@@ -214,4 +215,17 @@ test('fortune: only languages with a file are fetched (config.fortune.langs) —
 	assert.deepEqual(cleanLangs(['../x'], m => warnings.push(m)), ['de', 'en']);
 	assert.deepEqual(cleanLangs('en', m => warnings.push(m)), ['de', 'en']);
 	assert.equal(warnings.length, 2);
+});
+
+test('fortune: the window loads on demand — the descriptor does not import window.js, fortune.css is window-only', async () => {
+	const src = readFileSync(new URL('../src/apps/fortune/index.js', import.meta.url), 'utf8');
+	assert.doesNotMatch(src, /^\s*(import|export)\b[^;]*from\s*['"]\.\/window\.js['"]/m);
+	assert.match(src, /load: \(\) => import\('\.\/window\.js'\)/, 'a literal import (service worker, preload)');
+	const { default: fortune } = await import('../src/apps/fortune/index.js');
+	assert.deepEqual(fortune.windowStyles, ['fortune.css']);
+	assert.equal(fortune.styles, undefined);
+	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount']) assert.equal(fortune[hook], undefined, `${hook} comes with load()`);
+	assert.equal(typeof fortune.terminal.fortune.run, 'function', 'the terminal command stays in the descriptor');
+	const { default: hooks } = await import('../src/apps/fortune/window.js');
+	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount']) assert.equal(typeof hooks[hook], 'function', hook);
 });

@@ -18,9 +18,13 @@
 
    The first registration of a name wins; a later one is refused with a
    warning — unless the first was registered as weak (the easter eggs),
-   which any later command replaces. Pure: no DOM, no desktop imports. */
+   which any later command replaces. A name can be reserved for a source
+   before its definition is there (the built-ins, which load with the first
+   window): the place in the order is taken at once, other sources are refused
+   as if the command existed, and the command counts once that source
+   registers it. Pure: no DOM, no desktop imports. */
 
-import { NAME } from './lib.js';
+import { NAME } from './config.js';
 
 const isText = v => (typeof v === 'string' && v.length > 0) || (v !== null && typeof v === 'object' && !Array.isArray(v)
 	&& Object.values(v).length > 0 && Object.values(v).every(x => typeof x === 'string'));
@@ -65,11 +69,12 @@ export function cleanDef(def, warn = () => {}, name = '?') {
  *   onChange()  after every change
  */
 export function createCommands({ warn = console.warn, onChange = () => {} } = {}) {
-	const map = new Map();   // name → { name, def, source, weak, seq }
+	const map = new Map();   // name → { name, def (null while only reserved), source, weak, seq }
 	let seq = 0;
 
 	const ready = e => {
-		if (!e?.def.when) return true;
+		if (!e?.def) return false;
+		if (!e.def.when) return true;
 		try {
 			return e.def.when() === true;
 		} catch {
@@ -92,7 +97,8 @@ export function createCommands({ warn = console.warn, onChange = () => {} } = {}
 		const old = map.get(n);
 		/* a weak command (an egg) steps aside silently when the name is taken */
 		if (old && weak === true) return null;
-		if (old && !old.weak) {
+		/* a reservation is filled by its own source only */
+		if (old && !old.weak && (old.def || old.source !== source)) {
 			warn(`[terminal] command '${n}' exists already (${old.source}) — the one from ${source} is ignored`);
 			return null;
 		}
@@ -105,6 +111,14 @@ export function createCommands({ warn = console.warn, onChange = () => {} } = {}
 			onChange();
 			return true;
 		};
+	}
+
+	/** Reserves names for a source whose definitions come later (taken or invalid names are skipped) */
+	function reserve(names, source = 'builtin') {
+		for (const name of Array.isArray(names) ? names : []) {
+			const n = typeof name === 'string' ? name.toLowerCase() : '';
+			if (NAME.test(n) && !map.has(n)) map.set(n, Object.freeze({ name: n, def: null, source, weak: false, seq: seq++ }));
+		}
 	}
 
 	/** Removes every command of a source (a module whose setup failed) */
@@ -128,11 +142,11 @@ export function createCommands({ warn = console.warn, onChange = () => {} } = {}
 
 	/** Available commands in registration order; hidden ones only with { hidden: true } */
 	const list = ({ hidden = false } = {}) => [...map.values()]
-		.filter(e => (hidden || !e.def.hidden) && ready(e))
+		.filter(e => ready(e) && (hidden || !e.def.hidden))
 		.sort((a, b) => a.seq - b.seq);
 
 	return Object.freeze({
-		register, removeSource, get, list,
+		register, reserve, removeSource, get, list,
 		has: name => get(name) !== null,
 		names: opts => list(opts).map(e => e.name)
 	});

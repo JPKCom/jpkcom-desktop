@@ -8,23 +8,30 @@
    meanwhile. Other tabs of the desktop stay in sync ('store:change').
 
    Service 'trash': add(type, title, data) → boolean, count(), list(),
-   putBack(id), purge(id), empty(), askEmpty(). Event 'trash:change' { count }. */
+   putBack(id), purge(id), empty(), askEmpty(). Event 'trash:change' { count }.
+
+   The window's list is trash-window.js, loaded when it first opens; the
+   store, the question before emptying and the service stay here. */
 
 import Desk from '../core/api.js';
 import { cleanTrash, trashId } from './pure.js';
 
-const { h, t, L, store, storage } = Desk;
+const { t, store, storage } = Desk;
 const KEY = 'trash';
 /* Validated by the core (validateConfig): an invalid site value is warned about and
    replaced by the default — no second default kept here */
 const cfg = Desk.config.trash;
-const DAYS = cfg.days;
+export const DAYS = cfg.days;
 const MAX = cfg.max;
 export const ICON_EMPTY = 'ti-trash';
 export const ICON_FULL = 'tif-trash';
 
-const views = new Set();
+/** The open trash panels (trash-window.js adds them; root.redraw() rebuilds one) */
+export const views = new Set();
 let items = [];
+
+/** The items as they are (oldest first) — for the window, not to be changed */
+export const current = () => items;
 
 /** Validator of the storage key (also for backups) */
 export const validateStored = v => cleanTrash(v, { days: DAYS, max: MAX });
@@ -87,27 +94,16 @@ export function empty() {
 	save();
 }
 
-/* ---------- Window ---------- */
-
-const appOf = item => {
-	const type = storage.trashType(item.type);
-	const app = type?.app ? Desk.apps.get(type.app) : null;
-	return { type, app };
-};
-
-function when(ms) {
-	const d = new Date(ms);
-	return new Date().toDateString() === d.toDateString()
-		? Desk.i18n.fmtTime(d, { hour: '2-digit', minute: '2-digit' })
-		: Desk.i18n.fmtDate(d, { day: 'numeric', month: 'short' });
-}
+/* ---------- Emptying (asks inside the window) ---------- */
 
 let asking = false;
+/** Is the question before emptying open? */
+export const isAsking = () => asking;
 
 /** The question before emptying, inside the trash window (a sheet; Esc = cancel).
     The panel is not rebuilt while the sheet opens: the dialog gives the focus back
     to the button that asked, so that button must still be there. */
-async function confirmEmpty(within) {
+export async function confirmEmpty(within) {
 	if (asking || !items.length) return;
 	asking = true;
 	try {
@@ -133,74 +129,12 @@ async function confirmEmpty(within) {
 	}
 }
 
-export function renderTrash(win) {
-	const root = h('div', { class: 'panel trash-panel' });
-
-	root.redraw = () => {
-		const focused = root.contains(document.activeElement) ? document.activeElement : null;
-		const focusedId = focused?.closest?.('.trash-item')?.dataset.id;
-		const focusedIndex = focusedId ? [...root.querySelectorAll('.trash-item')].findIndex(li => li.dataset.id === focusedId) : -1;
-		const onEmpty = focused?.classList.contains('trash-empty');
-		const title = Desk.apps.name(Desk.apps.get('trash')) || t('trash.title');
-
-		const head = h('div', { class: 'trash-head' },
-			h('div', {},
-				h('h2', { tabindex: '-1', text: title }),
-				h('p', { text: t('trash.intro', { n: DAYS }) })),
-			h('button', {
-				type: 'button', class: 'btn trash-empty', disabled: !items.length, 'aria-disabled': asking ? 'true' : null, text: t('trash.empty'),
-				onclick: () => confirmEmpty(win)
-			}));
-
-		const list = items.length
-			? h('ul', { class: 'trash-list', 'aria-label': title }, [...items].reverse().map(x => {
-				const { type, app } = appOf(x);
-				const name = x.title || t('trash.untitled');
-				const source = app ? Desk.apps.name(app) : type ? L(type.label) : x.type;
-				return h('li', { class: 'trash-item', 'data-id': x.id },
-					app ? Desk.tile(app) : Desk.tile({ icon: type?.icon ?? 'ti-file-unknown', tint: 'graphite' }),
-					h('span', { class: 'trash-text' },
-						h('span', { class: 'trash-name', text: name }),
-						h('span', { class: 'trash-meta', text: t('trash.meta', { source, when: when(x.deleted) }) })),
-					h('button', {
-						type: 'button', class: 'btn trash-back', text: t('trash.putBack'),
-						'aria-label': t('trash.putBackItem', { name }), disabled: !type,
-						title: type ? null : t('trash.noType'),
-						onclick: () => putBack(x.id)
-					}),
-					h('button', {
-						type: 'button', class: 'win-btn trash-purge', 'aria-label': t('trash.purgeItem', { name }), title: t('trash.purge'),
-						onclick: () => purge(x.id)
-					}, Desk.icon('ti-x')));
-			}))
-			: h('p', { class: 'trash-none', text: t('trash.none') });
-
-		root.replaceChildren(head, list);
-
-		/* Keep the keyboard where it was: the same item, else the one that took its place, else the heading */
-		if (onEmpty) {
-			(root.querySelector('.trash-empty:not(:disabled)') ?? root.querySelector('h2'))?.focus({ preventScroll: true });
-		} else if (focusedId) {
-			const sel = `.trash-item[data-id="${Desk.dom.cssEscape(focusedId)}"]`;
-			const same = root.querySelector(sel);
-			const was = focused?.classList.contains('trash-purge') ? '.trash-purge' : '.trash-back';
-			const next = same ?? root.querySelectorAll('.trash-item')[Math.max(0, focusedIndex - 1)] ?? null;
-			const btn = next?.querySelector(`${was}:not(:disabled)`) ?? next?.querySelector('button:not(:disabled)');
-			(btn ?? root.querySelector('h2'))?.focus({ preventScroll: true });
-		}
-	};
-
-	views.add(root);
-	root.redraw();
-	return root;
-}
-
-/** From a context menu: open the bin and ask right away */
-export function askEmpty() {
+/** From a context menu: open the bin and ask right away — once its content is there (win.ready) */
+export async function askEmpty() {
 	if (!items.length) return;
 	Desk.launch('trash');
 	const win = Desk.wm?.get('trash');
-	if (win) confirmEmpty(win);
+	if (win && await win.ready && Desk.wm.get('trash') === win) await confirmEmpty(win);
 }
 
 export function initTrash() {

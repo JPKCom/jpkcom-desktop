@@ -33,7 +33,8 @@ import { icon, tile } from '../core/icons.js';
 import { registry } from '../core/registry.js';
 import { acceptPath } from '../core/router.js';
 import { get as service, has as hasService } from '../core/services.js';
-import { track as trackSetup } from '../core/undo.js';
+import { track as trackSetup, tracking } from '../core/undo.js';
+import { windowStyles } from '../core/modules.js';
 
 const KIND = /^[a-z][a-z0-9-]{0,31}$/;
 const LAYOUTS = ['max', 'left', 'right'];
@@ -62,8 +63,18 @@ function report(where, err) {
 	console.error(`[wm] ${where} failed:`, err);
 }
 
-/* Calls a hook of the window's kind; a throwing hook is reported, never fatal */
+/*
+ * Calls a hook of the window's kind; a throwing hook is reported, never fatal. While the
+ * window code still loads (win.pending): serialize answers with the state it was opened
+ * with (a session saved meanwhile keeps it), reopen options wait for the mount, the rest
+ * waits for nothing — there is no content yet.
+ */
 function hook(win, name, ...args) {
+	if (win?.pending) {
+		if (name === 'serialize') return win.pending.state;
+		if (name === 'reopen') win.pending.reopen = { ...win.pending.reopen, ...args[0] };
+		return undefined;
+	}
 	const fn = win?.def?.[name];
 	if (typeof fn !== 'function') return undefined;
 	try {
@@ -198,8 +209,8 @@ export function rect(win, r) {
  * again (core/undo.js) and 'wm:kind' { kind, removed: true } is emitted.
  */
 export function defineKind(kind, def) {
-	if (typeof kind !== 'string' || !KIND.test(kind) || typeof def?.mount !== 'function') {
-		console.warn(`[wm] defineKind('${kind}'): needs a kind [a-z0-9-] and a mount() function — skipped`);
+	if (typeof kind !== 'string' || !KIND.test(kind) || (typeof def?.mount !== 'function' && typeof def?.load !== 'function')) {
+		console.warn(`[wm] defineKind('${kind}'): needs a kind [a-z0-9-] and a mount() or load() function — skipped`);
 		return false;
 	}
 	if (kinds.has(kind)) {
@@ -208,6 +219,7 @@ export function defineKind(kind, def) {
 	}
 	const frozen = Object.freeze({ ...def });
 	kinds.set(kind, frozen);
+	if (tracking()) kindOwners.set(kind, tracking());
 	trackSetup(() => {
 		if (kinds.get(kind) !== frozen) return;
 		kinds.delete(kind);
@@ -215,6 +227,35 @@ export function defineKind(kind, def) {
 	});
 	emit('wm:kind', { kind });
 	return true;
+}
+
+/* Hooks a kind definition may have (load() brings the ones it leaves out) */
+const KIND_HOOKS = ['mount', 'focus', 'relabel', 'unmount', 'reopen', 'serialize', 'restore', 'locationOf', 'acceptUrl',
+	'reload', 'popOut', 'canPopOut', 'canLink', 'menu', 'beforeClose'];
+const kindLoads = new Map(); // kind → Promise of the complete definition while load() runs
+const kindOwners = new Map(); // kind → id of the module whose setup() defined it (its windowStyles come along)
+
+/**
+ * A kind defined with load() (its window code on demand): load it once and put the complete
+ * definition in place — the hooks given to defineKind() win over loaded ones. → Promise<def>;
+ * a failed load is tried again next time.
+ */
+function loadKind(kind) {
+	const stub = kinds.get(kind);
+	if (typeof stub?.load !== 'function') return Promise.resolve(stub ?? null);
+	if (kindLoads.has(kind)) return kindLoads.get(kind);
+	const p = Promise.all([Promise.resolve().then(() => stub.load()), windowStyles(kindOwners.get(kind))]).then(([value]) => {
+		const src = value && typeof value === 'object' && value.default && typeof value.default === 'object' ? value.default : value;
+		const loaded = {};
+		for (const k of KIND_HOOKS) if (typeof src?.[k] === 'function') loaded[k] = src[k];
+		const { load, ...own } = stub;
+		const def = Object.freeze({ ...loaded, ...own });
+		if (typeof def.mount !== 'function') throw new Error(`window kind '${kind}': load() gave no mount()`);
+		if (kinds.get(kind) === stub) kinds.set(kind, def);
+		return kinds.get(kind);
+	}).finally(() => kindLoads.delete(kind));
+	kindLoads.set(kind, p);
+	return p;
 }
 
 export const hasKind = kind => kinds.has(kind);
@@ -246,6 +287,10 @@ function createWin(app, def, opts) {
 	const win = {
 		id, app, kind: app.kind, def, el,
 		impl: registry.impl(app),
+		/* Promise<boolean>: true once the content is mounted, false when it could not be built (open()) */
+		ready: null,
+		/* While the window code loads (app field load): { state, reopen } — what open() and reopen() asked for */
+		pending: null,
 		rect: initialRect(app),
 		layout: null,
 		min: false,
@@ -332,6 +377,9 @@ function syncDocTitle() {
  * opts: { url, scroll, state, restore } — restore: true for session restores
  * (no open animation, 'window:open' carries restore: true).
  * Returns the window, or null (unknown app, missing implementation or kind).
+ * An app whose window code is loaded on demand (registry implReady false) opens at once
+ * with a spinner and mounts when the code is there; win.ready → Promise<boolean> tells
+ * when the content is built (true) or could not be (false), for every window.
  */
 export function open(appOrId, opts = {}) {
 	if (!ready) {
@@ -357,15 +405,8 @@ export function open(appOrId, opts = {}) {
 
 	const win = createWin(app, def, opts);
 	const { el, bar, body } = win;
-	try {
-		def.mount(win, body, bar, opts);
-		if (opts.state != null) def.restore?.(win, opts.state);
-	} catch (err) {
-		report(`opening '${app.id}' (kind '${app.kind}')`, err);
-		body.replaceChildren(h('div', { class: 'panel notice' },
-			tile(app),
-			h('p', { text: t('core.notAvailable', { name: registry.name(app) }) })));
-	}
+	if (registry.implReady(app) && typeof def.load !== 'function') win.ready = Promise.resolve(mountWin(win, opts));
+	else win.ready = mountLater(win, opts);
 
 	el.append(bar, body);
 	if (!app.fixed) {
@@ -387,7 +428,61 @@ export function open(appOrId, opts = {}) {
 		}));
 	}
 	emit('window:open', { win, restore: !!opts.restore });
+	if (!win.pending) win.ready.then(ok => emit('window:ready', { win, ok }));
 	return win;
+}
+
+/* "<App> is not available" in place of the content */
+function notAvailable(win) {
+	win.body.replaceChildren(h('div', { class: 'panel notice' },
+		tile(win.app),
+		h('p', { text: t('core.notAvailable', { name: registry.name(win.app) }) })));
+}
+
+/* Builds the content through the kind (mount, then restore of opts.state); a failure leaves a notice. → ok */
+function mountWin(win, opts) {
+	try {
+		win.def.mount(win, win.body, win.bar, opts);
+		if (opts.state != null) win.def.restore?.(win, opts.state);
+		return true;
+	} catch (err) {
+		report(`opening '${win.app.id}' (kind '${win.app.kind}')`, err);
+		notAvailable(win);
+		return false;
+	}
+}
+
+/*
+ * The window code is still loading — the app's (registry loadImpl) or the kind's (defineKind load):
+ * a spinner now, mount when it is there. Meanwhile win.pending keeps what was asked for (hook()).
+ * Closed before the code arrived → nothing is mounted.
+ */
+async function mountLater(win, opts) {
+	const spinner = h('div', { class: 'win-loading', role: 'status', 'aria-label': t('core.loading') });
+	win.pending = { state: opts.state ?? null, reopen: null };
+	win.body.append(spinner);
+	win.el.setAttribute('aria-busy', 'true');
+	let loaded = false;
+	try {
+		const [def, impl] = await Promise.all([loadKind(win.app.kind), registry.loadImpl(win.app)]);
+		if (def) win.def = def;
+		win.impl = impl;
+		loaded = true;
+	} catch (err) {
+		report(`loading the window code of '${win.app.id}'`, err);
+	}
+	const open = wins.get(win.app.id) === win;
+	const { reopen } = win.pending;
+	win.pending = null;
+	win.el.removeAttribute('aria-busy');
+	spinner.remove();
+	if (!open) return false;
+	const ok = loaded ? mountWin(win, opts) : (notAvailable(win), false);
+	if (ok && reopen) hook(win, 'reopen', reopen);
+	/* Focus inside only when it is still where open() put it: on the window itself */
+	if (ok && active === win && !win.min && document.activeElement === win.el) hook(win, 'focus');
+	emit('window:ready', { win, ok });
+	return ok;
 }
 
 /* ============================================================
@@ -704,7 +799,7 @@ export function unminimize(win) {
  */
 export function close(win, { force = false } = {}) {
 	if (!win || wins.get(win.app.id) !== win) return false;
-	if (!force && typeof win.def.beforeClose === 'function') {
+	if (!force && !win.pending && typeof win.def.beforeClose === 'function') {
 		const ok = hook(win, 'beforeClose');
 		if (ok === false) return false;
 		if (ok && typeof ok.then === 'function') {
@@ -787,7 +882,7 @@ export function reload(win) {
  * says false (per window — kind definitions are frozen). Defaults to true.
  */
 export function canPopOut(win) {
-	if (!win?.def) return false;
+	if (!win?.def || win.pending) return false;
 	if (typeof win.def.popOut !== 'function' && !locationOf(win)) return false;
 	if (typeof win.def.canPopOut !== 'function') return true;
 	/* A failing check counts as "no": the gate protects files from the device */
@@ -806,7 +901,7 @@ export function canPopOut(win) {
  */
 export function canLink(win) {
 	if (!win?.def) return false;
-	if (typeof win.def.canLink !== 'function') return true;
+	if (win.pending || typeof win.def.canLink !== 'function') return true;
 	try {
 		return win.def.canLink(win) !== false;
 	} catch (err) {

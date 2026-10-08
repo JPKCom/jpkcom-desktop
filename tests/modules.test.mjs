@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { i18n } from '../src/core/i18n.js';
-import { modules, HOOKS, localesDir } from '../src/core/modules.js';
+import { modules, HOOKS, localesDir, hooksOf } from '../src/core/modules.js';
 import { registry, createRegistry } from '../src/core/registry.js';
 import { consent } from '../src/core/consent.js';
 import { storage } from '../src/core/storage-registry.js';
@@ -60,6 +60,54 @@ test('modules: window hooks of a panel (render, reopen, acceptUrl, …) go to th
 	assert.equal(typeof impl?.reopen, 'function');
 	assert.equal(registry.get('panel-x').render, undefined, 'hooks are not manifest fields');
 	assert.equal(registry.available('panel-x'), true);
+});
+
+test('modules: load() keeps window code out of the boot; loadImpl() joins it with the direct hooks', async () => {
+	const win = 'export default { mount() {}, menu: () => ["m"], acceptUrl: () => "loaded", title: "not a hook" };';
+	await modules.loadAll([{ kind: 'module', refs: [ref('lazy-x', `export default {
+		id: 'lazy-x',
+		app: { kind: 'app', name: 'Lazy', load: () => import("data:text/javascript,${encodeURIComponent(win)}") },
+		acceptUrl: () => 'direct'
+	}`)] }], {});
+	assert.equal(registry.get('lazy-x').load, undefined, 'load is not a manifest field');
+	assert.equal(registry.available('lazy-x'), true, 'an app with load() can open');
+	assert.equal(registry.implReady('lazy-x'), false);
+	assert.equal(registry.impl('lazy-x').acceptUrl(), 'direct', 'direct hooks are there at once');
+	assert.equal(registry.impl('lazy-x').mount, undefined);
+	const [a, b] = await Promise.all([registry.loadImpl('lazy-x'), registry.loadImpl('lazy-x')]);
+	assert.equal(a, b, 'loaded once');
+	assert.equal(registry.implReady('lazy-x'), true);
+	assert.equal(typeof a.mount, 'function');
+	assert.deepEqual(a.menu(), ['m']);
+	assert.equal(a.acceptUrl(), 'direct', 'a direct hook wins over a loaded one');
+	assert.equal(a.title, undefined, 'only hooks are taken');
+	assert.equal(registry.impl('lazy-x'), a);
+});
+
+test('modules: hooksOf() takes a default export or an object and needs mount() or render()', () => {
+	const mount = () => {};
+	assert.equal(hooksOf({ default: { mount } }, 'x').mount, mount);
+	assert.equal(hooksOf({ mount, extra: 1 }, 'x').extra, undefined);
+	assert.equal(typeof hooksOf({ render: () => null }, 'x').render, 'function');
+	assert.throws(() => hooksOf({ default: { menu() {} } }, 'x'), /no mount\(\) or render\(\)/);
+	assert.throws(() => hooksOf(null, 'x'));
+});
+
+test('registry: a failed load() is reported and tried again; a removed app drops its loader', async () => {
+	const reg = createRegistry({ warn: () => {} });
+	let calls = 0;
+	reg.register({ id: 'flaky', kind: 'app', name: 'Flaky' }, {
+		source: 'module', module: 'flaky',
+		load: () => (++calls === 1 ? Promise.reject(new Error('offline')) : Promise.resolve({ mount() {} }))
+	});
+	await assert.rejects(reg.loadImpl('flaky'), /offline/);
+	assert.equal(reg.implReady('flaky'), false);
+	assert.equal(typeof (await reg.loadImpl('flaky')).mount, 'function');
+	assert.equal(calls, 2);
+	reg.register({ id: 'gone', kind: 'app', name: 'Gone' }, { source: 'module', module: 'gone', load: () => ({ mount() {} }) });
+	reg.removeModule('gone');
+	assert.equal(reg.available('gone'), false);
+	assert.equal(await reg.loadImpl('gone'), null);
 });
 
 test('modules: a failing setup() withdraws apps, contributions, consent services and storage', async () => {

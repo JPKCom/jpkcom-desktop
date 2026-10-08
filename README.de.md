@@ -1503,6 +1503,8 @@ Schritt für Schritt: [site/vault/README.md](site/vault/README.md).
 | `npm run validate` / `validate:strict` | prüft `site/apps.js` gegen die Konfiguration (strict scheitert auch an Warnungen) |
 | `npm run i18n:check [-- <sprache>]` | vergleicht jede Sprache mit Englisch: fehlende Schlüssel, Platzhalter, Pluralformen |
 | `npm run icons` / `icons:check` | baut oder prüft `src/icons/tabler.js` aus den Tabler-Icons, die die Quellen benutzen |
+| `npm run preload` / `preload:check` | baut oder prüft `src/boot/preload.js`, die Vorlade-Hinweise, mit denen der Start alle seine Dateien auf einmal anfordert — nach jedem neuen oder geänderten Modul, jeder App und jedem Site-Modul ausführen |
+| `npm run browsers` | lädt das Headless-Chromium für die Browser-Checks und `icons:pwa` |
 | `npm run icons:pwa` | rendert die PNG-App-Icons aus `assets/icons/favicon.svg` und `maskable.svg` (Chromium ohne Fenster) |
 | `npm run seal` | versiegelt private Lesezeichen für den Tresor |
 | `npm run check:browser` | Browser-Check ohne Fenster unter den Produktions-Headern |

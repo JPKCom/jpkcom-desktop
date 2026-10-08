@@ -18,6 +18,8 @@
 		"serve": "node tools/serve.mjs",
 		"icons": "node tools/build-icons.mjs",
 		"icons:check": "node tools/build-icons.mjs --check",
+		"preload": "node tools/build-preload.mjs",
+		"preload:check": "node tools/build-preload.mjs --check",
 		"i18n:check": "node tools/i18n-check.mjs",
 		"test": "node --test \"tests/*.test.mjs\"",
 		"check:browser": "node tools/browser-check.mjs",

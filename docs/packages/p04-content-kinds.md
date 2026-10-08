@@ -8,9 +8,24 @@ not available (they leave All apps, the dock, menus and search instead of failin
 
 | Module | Window kinds | Service | Files |
 |---|---|---|---|
-| `reader` | `page` | `reader` | `src/modules/reader/index.js`, `extract.js`, `sanitize.js`, `util.js`, `reader.css` |
-| `viewer` | `image`, `viewer` (+ app `viewer`) | `viewer` | `src/modules/viewer/index.js`, `util.js`, `viewer.css` |
-| `catalog` | `collection` | `catalog` | `src/modules/catalog/index.js`, `util.js`, `catalog.css` |
+| `reader` | `page` | `reader` | `src/modules/reader/index.js`, `kind.js`, `extract.js`, `sanitize.js`, `util.js`, `reader.css` |
+| `viewer` | `image`, `viewer` (+ app `viewer`) | `viewer` | `src/modules/viewer/index.js`, `kind.js`, `util.js`, `viewer.css` |
+| `catalog` | `collection` | `catalog` | `src/modules/catalog/index.js`, `kind.js`, `util.js`, `catalog.css` |
+
+**Window code on demand** (ARCHITECTURE §8, §19.3 `load`): each `index.js` is the descriptor — the
+configuration, the service, contributions (drop handler, context menu) and the kind definitions as
+`defineKind(kind, { load: () => import('./kind.js'), … })`. The window hooks live in `kind.js` and come
+with the first window of the kind (`wm.open()` shows a spinner until then; `win.ready`). The Reader keeps
+`acceptUrl` in the descriptor (session restore and deep links ask it before any window exists);
+`extract.js` and `sanitize.js` are imported by `kind.js` only. The descriptors never import `kind.js`
+statically (`tests/p04-catalog.test.mjs` checks it); `kind.js` imports what it shares from `index.js`
+(Reader: `shared` rules/separator/cache; Catalog: labels and `actions`). The stylesheets are
+`windowStyles` (`reader.css`, `viewer.css`, `catalog.css`): every rule applies inside these windows only
+(the Catalog's context menu and the drop overlay are the shell's), so they come with the first window of
+a kind the module defined (wm `loadKind`). From outside, a window is reached through `wm.get(id)?.state.<reader |
+viewer | catalog>` once it is mounted; the viewer service hands a picture over as `wm.open('viewer',
+{ file })` (`mount`/`reopen` read `opts.file`, also while the code still loads), and a dropped picture's
+app leaves the registry on `'window:close'` (also when it was closed before its code arrived).
 
 i18n namespaces: `reader`, `viewer`, `catalog` (`locales/{en,de}/…`). Common words (Back, Forward,
 Reload, Open in new tab, Loading, Download, Search, No results, the item count, Open) come from `core`.
@@ -189,7 +204,7 @@ Service `catalog`: `open(collectionId) → boolean`, `actions(app) → [{ id, la
 
 ## CSS
 
-Layer `modules` (+ `compact` for `body.compact`), tokens only, logical properties, nesting ≤ 3:
+Loaded as `windowStyles` with the first window of the kind (see above). Layer `modules` (+ `compact` for `body.compact`), tokens only, logical properties, nesting ≤ 3:
 `.reader*` (typography, hero, lead, code blocks with `--reader-code-bg` and `--scroll-code-thumb`,
 tables, details, abbr), `.viewer*` (checkerboard `--check-a/--check-b`, empty state, info bar),
 `.catalog*` (sidebar, toolbar, grid, items, status bar). Compact: Reader without Forward and with

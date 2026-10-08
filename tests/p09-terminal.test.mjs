@@ -13,7 +13,14 @@ import { uaBrowser, uaOs, hintOs, utcOffset, BI_SECTIONS } from '../src/apps/ter
 import { dfRow, dfLines, areaUse, AREA_QUOTA } from '../src/apps/terminal/commands/storage.js';
 import eggs, { TEAPOT } from '../src/apps/terminal/commands/eggs.js';
 import { dirArg } from '../src/apps/terminal/commands/fs.js';
-import terminal from '../src/apps/terminal/index.js';
+import terminal, { ORDER, commands } from '../src/apps/terminal/index.js';
+import core from '../src/apps/terminal/commands/core.js';
+import fsCommands from '../src/apps/terminal/commands/fs.js';
+import sys from '../src/apps/terminal/commands/sys.js';
+import browser from '../src/apps/terminal/commands/browser.js';
+import storage from '../src/apps/terminal/commands/storage.js';
+import netCommands from '../src/apps/terminal/commands/net.js';
+import { readFileSync } from 'node:fs';
 
 /* ---------- lib ---------- */
 
@@ -233,6 +240,32 @@ test('command registry: register, duplicates, weak eggs, hidden, when, remove', 
 	assert.equal(reg.get('ls'), null);
 });
 
+test('command registry: reserved names keep their place and win over other sources', () => {
+	const warns = [];
+	const reg = createCommands({ warn: m => warns.push(m) });
+	const run = () => {};
+	/* the built-ins load with the window: setup() reserves their names first */
+	reg.reserve(['help', 'ls', 'Bad Name', 'egg'], 'builtin');
+	assert.deepEqual(reg.names({ hidden: true }), []);
+	assert.equal(reg.has('ls'), false);
+	assert.equal(reg.register('ls', { run }, { source: 'module:x' }), null);
+	assert.equal(reg.register('ls', { run }, { source: 'runtime' }), null);
+	assert.equal(warns.length, 2);
+	assert.match(warns[0], /exists already \(builtin\)/);
+	assert.ok(reg.register('login', { run, hidden: true }, { source: 'module:vault' }));
+	assert.equal(reg.register('egg', { run, hidden: true }, { source: 'builtin', weak: true }), null);
+	assert.equal(warns.length, 2);
+	assert.deepEqual(reg.names({ hidden: true }), ['login']);
+	/* filled later by its own source: in the reserved order, before the module's command */
+	assert.ok(reg.register('ls', { run }, { source: 'builtin' }));
+	assert.ok(reg.register('help', { run }, { source: 'builtin' }));
+	assert.deepEqual(reg.names({ hidden: true }), ['help', 'ls', 'login']);
+	assert.equal(reg.register('ls', { run }, { source: 'builtin' }), null);
+	/* taken names are not reserved again */
+	reg.reserve(['login'], 'builtin');
+	assert.equal(reg.get('login').source, 'module:vault');
+});
+
 test('cleanDef and textOf', () => {
 	assert.equal(cleanDef(null), null);
 	const d = cleanDef({ run() {}, help: { en: 'x' }, usage: 3, man: () => 'm', hidden: 'yes' });
@@ -367,5 +400,33 @@ test('descriptor: app, storage, reset group, config cleaner, no DNS consent with
 	assert.equal(terminal.resetGroups[0].id, 'terminal');
 	assert.deepEqual(terminal.consent, []);
 	assert.equal(terminal.validateConfig({ historySize: 5 }, () => {}).historySize, 5);
-	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount', 'setup']) assert.equal(typeof terminal[hook], 'function', hook);
+	assert.equal(typeof terminal.setup, 'function');
+	/* the window is window.js, loaded on demand: no window hooks in the descriptor */
+	assert.equal(typeof terminal.app.load, 'function');
+	assert.deepEqual(terminal.windowStyles, ['terminal.css']);
+	assert.equal(terminal.styles, undefined);
+	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount']) assert.equal(terminal[hook], undefined, hook);
+});
+
+test('descriptor: loads neither the window nor the built-in commands', () => {
+	const read = file => readFileSync(new URL(`../src/apps/terminal/${file}`, import.meta.url), 'utf8');
+	const imports = file => [...read(file).matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
+	/* the boot part: index.js and what it imports — never the window, lib.js, catalog.js or commands/ */
+	assert.deepEqual(imports('index.js'), ['../../core/api.js', './config.js', './registry.js']);
+	assert.deepEqual(imports('registry.js'), ['./config.js']);
+	assert.deepEqual(imports('config.js'), ['../../core/is.js']);
+	assert.match(read('index.js'), /load: \(\) => import\('\.\/window\.js'\)/);
+});
+
+test('window: hooks, and ORDER names every built-in command', async () => {
+	const win = (await import('../src/apps/terminal/window.js')).default;
+	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount']) assert.equal(typeof win[hook], 'function', hook);
+	const all = {
+		...core, ...fsCommands({ ...cleanConfig({}) }), ...sys, ...browser, ...storage,
+		...netCommands({ url: 'https://dns.example/resolve', host: 'dns.example', name: 'x' }, 'dns')
+	};
+	assert.deepEqual(Object.keys(all).sort(), [...ORDER].sort());
+	/* importing the window registered the built-ins (without a DNS resolver: no dig/host/nslookup) */
+	assert.ok(commands.list({ hidden: true }).some(e => e.name === 'ls' && e.source === 'builtin'));
+	assert.equal(commands.has('dig'), false);
 });

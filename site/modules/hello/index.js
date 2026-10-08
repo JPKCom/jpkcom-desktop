@@ -22,7 +22,8 @@
             styles lists) and the '-hello-name' suffix of the field id.
      3. List it in site/config.js: apps: [ …, { id: '<id>', src: 'site/modules/<id>/index.js' } ].
      4. A new Tabler icon ('ti-…'): npm run icons. Then npm run i18n:check (each language of locales/
-        needs its file in your locales/<lang>/) and npm run validate.
+        needs its file in your locales/<lang>/), npm run validate and npm run preload (the start then
+        asks for your module's files together with the rest — src/boot/preload.js).
    More extension points — settings, shortcuts, search, context menu, calendar, a config section:
    docs/ARCHITECTURE.md §8 (module descriptor) and §21 (how to add …). */
 

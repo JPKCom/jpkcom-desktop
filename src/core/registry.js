@@ -54,6 +54,8 @@ export function initials(name) {
 export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.values(v ?? {})[0] ?? ''), R = v => ({ text: L(v), lang: null }), compare = (a, b) => a.localeCompare(b), onChange = () => {}, warn = console.warn, kindCheck = null } = {}) {
 	const apps = new Map();         // id → entry (frozen)
 	const impls = new Map();        // id → module implementation
+	const loaders = new Map();      // id → () => Promise<hooks> — the window code a module loads on demand (app field load)
+	const loading = new Map();      // id → Promise<impl> while it loads
 	const collections = new Map();  // id → { def, groups: Map, records: [] }
 	const site = new Map();         // other sections of site/apps.js (menus, files, …)
 	const views = new Map();        // id → resolved alias view (cache)
@@ -134,13 +136,15 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 	/* ---------- Apps ---------- */
 
 	/**
-	 * Adds an app. opts: { source: 'site'|'module'|'collection'|'author'|…, module, impl }.
+	 * Adds an app. opts: { source: 'site'|'module'|'collection'|'author'|…, module, impl, load }.
 	 * A module app whose id the site already declared is merged: the site's fields
 	 * win (so a site can rename an app or pin it to the dock), the module adds impl.
+	 * load: () => Promise<hooks> — window hooks loaded when the first window opens
+	 * (loadImpl); they join impl, a hook in impl wins.
 	 * A site entry without kind and alias is an override record: its fields go
 	 * onto the app of that id whenever it is registered (before or after).
 	 */
-	function register(raw, { source = 'site', module = null, impl = null } = {}) {
+	function register(raw, { source = 'site', module = null, impl = null, load = null } = {}) {
 		const where = `${source}${module ? ` '${module}'` : ''}`;
 		if (isOverride(raw, source)) {
 			const fields = normalize(raw, where, { override: true });
@@ -169,13 +173,14 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		if (over) final = { ...final, ...over, id: final.id };
 		apps.set(final.id, Object.freeze(final));
 		if (impl) impls.set(final.id, impl);
+		if (typeof load === 'function') loaders.set(final.id, load);
 		changed();
 		return get(final.id);
 	}
 
 	function unregister(id) {
 		const had = apps.delete(id);
-		impls.delete(id);
+		dropImpl(id);
 		for (const c of collections.values()) c.records = c.records.filter(r => r.appId !== id);
 		if (had) changed();
 		return had;
@@ -185,7 +190,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 	function removeSource(source) {
 		for (const [id, e] of apps) if (e.source === source) {
 			apps.delete(id);
-			impls.delete(id);
+			dropImpl(id);
 		}
 		for (const c of collections.values()) {
 			c.records = c.records.filter(r => r.source !== source);
@@ -198,7 +203,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 	function removeModule(moduleId) {
 		for (const [id, e] of apps) {
 			if (e.module !== moduleId) continue;
-			impls.delete(id);
+			dropImpl(id);
 			if (e.source === 'module') apps.delete(id);
 		}
 		changed();
@@ -222,10 +227,48 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		return view;
 	}
 
-	const implOf = app => {
+	function dropImpl(id) {
+		impls.delete(id);
+		loaders.delete(id);
+		loading.delete(id);
+	}
+
+	/* The id that holds the implementation: an alias's target */
+	const implId = app => {
 		const a = typeof app === 'string' ? get(app) : app;
-		return a ? impls.get(a.alias ?? a.id) ?? null : null;
+		return a ? a.alias ?? a.id : null;
 	};
+
+	/** The implementation as far as it is there: the hooks given directly, plus loaded ones once loadImpl() resolved */
+	const implOf = app => impls.get(implId(app)) ?? null;
+
+	/** Is the implementation complete — nothing left to load (also true for apps without one)? */
+	const implReady = app => !loaders.has(implId(app));
+
+	/**
+	 * Loads the window hooks of an app once (its load()) and joins them with the hooks given
+	 * directly (those win). → Promise<impl | null>. A failed load is reported to the caller and
+	 * tried again next time; an app removed meanwhile resolves to what is left (null).
+	 */
+	function loadImpl(app) {
+		const id = implId(app);
+		if (!id || !loaders.has(id)) return Promise.resolve(id ? impls.get(id) ?? null : null);
+		if (loading.has(id)) return loading.get(id);
+		const loader = loaders.get(id);
+		const p = Promise.resolve().then(loader).then(hooks => {
+			if (loaders.get(id) !== loader) return impls.get(id) ?? null;
+			const merged = Object.freeze({ ...(isObj(hooks) ? hooks : {}), ...(impls.get(id) ?? {}) });
+			impls.set(id, merged);
+			loaders.delete(id);
+			loading.delete(id);
+			return merged;
+		}, err => {
+			if (loading.get(id) === p) loading.delete(id);
+			throw err;
+		});
+		loading.set(id, p);
+		return p;
+	}
 
 	/**
 	 * Launchable now? The kind must be openable (kind check: a window kind is
@@ -236,7 +279,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		const a = typeof app === 'string' ? get(app) : app;
 		if (!a?.kind) return false;
 		if (canOpen && !canOpen(a.kind)) return false;
-		return !IMPL_KINDS.has(a.kind) || impls.has(a.alias ?? a.id);
+		return !IMPL_KINDS.has(a.kind) || impls.has(a.alias ?? a.id) || loaders.has(a.alias ?? a.id);
 	}
 
 	/** Sets the kind check (the window manager does: defined kinds + 'link' + 'launcher'). */
@@ -247,6 +290,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 
 	function setImpl(id, impl) {
 		if (!apps.has(id)) return false;
+		dropImpl(id);
 		impls.set(id, impl);
 		changed();
 		return true;
@@ -511,7 +555,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 
 	return Object.freeze({
 		register, unregister, removeSource, removeModule, get, has: id => apps.has(id), list, available,
-		impl: implOf, setImpl, load, authorLinks, setKindCheck,
+		impl: implOf, implReady, loadImpl, setImpl, load, authorLinks, setKindCheck,
 		/** Announces 'apps:change' again (availability changed outside: a kind was defined, a service came) */
 		refresh: changed,
 		/** Ids of override records that no app has picked up (yet) */

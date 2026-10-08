@@ -325,9 +325,9 @@ export function initMenubar() {
 		when: () => helpItems().length > 0
 	});
 
-	/* The app menu follows the active window (its name, its items) */
+	/* The app menu follows the active window (its name, its items — those come with the window code: 'window:ready') */
 	const follow = () => update('app');
-	for (const name of ['window:focus', 'window:open', 'window:close']) on(name, follow);
+	for (const name of ['window:focus', 'window:open', 'window:ready', 'window:close']) on(name, follow);
 	/* Panels and services that come later fill the brand and help menus */
 	on('service:provide', ({ name } = {}) => {
 		if (['power', 'deeplinks', 'overview'].includes(name)) renderMenus();

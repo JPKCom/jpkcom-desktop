@@ -176,7 +176,8 @@ export function initDeeplinks() {
 		const hash = hashFor(win);
 		write('pushState', { desk: (current?.desk ?? 0) + 1, id: win.app.id, hash }, hash);
 	});
-	for (const name of ['window:focus', 'window:change', 'window:close', 'window:minimize']) {
+	/* 'window:ready': a window whose code loaded later knows its location only now */
+	for (const name of ['window:focus', 'window:change', 'window:ready', 'window:close', 'window:minimize']) {
 		on(name, () => { if (!quiet) sync(); });
 	}
 	addEventListener('popstate', onPop);

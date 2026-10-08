@@ -41,7 +41,7 @@ index.html, manifest.webmanifest, sw.js   Shell-Markup, PWA (Root wegen Scope)
 site/            ALLES, was ein Betreiber anpasst: config.js (window.DESKTOP_CONFIG), apps.js (Manifest),
                  theme.css (Haus-Theme), content/<lang>/, data/, vault/, wallpapers/, modules/ (Site-Apps, Beispiel hello/) — neutral
 locales/<lang>/  _meta.js + ein Namespace pro Datei; en = Referenz, de mitgeliefert
-src/boot/        theme.js (klassisch, vor dem ersten Paint), main.js (Einstieg)
+src/boot/        preload.js (GENERIERT, klassisch: Preload-Hinweise), theme.js (klassisch, vor dem ersten Paint), main.js (Einstieg)
 src/core/        config env store bus i18n dom icons a11y registry router net consent storage-registry
                  modules services api dialog …
 src/wm/ src/shell/ src/panels/   Core-Parts (wm, shell, panels) — laden als Deskriptoren
@@ -49,7 +49,7 @@ src/modules/<id>/  optionale Module (reader viewer catalog search calendar holid
 src/apps/<id>/     Apps (editor notes todo calc terminal media fortune; Helfer src/apps/kit.js)
 src/css/         layers.css tokens.css base.css components.css
 src/icons/       tabler.js (GENERIERT, committed), custom.js (jpk, wc-*, tile-*, Logo)
-tools/           serve, build-icons, i18n-check, validate-manifest, seal-vault, build-pwa-icons, browser-check
+tools/           serve, build-icons, build-preload, i18n-check, validate-manifest, seal-vault, build-pwa-icons, browser-check
 tests/           node --test, ein File pro Paket (p01–p12) + Core-Tests
 docs/            ARCHITECTURE.md (Vertrag), packages/p01–p12, deploy.md, server/* (Apache, nginx, Caddy,
                  Ferron 2/3, static-web-server)
@@ -60,8 +60,11 @@ docs/            ARCHITECTURE.md (Vertrag), packages/p01–p12, deploy.md, serve
 Default-Export von `src/modules/<id>/index.js` bzw. `src/apps/<id>/index.js`:
 
 - `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `locales: 'locales/'`
-  (gedacht für Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`
-- `app: {…}` oder `apps: [...]` (Manifest-Felder: `icon`, `tint`, `size`, `name: '@ns.key'` …)
+  (gedacht für Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`, `windowStyles: [...]`
+  (CSS nur fürs Fenster, kommt mit dessen Code)
+- `app: {…}` oder `apps: [...]` (Manifest-Felder: `icon`, `tint`, `size`, `name: '@ns.key'` …;
+  `load: () => import('./window.js')` = Fenster-Code erst beim ersten Öffnen, §8 „Window code on demand“ —
+  der Deskriptor importiert die Fenster-Datei nie statisch; Fensterarten analog `defineKind(kind, { load })`)
 - `storage` (Keys mit `validate`), `resetGroups`, `trash`, `consent: [{ id, hosts, label, hint }]`
 - Beiträge: `files`, `settingsSections`, `settings`, `shortcuts`, `terminal`, `search`, `calendar`, `contextMenu`
 - `configKey` + `validateConfig(section, warn)` → `Desk.modules.config(id)`
@@ -70,6 +73,8 @@ Default-Export von `src/modules/<id>/index.js` bzw. `src/apps/<id>/index.js`:
   `beforeClose` (Liste: `HOOKS` in `src/core/modules.js`)
 
 Neue Config-Keys → `DEFAULTS` in `src/core/config.js` **und** kommentiert in `site/config.js`.
+Neue/geänderte statische Imports, `styles`/`i18n` eines Deskriptors oder ein neues Modul → `npm run preload`
+(erzeugt `src/boot/preload.js`, committed; CI prüft es).
 
 ## Regeln für Änderungen
 
@@ -110,10 +115,12 @@ Neue Config-Keys → `DEFAULTS` in `src/core/config.js` **und** kommentiert in `
 npm test                           # node --test "tests/*.test.mjs"
 npm run i18n:check                 # alle Sprachen gegen en
 npm run icons:check                # src/icons/tabler.js aktuell
+npm run preload:check              # src/boot/preload.js aktuell
 node tools/validate-manifest.mjs   # site/apps.js gegen site/config.js (= npm run validate)
 ```
 
-CI (`.github/workflows/ci.yml`) führt genau diese vier nach `npm ci` auf Node 22 aus.
+CI (`.github/workflows/ci.yml`) führt genau diese fünf nach `npm ci --ignore-scripts` und
+`npm audit signatures` auf Node 24 aus.
 
 **Browser-Check** (headless Chromium, Produktions-Header, scheitert an Console-/Page-Errors,
 CSP-Verletzungen, fehlgeschlagenen Requests) — **immer serialisiert über `flock`**, nie mehrere parallel

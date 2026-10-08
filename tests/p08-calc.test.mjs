@@ -2,6 +2,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as history from '../src/apps/calc/history.js';
 import { compute, canonical, formatNum, formatExpr, cleanCalc, createCalc, isOp, keepLast, HISTORY, MAX_DIGITS } from '../src/apps/calc/engine.js';
 
 /* Presses a sequence of keys: '12+3*4=' (digits, operators, '='); words for the rest */
@@ -160,4 +162,19 @@ test('keepLast: the newest n, none for n = 0', () => {
 	assert.deepEqual(keepLast([1, 2, 3], 2), [2, 3]);
 	assert.deepEqual(keepLast([1, 2, 3], 5), [1, 2, 3]);
 	assert.deepEqual(keepLast([1, 2, 3], 0), []);
+});
+
+test('the window code is loaded on demand: the descriptor imports neither window.js nor engine.js', () => {
+	const src = f => readFileSync(new URL(`../src/apps/calc/${f}`, import.meta.url), 'utf8');
+	const index = src('index.js');
+	assert.doesNotMatch(index, /^\s*import[^(]*['"]\.\/(window|engine)\.js['"]/m);
+	assert.match(index, /load: \(\) => import\('\.\/window\.js'\)/);
+	assert.match(index, /windowStyles: \['calc\.css'\]/);
+	assert.doesNotMatch(index, /\bstyles: \[/, 'every rule of calc.css is inside the window');
+	assert.doesNotMatch(src('history.js'), /^\s*import\b/m, 'history.js stays small and on its own');
+	assert.match(src('window.js'), /^export default \{\n\tmount,/m);
+	/* engine.js re-exports the history checks the descriptor uses */
+	assert.equal(cleanCalc, history.cleanCalc);
+	assert.equal(keepLast, history.keepLast);
+	assert.equal(HISTORY, history.HISTORY);
 });

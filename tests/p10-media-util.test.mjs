@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EXTENSIONS, EXT, ACCEPT, MEDIA_TYPES, kindOf, extOf, stem, formatName, types } from '../src/apps/media/types.js';
 import { clock, ratioParts, bitRate, nextIndex, nextOff, repeatAfter, cleanMediaConfig, typeFor, mediaBlob, MEDIA_DEFAULTS } from '../src/apps/media/util.js';
+import { readFileSync } from 'node:fs';
+import media from '../src/apps/media/index.js';
 
 test('kindOf: MIME type first, then the extension', () => {
 	assert.equal(kindOf({ name: 'a.mp3', type: 'audio/mpeg' }), 'audio');
@@ -127,4 +129,57 @@ test('mediaBlob: never a document type in a player blob URL', () => {
 	assert.equal(mediaBlob(file('<svg/>', 'song.mp3', 'text/html'), 'audio').type, 'audio/mpeg');
 	assert.equal(mediaBlob(file('<svg/>', 'evil.svg', 'image/svg+xml'), 'audio').type, 'application/octet-stream');
 	assert.equal(mediaBlob(file('x', 'a.mp4', 'video/mp4; codecs=avc1'), 'video').type, 'video/mp4', 'parameters are not passed on');
+});
+
+test('descriptor: the player window loads on demand (no static import of player.js or tags.js), the guards are direct', async () => {
+	const src = readFileSync(new URL('../src/apps/media/index.js', import.meta.url), 'utf8');
+	assert.doesNotMatch(src, /^\s*(import|export)\b[^;]*from\s*['"]\.\/(player|tags)\.js['"]/m);
+	assert.deepEqual(media.windowStyles, ['media.css']);
+	assert.equal(media.styles, undefined, 'every rule of media.css is inside the player window');
+	for (const app of media.apps) {
+		assert.equal(typeof app.load, 'function', app.id);
+		assert.match(String(app.load), /import\('\.\/player\.js'\)/, 'a literal import (service worker, preload)');
+		assert.equal(app.mount, undefined, `${app.id}: mount comes with load()`);
+		assert.equal(app.canPopOut(), false, `${app.id}: never "Open in new tab"`);
+		assert.equal(app.canLink({ state: {} }), true, 'an empty player may be linked');
+		assert.equal(app.canLink({ state: { media: { snapshot: () => ({ count: 1 }) } } }), false, 'not with files from the device');
+	}
+});
+
+test('service media: add() and open() wait for the window (win.ready) and resolve with the files added', async () => {
+	let svc = null;
+	const opened = [];
+	const wins = {};
+	const fakeWin = kind => {
+		let done;
+		const got = [];
+		const win = { state: {}, ready: new Promise(r => { done = r; }), got };
+		win.build = (ok = true) => {
+			if (ok) win.state.media = { add: list => (got.push(...list), list.length) };
+			done(ok);
+		};
+		return (wins[kind] = win);
+	};
+	media.setup({
+		provide: (id, s) => { svc = s; },
+		wm: { open: kind => (opened.push(kind), wins[kind] ?? fakeWin(kind)) }
+	});
+	const f = (name, type = '') => ({ name, type });
+	const p = svc.open([f('a.mp3', 'audio/mpeg'), f('b.mp4'), f('c.flac'), f('x.txt', 'text/plain')]);
+	assert.ok(p instanceof Promise);
+	assert.deepEqual(opened, ['audio', 'video'], 'both players open at once, audio first');
+	wins.video.build();
+	wins.audio.build();
+	assert.equal(await p, 3);
+	assert.deepEqual(wins.audio.got.map(x => x.name), ['a.mp3', 'c.flac']);
+	assert.deepEqual(wins.video.got.map(x => x.name), ['b.mp4']);
+	assert.equal(await svc.add('audio', [f('d.ogg')]), 1, 'an open player takes files at once');
+	assert.equal(await svc.add('nope', [f('d.ogg')]), 0);
+	assert.equal(await svc.add('audio', []), 0);
+	assert.equal(await svc.open(null), 0);
+	delete wins.video;
+	const failed = svc.add('video', [f('e.webm')]);
+	wins.video.build(false);
+	assert.equal(await failed, 0, 'a window that could not be built takes nothing');
+	assert.equal(await media.files.audio.open([f('g.mp3')]), 1, 'the drop handler goes through open()');
 });

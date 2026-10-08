@@ -77,11 +77,16 @@ test('device pictures: an SVG never gets a blob: URL (data: instead), raster typ
 	assert.equal(deviceSource('text/html', 'a.html'), 'blob', 'octet-stream blob — never a document type');
 });
 
-/* The window kinds' hooks, without a browser: the descriptor's setup hands them to a stub desk */
+/* The window kinds' hooks, without a browser: the descriptor's setup hands them to a stub desk;
+   their window code (kind.js) is loaded as the WM does — the hooks given directly win */
 async function viewerKind() {
 	const kinds = {};
 	const { default: viewer } = await import('../src/modules/viewer/index.js');
-	viewer.setup({ wm: { defineKind: (k, def) => { kinds[k] = def; } }, provide: () => {} });
+	viewer.setup({ wm: { defineKind: (k, def) => { kinds[k] = def; } }, provide: () => {}, on: () => () => {} });
+	for (const [k, { load, ...own }] of Object.entries(kinds)) {
+		assert.equal(typeof load, 'function', `kind '${k}' loads its window code`);
+		kinds[k] = { ...(await load()).default, ...own };
+	}
 	return kinds;
 }
 const winWith = current => ({ state: { viewer: { current } } });

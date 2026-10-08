@@ -2,6 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mod, newId, isId } from '../src/apps/kit.js';
 import {
 	cleanDraft, cleanDoc, draftChars, countLines, countWords, countChars, lineCol, escapeRe, pattern, findMatches,
@@ -115,6 +116,16 @@ test('editor: invisible characters are classified by group', () => {
 	assert.match(WS_RE.source, /^[\x20-\x7e]+$/);
 });
 
+test('editor: the window code is loaded on demand — the descriptor never imports window.js statically', () => {
+	const src = f => readFileSync(new URL(`../src/apps/editor/${f}`, import.meta.url), 'utf8');
+	const index = src('index.js');
+	assert.doesNotMatch(index, /^\s*import[^(]*['"]\.\/window\.js['"]/m);
+	assert.match(index, /load: \(\) => import\('\.\/window\.js'\)/);
+	assert.match(index, /windowStyles: \['editor\.css'\]/);
+	assert.doesNotMatch(index, /\bstyles: \[/, 'every rule of editor.css is inside the window');
+	assert.match(src('window.js'), /^export default \{\n\tmount,/m);
+});
+
 /* ---------- Notes ---------- */
 
 test('notes: cleanNotes validates notes and the current id', () => {
@@ -204,4 +215,15 @@ test('todo: filters, counts, moving, reordering, restoring', () => {
 	assert.equal(r.items.length, 4);
 	assert.notEqual(r.items[3].id, 'a');
 	assert.equal(restoreItem({ items, filter: 'all' }, { id: 'q', text: 'x' }), null);
+});
+
+test('todo: the window code is loaded on demand — the descriptor never imports window.js statically', () => {
+	const src = f => readFileSync(new URL(`../src/apps/todo/${f}`, import.meta.url), 'utf8');
+	const index = src('index.js');
+	assert.doesNotMatch(index, /^\s*import[^(]*['"]\.\/window\.js['"]/m);
+	assert.match(index, /load: \(\) => import\('\.\/window\.js'\)/);
+	assert.match(index, /windowStyles: \['todo\.css'\]/);
+	assert.doesNotMatch(index, /\bstyles: \[/, 'every rule of todo.css is inside the window');
+	assert.doesNotMatch(index, /\blet live\b/, 'the trash reaches the window through wm.get()');
+	assert.match(src('window.js'), /^export default \{\n\tmount,/m);
 });
