@@ -6,6 +6,15 @@
 	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
 	"items": [
 		{
+			"id": "jpkcom-desktop-1.1.0",
+			"url": "../content/en/changelog.html?release=1.1.0",
+			"title": "JPKCom Desktop 1.1.0 released",
+			"summary": "A faster start: windows load their code when they first open, and a repeat visit starts from the offline copy. Plus a house theme, apps with their own texts and a live demo.",
+			"content_text": "JPKCom Desktop 1.1.0 starts faster and brings more for site owners. See the changelog for the details.",
+			"date_published": "2026-10-08T12:00:00+02:00",
+			"tags": ["release"]
+		},
+		{
 			"id": "jpkcom-desktop-1.0.0",
 			"url": "../content/en/changelog.html?release=1.0.0",
 			"title": "JPKCom Desktop 1.0.0 released",

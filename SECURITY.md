@@ -28,7 +28,8 @@ reasonable time to release a fix before you publish details.
 
 | Version | Supported |
 |---|---|
-| 1.0.x | yes |
+| 1.1.x | yes |
+| 1.0.x | no — please update to 1.1 |
 | < 1.0 | no (never released) |
 
 Only the latest release of the latest minor version receives security fixes.

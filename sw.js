@@ -62,7 +62,7 @@
 'use strict';
 
 /* Keep equal to package.json "version" and VERSION in src/core/env.js (tests/p12-sw.test.mjs checks it) */
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /* Defaults for what this worker reads from the config — mirror src/core/config.js DEFAULTS
    (tests/p12-sw.test.mjs checks that they match) */

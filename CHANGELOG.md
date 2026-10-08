@@ -10,6 +10,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-08
+
+Faster start, a house theme for site owners, site apps with their own texts, a live demo and a
+hardened supply chain. Updating a site: see the upgrade notes below.
+
+### Upgrade notes
+
+- `index.html` gained two lines: `<link rel="stylesheet" href="site/theme.css">` after the core CSS and
+  `<script src="src/boot/preload.js"></script>` right after `site/config.js` — copy both into an adapted
+  `index.html`, and copy `site/theme.css` into your `site/` (an empty file is fine).
+- Your own modules and site apps: run `npm run preload` after adding or changing one (faster start; a
+  stale file only costs speed). Code that calls `Desk.media.open()`/`add()` gets a `Promise<number>` now
+  instead of a number.
+- Visitors with the service worker get updates one reload later: the desktop offers the reload
+  (`config.offline.fastStart: false` for the old behaviour).
+- Development tools need Node.js 24 or newer; install them with `npm ci` (`sfw npm ci` recommended) and
+  the headless browser with `npm run browsers`.
+
 ### Changed
 
 - **Faster start: window code on demand** — an app definition can name its window code with
@@ -109,5 +127,6 @@ Initial open-source release under the MIT License.
   builder and check, i18n check, site manifest validator, vault sealing tool, PWA icon renderer,
   headless browser check, and a `node --test` suite for the pure parts of every package.
 
-[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JPKCom/jpkcom-desktop/releases/tag/v1.0.0

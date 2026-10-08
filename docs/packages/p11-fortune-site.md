@@ -192,9 +192,9 @@ Pages: `about`, `docs/index` (Getting started), `docs/configuration`, `docs/keyb
 - `site/data/fortunes/{en,de}.json`: 44 original sayings each (desktop tips, keyboard shortcuts, web
   development, accessibility, a few light jokes), signature JPKCom, some with "Learn more" links into the
   docs or the contrast demo.
-- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.0.0 released",
-  "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
-  (`changelog.html?release=1.0.0`), because the notify module de-duplicates by path + query.
+- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.1.0 released",
+  "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
+  (`changelog.html?release=1.1.0`), because the notify module de-duplicates by path + query.
 - `site/wallpapers/README.md`: how to add picture wallpapers (`config.wallpaper.images`); none shipped.
 
 ---

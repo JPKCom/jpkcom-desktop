@@ -6,7 +6,7 @@
    access is guarded. */
 
 /** Project version (semantic versioning). Shown in About, the terminal and backups. */
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 /** Project name and author — the attribution that stays in every fork. */
 export const PROJECT = Object.freeze({

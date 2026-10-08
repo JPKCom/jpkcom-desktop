@@ -554,7 +554,7 @@ Loader behaviour:
 `import Desk from 'src/core/api.js'` (frozen) — also `window.JPKDesk`.
 
 ```ts
-Desk.version: string                          // '1.0.0'
+Desk.version: string                          // '1.1.0'
 Desk.project: { name, author, url, repo, license }
 Desk.config                                   // deep-frozen effective config
 
