@@ -14,6 +14,9 @@ export default {
 	more: { one: 'And {n} more new article', other: 'And {n} more new articles' },
 	newCount: { one: '{n} new article', other: '{n} new articles' },
 
+	/* A banner's meta line with config.notify.label: {site} the label, {app} the app's name */
+	meta: '{site} · {app}',
+
 	/* Storage label (backup, reset) */
 	seenLabel: 'Articles already announced'
 };

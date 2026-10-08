@@ -10,6 +10,15 @@ export const DEFAULT_RULE = Object.freeze({ content: 'main article, article, mai
 export const DEFAULT_SEPARATOR = '\\s[|—–]\\s';
 export const DEFAULT_CACHE = 24;
 export const MAX_CACHE = 200;
+/* Code colours (config.reader.styleScope / styleVars; the allowlist itself is styles.js, which only the
+   window code imports — kept here so the descriptor's boot graph does not pull it in) */
+export const DEFAULT_SCOPE = 'pre, code';
+/** config.reader.styleVars: '--' + lower-case words joined by '-', ending in '-' (e.g. '--shiki-') */
+export const VARS_PREFIX = /^--[a-z0-9]+(?:-[a-z0-9]+)*-$/;
+export const MAX_VARS_PREFIX = 32;
+/** First words of the desktop tokens reader.css reads: a styleVars prefix may not start with one,
+    or a page could set --reader-link, --text … on its own elements */
+export const RESERVED_VARS = Object.freeze(['accent', 'focus', 'font', 'highlight', 'ink', 'line', 'radius', 'reader', 'scroll', 'text', 'win']);
 
 /**
  * The text of a response body within a deadline and a size limit. net.request() hands the
@@ -108,7 +117,8 @@ export function firstMatch(root, list) {
 }
 
 /**
- * Cleans config.reader (descriptor validateConfig). warn(msg) reports what was
+ * Cleans config.reader (descriptor validateConfig): rules, titleSeparator, cacheSize and the
+ * code colours keepStyles, styleScope, styleVars. warn(msg) reports what was
  * replaced. checkSelector(sel) → boolean (optional; the browser passes one).
  */
 export function validateReaderConfig(section, warn = () => {}, checkSelector = null) {
@@ -123,6 +133,14 @@ export function validateReaderConfig(section, warn = () => {}, checkSelector = n
 				return false;
 			}
 		});
+	};
+	const okList = sel => {
+		if (!checkSelector) return true;
+		try {
+			return checkSelector(sel) !== false;
+		} catch {
+			return false;
+		}
 	};
 	const rules = [];
 	for (const [i, r] of (Array.isArray(src.rules) ? src.rules : []).entries()) {
@@ -167,7 +185,30 @@ export function validateReaderConfig(section, warn = () => {}, checkSelector = n
 		if (Number.isInteger(src.cacheSize) && src.cacheSize >= 0 && src.cacheSize <= MAX_CACHE) cacheSize = src.cacheSize;
 		else warn(`cacheSize must be an integer 0–${MAX_CACHE} — ${DEFAULT_CACHE} used`);
 	}
-	return { rules, titleSeparator, cacheSize };
+
+	/* Code colours (styles.js): on by default, a selector scope, an optional custom-property prefix */
+	let keepStyles = true;
+	if (src.keepStyles != null) {
+		if (typeof src.keepStyles === 'boolean') keepStyles = src.keepStyles;
+		else warn('keepStyles must be true or false — true used');
+	}
+	let styleScope = DEFAULT_SCOPE;
+	if (src.styleScope != null) {
+		/* Used whole (el.closest(list)), so every part must be valid — not just one as for rules */
+		const sel = nonEmpty(src.styleScope);
+		if (sel && okList(sel)) styleScope = sel;
+		else warn(`styleScope: not a valid selector — '${DEFAULT_SCOPE}' used`);
+	}
+	let styleVars = null;
+	if (src.styleVars != null) {
+		if (typeof src.styleVars === 'string' && src.styleVars.length <= MAX_VARS_PREFIX && VARS_PREFIX.test(src.styleVars)) {
+			if (RESERVED_VARS.includes(src.styleVars.slice(2).split('-')[0])) warn(`styleVars: '${src.styleVars}' would let a page set the desktop's own tokens — none used`);
+			else styleVars = src.styleVars;
+		} else {
+			warn(`styleVars must be null or a prefix like '--shiki-' ('--', lower-case letters, digits and hyphens, ending in '-', max ${MAX_VARS_PREFIX}) — none used`);
+		}
+	}
+	return { rules, titleSeparator, cacheSize, keepStyles, styleScope, styleVars };
 }
 
 /**

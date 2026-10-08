@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createI18n, splitKey, addSource } from '../src/core/i18n.js';
+import { createI18n, splitKey, addSource, matchLanguage } from '../src/core/i18n.js';
 import { createRegistry } from '../src/core/registry.js';
 
 const DICTS = {
@@ -24,7 +24,9 @@ const METAS = {
 	pt: { name: 'Português', intl: 'pt-PT', dir: 'ltr' },
 	'pt-BR': { name: 'Português (Brasil)', intl: 'pt-BR', dir: 'ltr' },
 	fr: { name: 'Français', intl: 'fr-FR', dir: 'ltr', yes: '^(o|oui|y|yes)$' },
-	ar: { name: 'العربية', intl: 'ar', dir: 'rtl' }
+	ar: { name: 'العربية', intl: 'ar', dir: 'rtl' },
+	/* a private-use code (RFC 5646 qaa–qtz): an offered language the runtime has no Intl data for */
+	qaa: { name: 'Qaaish', intl: 'qaa', dir: 'ltr' }
 };
 
 async function make({ languages = ['de', 'en'], defaultLang = 'en', lang } = {}) {
@@ -136,6 +138,39 @@ test('detect(): query → stored → browser exact → browser base → default'
 	assert.equal(i18n.detect({ preferred: ['pt-PT'] }), 'pt-BR');
 	assert.equal(i18n.detect({ preferred: ['PT-br'] }), 'pt-BR');
 	assert.equal(i18n.detect({ preferred: ['ja'] }), 'en');
+	assert.equal(i18n.detect({ query: 'DE' }), 'de', 'query: any case, the offered spelling');
+	assert.equal(i18n.detect({ stored: 'xx', preferred: ['pt-br'] }), 'pt-BR');
+	assert.equal(i18n.detect({ preferred: 'de' }), 'en', 'not a list: ignored');
+	const solo = await make({ languages: ['fr', 'de'], defaultLang: 'en' });
+	assert.equal(solo.i18n.detect({ preferred: ['ja'] }), 'fr', 'defaultLang not offered: the first offered language');
+});
+
+test('detect(): one preferred language after the other, base language before the next one (RFC 4647 lookup)', async () => {
+	const { i18n } = await make({ languages: ['de', 'en'] });
+	assert.equal(i18n.detect({ preferred: ['de-AT', 'en'] }), 'de', 'de-AT → de before the exact en');
+	assert.equal(i18n.detect({ preferred: ['de-AT', 'en-US'] }), 'de');
+	assert.equal(i18n.detect({ preferred: ['en-GB', 'de'] }), 'en');
+	assert.equal(i18n.detect({ preferred: ['fr-CA', 'fr', 'de-CH', 'en'] }), 'de', 'unoffered entries are skipped');
+	const pt = await make({ languages: ['en', 'pt-BR'] });
+	assert.equal(pt.i18n.detect({ preferred: ['pt-PT', 'en'] }), 'pt-BR', 'same base, other region before the next entry');
+});
+
+test('matchLanguage(): exact → truncated → same base, per entry; offered spelling; null when nothing fits', () => {
+	const offer = ['en', 'de', 'de-CH', 'zh-Hant', 'pt-BR'];
+	assert.equal(matchLanguage(offer, ['de-CH']), 'de-CH');
+	assert.equal(matchLanguage(offer, ['de-ch-1996']), 'de-CH', 'truncated subtag by subtag');
+	assert.equal(matchLanguage(offer, ['de-AT']), 'de');
+	assert.equal(matchLanguage(offer, ['zh-hant-TW']), 'zh-Hant');
+	assert.equal(matchLanguage(offer, ['de-x-private']), 'de', 'a trailing singleton goes with its subtag');
+	assert.equal(matchLanguage(offer, ['de-DE-u-co-phonebk']), 'de');
+	assert.equal(matchLanguage(offer, ['pt']), 'pt-BR');
+	assert.equal(matchLanguage(offer, ['ja', 'PT-pt', 'en']), 'pt-BR');
+	assert.equal(matchLanguage(offer, ['ja', 'ko']), null);
+	assert.equal(matchLanguage(offer, []), null);
+	assert.equal(matchLanguage(offer, [null, 42, '', '*', 'en']), 'en', 'junk entries are skipped');
+	assert.equal(matchLanguage(offer, undefined), null);
+	assert.equal(matchLanguage(null, ['en']), null);
+	assert.equal(matchLanguage(['de-AT'], ['de-DE']), 'de-AT', 'no plain de offered: the region of the same base');
 });
 
 test('setLang(): loads namespaces in use, reports the change, rejects unknown codes', async () => {
@@ -157,6 +192,44 @@ test('meta, locale(), dir(), isYes(), displayName()', async () => {
 	assert.equal(i18n.isYes('nein'), false);
 	assert.equal(i18n.displayName('de'), 'Deutsch');
 	assert.deepEqual(i18n.available(), ['de', 'en', 'ar']);
+});
+
+test('displayName(code, inLang): the endonym by default, the name in inLang otherwise', async () => {
+	const { i18n } = await make({ languages: ['de', 'en', 'fr', 'pt-BR'], lang: 'de' });
+	assert.equal(i18n.displayName('de'), 'Deutsch', 'default: the endonym from meta.name');
+	assert.equal(i18n.displayName('en', 'en'), 'English');
+	assert.equal(i18n.displayName('en', 'de'), 'Englisch', 'not the endonym in a German sentence');
+	assert.equal(i18n.displayName('de', 'en'), 'German');
+	assert.equal(i18n.displayName('fr', 'de'), 'Französisch');
+	assert.equal(i18n.displayName('pt-BR', 'en'), 'Brazilian Portuguese');
+	assert.equal(i18n.displayName('pt-BR'), 'Português (Brasil)');
+	assert.equal(i18n.displayName('ja', 'de'), 'Japanisch', 'a language without a locale');
+	assert.equal(i18n.displayName('ja'), '日本語', 'no meta: the endonym from Intl');
+	assert.equal(i18n.displayName('qq-zz', 'de'), 'qq-zz', 'unknown everywhere: the code');
+	assert.equal(i18n.displayName('not a code', 'de'), 'not a code', 'invalid: the code, no throw');
+	/* a site's own spelling of its language stays the endonym; another language names it through Intl */
+	const site = await make({ languages: ['de', 'en'], lang: 'en' });
+	assert.equal(site.i18n.displayName('de', 'en'), 'German');
+});
+
+test('displayName(code, inLang): no Intl data for inLang → the endonym, never the runtime default language', async () => {
+	const { i18n } = await make({ languages: ['de', 'en', 'qaa'], lang: 'qaa' });
+	assert.deepEqual(Intl.DisplayNames.supportedLocalesOf(['qaa']), [], 'fixture: no Intl data for qaa');
+	assert.equal(i18n.displayName('de', 'qaa'), 'Deutsch', 'not the name in the runtime default (German)');
+	assert.equal(i18n.displayName('en', 'qaa'), 'English');
+	assert.equal(i18n.displayName('qaa', 'de'), 'Qaaish', 'no Intl name for the code: the endonym');
+	assert.equal(i18n.displayName('qaa'), 'Qaaish');
+	assert.equal(i18n.displayName('ja', 'qaa'), 'ja', 'neither Intl data nor an endonym: the code');
+	/* the same for a real language whose data a browser leaves out (Intl negotiates down to its UI language) */
+	const orig = Intl.DisplayNames.supportedLocalesOf;
+	Intl.DisplayNames.supportedLocalesOf = () => [];
+	try {
+		assert.equal(i18n.displayName('en', 'de'), 'English');
+		assert.equal(i18n.displayName('de', 'en'), 'Deutsch');
+	} finally {
+		Intl.DisplayNames.supportedLocalesOf = orig;
+	}
+	assert.equal(i18n.displayName('en', 'de'), 'Englisch');
 });
 
 test('formatters use the language tag', async () => {

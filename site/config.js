@@ -147,6 +147,15 @@ window.DESKTOP_CONFIG = {
 	   Example: iconSets: ['site/icon-sets/duotone.json'] */
 	iconSets: [],
 
+	/* The desktop's own glyphs (menu bar, window controls, settings, weather …) drawn with icons of your set,
+	   for one icon style throughout: { '<desktop icon id>': '<icon id>' }. Keys: ti-…, tif-…, wc-…, tile-…
+	   (find them in src/ or as <symbol id="i-…"> in the page; the author's monogram jpk is not replaceable);
+	   values: icons of your sets (or another Tabler id). One step, applied before the modules start; a key or
+	   target the browser does not know is warned about and the original glyph stays — so the replaced Tabler
+	   icons remain in src/icons/tabler.js as the fallback (npm run icons keeps them). npm run validate checks it.
+	   Example: iconReplace: { 'ti-settings': 'acme-cog', 'ti-sun': 'acme-sun', 'wc-close': 'acme-xmark' } */
+	iconReplace: {},
+
 	/* ---------- Wallpaper ---------- */
 	wallpaper: {
 		/* Until the user picks one: { type: 'gradient', from, to, dir } | { type: 'color', color }
@@ -250,17 +259,28 @@ window.DESKTOP_CONFIG = {
 	   path, written as a string starting with '^'.
 	   content: a selector list tried in order; a title outside the content becomes the heading above the
 	   page, a lead outside goes under that heading; a lead inside is marked .reader-lead. Invalid
-	   selectors and regular expressions are reported and skipped. */
+	   selectors and regular expressions are reported and skipped.
+	   Code colours (e.g. syntax highlighting written as style="color:#…"): the page's style text is never
+	   applied; inside styleScope only color, background-color, font-style, font-weight and
+	   text-decoration-line survive, with plain colours (hex, rgb(), hsl(), named) or fixed keywords, set by
+	   the Reader itself — and only where text and background keep a 2:1 contrast. */
 	reader: {
 		rules: [{ match: 'site/content/', content: 'main article, article, main', title: 'h1', lead: '.lead' }],
 		titleSeparator: '\\s[|—–]\\s', // splits "Page | Site" titles
-		cacheSize: 24                  // pages kept in memory (one cache shared by all Reader windows; 0 = none, max 200)
+		cacheSize: 24,                 // pages kept in memory (one cache shared by all Reader windows; 0 = none, max 200)
+		keepStyles: true,              // false = drop every inline style of a page
+		styleScope: 'pre, code',       // selector list (the page's own markup): matching elements and everything inside keep them
+		styleVars: null                // custom-property prefix kept as well (plain colours only), e.g. '--shiki-' for a dual theme;
+		                               // never one of the desktop's own (--reader-, --text-, --accent- …: refused)
 	},
 
 	/* Search (Mod+K, '/', the magnifier in the menu bar).
 	   pagefind: null, or the full-text index of the site's pages { path: 'pagefind/pagefind.js' (same origin,
 	     relative to the root or /…), excerptLength: 16, maxHits: 8, label: { en, de } (default "Full-text
-	     search"), order: 900 } — needs 'wasm-unsafe-eval' in the CSP (npm run serve -- --wasm).
+	     search"), order: 900 } — needs 'wasm-unsafe-eval' in script-src of the desktop's policy (Pagefind
+	     falls back to the page when its worker fails or starts too slowly) and of the one your server
+	     sends with <bundle>/pagefind-worker.js (the shipped server configurations send the desktop's
+	     policy with every file) — docs/deploy.md §6 (npm run serve -- --wasm).
 	   maxPerGroup: rows per group (1–50).
 	   shortcut: a key combination such as 'Mod+K' (Mod = ⌘ or Ctrl), null = none; a search module's own
 	     shortcut with the id 'search' replaces the built-in one. */
@@ -272,7 +292,11 @@ window.DESKTOP_CONFIG = {
 		app: 'changelog',              // page app that opens feed items (the example feed is the project changelog); null = the router decides (default 'about')
 		hideMs: 9000,                  // banners hide after (ms)
 		maxBanners: 3,
-		pathPrefix: null               // only feed items whose URL starts with this path (relative to the desktop's folder, e.g. 'site/content/'), null = all
+		pathPrefix: null,              // only feed items whose URL starts with this path (relative to the desktop's folder, e.g. 'site/content/'), null = all
+		/* Banners show the tile and name of the app the article opens in (app above, else the app the router
+		   picks — e.g. the page app with the longest URL prefix). label: a text or { en: '…', de: '…' }
+		   (at most 60 characters) shown before that name: "<label> · <app name>"; null = the app name only */
+		label: null
 	},
 
 	/* Public holidays in the calendar: a region id from src/modules/holidays/regions/ (e.g. 'de-by'), null = none */
@@ -308,8 +332,12 @@ window.DESKTOP_CONFIG = {
 	   local: false = no local sayings at all, only the online source (needs remote; dir and langs
 	     are then unused).
 	   block: category ids that are never shown, locally or online, e.g. ['spooky']
-	   texts: replaces texts that name the app, e.g. after renaming it in site/apps.js:
-	     { next: { en: 'Next fact', de: 'Nächster Fakt' } } — keys in docs/packages/p11-fortune-site.md */
+	   texts: replaces texts that name or describe the app or its source (buttons, states, the consent
+	     question, key hint, error, "Learn more", the consent row, the Backup/Reset label), e.g. after
+	     renaming it in site/apps.js: { next: { en: 'Next fact', de: 'Nächster Fakt' } }. Some take
+	     placeholders the app fills: askText {provider} {host}, askLang {language},
+	     keys {space} {back} {next}, error {host}. A replaced askText must still name who receives the
+	     request ({host} or the host written out) — keys in docs/packages/p11-fortune-site.md */
 	fortune: { remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} },
 
 	/* Audio and video players: maxItems = longest playlist (1–1000), seekStep = seconds the ←/→ keys

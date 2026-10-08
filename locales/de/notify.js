@@ -9,5 +9,7 @@ export default {
 	more: { one: 'Und {n} weiterer neuer Artikel', other: 'Und {n} weitere neue Artikel' },
 	newCount: { one: '{n} neuer Artikel', other: '{n} neue Artikel' },
 
+	meta: '{site} · {app}',
+
 	seenLabel: 'Bereits angekündigte Artikel'
 };

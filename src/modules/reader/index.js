@@ -19,8 +19,9 @@
 import Desk from '../../core/api.js';
 import { validateReaderConfig, compileRules, createLru, DEFAULT_SEPARATOR, DEFAULT_CACHE } from './util.js';
 
-/* The configuration the window code (kind.js) reads: compiled rules, title separator, page cache */
-export const shared = { rules: [], separator: DEFAULT_SEPARATOR, cache: createLru(DEFAULT_CACHE) };
+/* The configuration the window code (kind.js) reads: compiled rules, title separator, page cache,
+   code colours ({ scope, vars } or null) */
+export const shared = { rules: [], separator: DEFAULT_SEPARATOR, cache: createLru(DEFAULT_CACHE), styles: null };
 
 export const root = () => Desk.env.root;
 export const resolve = (raw, base) => Desk.router.resolveUrl(raw, base);
@@ -73,6 +74,7 @@ export default {
 		shared.rules = compileRules(cfg.rules, desk.env.root);
 		shared.separator = cfg.titleSeparator;
 		shared.cache = createLru(cfg.cacheSize);
+		shared.styles = cfg.keepStyles ? Object.freeze({ scope: cfg.styleScope, vars: cfg.styleVars }) : null;
 		desk.wm.defineKind('page', pageKind);
 		desk.provide('reader', Object.freeze({ open }));
 	}

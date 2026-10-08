@@ -7,6 +7,8 @@
    content, not aria-label: two visually hidden spans, the second one with
    lang (and dir) of the target language — an aria-label is one string without
    a language, screen readers would speak the action with the wrong voice.
+   Until the target language's phrase is loaded, the action is the current
+   language's phrase, naming the target in the current language.
    Three or more: a menu with every language under its own name
    (i18n.displayName) as radio items. One language: no button at all.
    The switch itself is i18n.setLang(): every part relabels itself on the
@@ -79,7 +81,9 @@ function relabel() {
 		/* The action in the target language: someone who cannot read this one still finds it */
 		const name = i18n.displayName(next, next);
 		const label = t('shell.langToggle', { current });
-		const action = switchLabel(phraseIn(next), name, t('shell.langSwitchTo', { name }));
+		/* Until that phrase is loaded: the current language's phrase, the language named in it the
+		   way running text names it (displayName(next, cur)), so no unmarked foreign word sits in it */
+		const action = switchLabel(phraseIn(next), name, t('shell.langSwitchTo', { name: i18n.displayName(next, cur) }));
 		/* The phrase is only in the target language once its locale file is loaded */
 		const own = phrases.get(next) ? labelLang(next, { dirOf: c => i18n.dir(c), pageDir: document.documentElement.dir }) : { lang: null, dir: null };
 		code.setAttribute('aria-hidden', 'true');

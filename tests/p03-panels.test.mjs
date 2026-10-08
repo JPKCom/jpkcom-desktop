@@ -7,7 +7,9 @@ import {
 	luminance, contrast, onAccent, accentRing, gradientCss, cleanWallpaper, wallpaperKey, cleanTrash, trashId, ITEM_ID,
 	dateStamp, mergeById, DIRS, LEGACY_MOTIFS, brightest, wallpaperTone
 } from '../src/panels/pure.js';
-import { copyrightYears, legacyBackup, summarize, groupState, splitAt, nameParts, rowParts } from '../src/panels/pure-window.js';
+import {
+	copyrightYears, legacyBackup, summarize, groupState, splitAt, nameParts, rowParts, sameIds, keptPicks, resetPlan, backupRows
+} from '../src/panels/pure-window.js';
 import { BUILTIN_MOTIFS, checkMotif } from '../src/wallpapers/index.js';
 import { DEFAULTS } from '../src/core/config.js';
 import { ownCaches, cachesToForget, sweepLegacy, scheduleSweep } from '../src/panels/install.js';
@@ -214,6 +216,72 @@ test('reset: the state of a group', () => {
 	assert.deepEqual(groupState([{ stored: true, value: 'x', count: () => '12 characters' }]), { kind: 'text', text: '12 characters' });
 	assert.deepEqual(groupState([{ stored: true, value: 'x', backup: true }, { stored: false }]), { kind: 'custom' });
 	assert.deepEqual(groupState([{ stored: true, value: {}, backup: false }]), { kind: 'stored' });
+});
+
+test('reset: a pick of a group that went hidden is dropped', () => {
+	assert.deepEqual(keptPicks(new Set(['notes', 'secret', 'settings']), ['settings', 'notes', 'session']), ['notes', 'settings']);
+	assert.deepEqual(keptPicks(['secret'], ['settings']), []);
+	assert.deepEqual(keptPicks(new Set(), ['settings']), []);
+	assert.equal(sameIds(['a', 'b'], ['a', 'b']), true);
+	assert.equal(sameIds(['a', 'b'], ['b', 'a']), false, 'order counts');
+	assert.equal(sameIds(['a'], ['a', 'b']), false);
+	assert.equal(sameIds(null, ['a']), false, 'no question asked');
+});
+
+test('reset: the plan does what the question asked — never more, never less', () => {
+	const all = ['settings', 'notes', 'secret', 'session'];
+	/* a part */
+	assert.deepEqual(resetPlan(['settings', 'notes', 'secret', 'session'], new Set(['notes', 'settings']), all, ['settings', 'notes', 'secret', 'session']),
+		{ everything: false, ids: ['settings', 'notes'] }, 'in the order shown');
+	/* everything shown → every registered group, the hidden ones too */
+	assert.deepEqual(resetPlan(['settings', 'notes', 'session'], ['settings', 'notes', 'session'], all, ['settings', 'notes', 'session']),
+		{ everything: true, ids: all });
+	/* the reported case: "Select all", untick 'secret', ask — then 'secret' goes hidden: no escalation */
+	const asked = ['settings', 'notes', 'secret', 'session'];
+	assert.equal(resetPlan(['settings', 'notes', 'session'], ['settings', 'notes', 'session'], all, asked), null,
+		'a partial question never runs as everything');
+	/* and the reverse: everything asked, a group appears unpicked */
+	assert.equal(resetPlan(asked, ['settings', 'notes', 'session'], all, ['settings', 'notes', 'session']), null,
+		'an everything question never runs as a part');
+	assert.equal(resetPlan(['settings'], [], all, ['settings']), null, 'nothing picked');
+	assert.equal(resetPlan(['settings'], ['secret'], all, ['settings']), null, 'only a hidden group picked');
+	assert.equal(resetPlan(['settings'], ['settings'], all, null), null, 'no question asked');
+	assert.deepEqual(resetPlan(['settings', 'offline'], ['settings', 'offline'], ['settings'], ['settings', 'offline']).ids,
+		['settings', 'offline'], 'a shown id is reset even when missing from the full list');
+});
+
+test('backup: rows per group; a hidden group only when the data holds one of its keys', () => {
+	const keys = [
+		{ name: 'lang', label: 'Language', reset: 'settings', backup: true },
+		{ name: 'notes', label: 'Notes', reset: 'notes', backup: true, count: v => v.length },
+		{ name: 'session', label: 'Session', reset: 'session', backup: false },
+		{ name: 'secret-list', label: 'Secret list', reset: 'secret', backup: true },
+		{ name: 'loose', label: 'Loose', backup: true },
+		{ name: 'orphan', label: 'Orphan', reset: 'gone', backup: true }
+	];
+	const groups = [
+		{ id: 'settings', label: 'Settings', shown: true },
+		{ id: 'notes', label: 'Notes', shown: true },
+		{ id: 'secret', label: 'Secret', shown: false },
+		{ id: 'keyless', label: 'Keyless', shown: false },
+		{ id: 'session', label: 'Session', shown: true }
+	];
+	const ids = data => backupRows(groups, keys, data).map(r => r.id);
+	assert.deepEqual(ids({}), ['settings', 'notes', 'key-loose', 'key-orphan'],
+		'no row for the hidden group nor its key on its own; keys without a group (or of an unknown one) stand alone; backup: false is left out');
+	assert.deepEqual(ids({ 'secret-list': [1] }), ['settings', 'notes', 'secret', 'key-loose', 'key-orphan'], 'stored (or in the file): listed');
+	assert.deepEqual(ids({ 'secret-list': null }), ids({}), 'a null value holds nothing');
+	assert.deepEqual(ids(Object.create({ 'secret-list': [1] })), ids({}), 'only own values count');
+	assert.deepEqual(ids(null), ids({}), 'no data');
+	const shown = groups.map(g => ({ ...g, shown: true }));
+	assert.deepEqual(backupRows(shown, keys, {}).map(r => r.id), ['settings', 'notes', 'secret', 'key-loose', 'key-orphan'],
+		'shown: listed as before (a group without backed-up keys has no row)');
+	const row = backupRows(groups, keys, {}, x => `[${x}]`).find(r => r.id === 'notes');
+	assert.equal(row.label, '[Notes]');
+	assert.deepEqual(row.keys.map(k => [k.name, k.label, typeof k.count]), [['notes', '[Notes]', 'function']]);
+	/* feeds summarize() */
+	assert.deepEqual(summarize(backupRows(groups, keys, { notes: [1, 2] }), { notes: [1, 2] }).find(r => r.id === 'notes'),
+		{ id: 'notes', label: 'Notes', kept: false, kind: 'count', n: 2 });
 });
 
 /* ---------- Settings ---------- */

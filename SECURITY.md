@@ -28,9 +28,10 @@ reasonable time to release a fix before you publish details.
 
 | Version | Supported |
 |---|---|
-| 1.2.x | yes |
-| 1.1.x | no — please update to 1.2 |
-| 1.0.x | no — please update to 1.2 |
+| 1.3.x | yes |
+| 1.2.x | no — please update to 1.3 |
+| 1.1.x | no — please update to 1.3 |
+| 1.0.x | no — please update to 1.3 |
 | < 1.0 | no (never released) |
 
 Only the latest release of the latest minor version receives security fixes.
@@ -57,7 +58,8 @@ plus `upgrade-insecure-requests` and HSTS on HTTPS, `X-Content-Type-Options: nos
 `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin` and a
 `Permissions-Policy`. Only three extensions exist, each opt-in: the hosts of online services a site
 switches on (`connect-src`), the origins of framed `web` apps (`frame-src`) and `'wasm-unsafe-eval'`
-for the optional Pagefind search. Nothing else needs a weaker policy.
+for the optional Pagefind search (its worker, and its fallback to the page when the worker fails or
+starts too slowly, see `docs/deploy.md` §6). Nothing else needs a weaker policy.
 
 The code is written so that it works under this policy: no inline script or style, no `style=""`
 attributes, no `eval` or `new Function`, and **no HTML strings** — `innerHTML`, `outerHTML`,
@@ -77,7 +79,23 @@ with `DOMParser` (scripts never run, images never load) and cleaned by an **allo
 - URLs are re-resolved against the page and checked: links `http(s)`, `mailto`, `tel`; media `http(s)`
   (images also `data:image/…`); SVG references only within the page;
 - ids get a per-window prefix and classes a `c-` prefix, so page content cannot collide with or pick up
-  the desktop's own ids and styles.
+  the desktop's own ids and styles;
+- code colours (`reader.keepStyles`, on by default): a page's `style` text is never applied. Inside
+  `reader.styleScope` (default `pre, code`) it is parsed, and only `color`, `background-color`,
+  `font-style`, `font-weight`, `text-decoration-line` and custom properties with the prefix
+  `reader.styleVars` survive, with plain colours or fixed keywords as values — no `url()`, `var()`,
+  `calc()`, image functions, `!important`, escapes, comments or quotes, no layout, position, size or
+  display property. The Reader writes each value itself and sets it through CSSOM on the imported node.
+  A contrast guard (2:1) drops colours that would hide text against their background; inside an
+  element that keeps a page's colours every element inherits the checked text colour (no desktop link
+  or heading colour on a background the page chose), and `reader.styleVars` cannot name a prefix of
+  the desktop's own tokens.
+
+The parser itself comes from a same-origin `about:blank` iframe that is removed before it parses
+(`src/modules/reader/parse.js`): Chromium checks the CSP of the parser's window while parsing and would
+report every `style=""`, `<style>` and `<base>` of a fetched page; a detached window's document is not
+checked. That document is as inert as before — nothing in it runs or loads, and the sanitiser above still
+decides what is imported. Where that parser is unavailable, the window's own `DOMParser` is used.
 
 ### Online services and consent
 

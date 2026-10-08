@@ -24,8 +24,8 @@ other service at the moment of use (`service('wm')?.…`), so it also boots with
 | `lang.js` | language button `#mb-lang` — service `langmenu` |
 | `menubar-fit.js` | `body.mb-tight` and the app-name tooltip |
 | `title-fit.js` | WM decorator: `--title-side`, `.is-folded`, "More actions" |
-| `dock.js`, `dock.css` | the dock — service `dock` |
-| `desktop-icons.js`, `desktop-icons.css` | desktop icons — service `desktop` |
+| `dock.js`, `dock.css` | the dock — service `dock`; `cleanPins(v, max, resolve?)` (pure): a stored pin list → valid ids, each through `resolve` (the dock passes `pinTarget`), no duplicates (first wins), at most `max`; `pinTarget(id, get, canPin?)` (pure): the id a pin stands for — an alias's target, unless the target is itself still an alias (cycle) or cannot be pinned while the alias can |
+| `desktop-icons.js`, `desktop-icons.css` | desktop icons — service `desktop`; `desktopApps(apps)` (pure): the apps with `desktop: true`, never an alias (it inherits its target's flag, ARCHITECTURE §7) |
 | `launcher.js`, `launcher.css` | "All apps" — service `launcher`; `launcherEntries(apps)` (pure): never the launcher, dropped files or collection items — alias items (`item: true`, a bookmark pointing at an app) included; the Catalog apps themselves (kind `collection`, e.g. Bookmarks, Showcase) are listed. About this desktop counts the same set |
 | `shortcuts.js` | shortcut registry — service `shortcuts` |
 | `context-menu.js` | context menus — service `contextmenu` |
@@ -151,7 +151,7 @@ Consumed: `window:open/close/focus/minimize/change`, `apps:change`, `lang:change
 
 | Key | Type | Reset group | Meaning |
 |---|---|---|---|
-| `dock` | json | `dock` (order 30) | own pin list (validated ids, at most `config.dock.max`) |
+| `dock` | json | `dock` (order 30) | own pin list (validated ids, alias ids resolved to their target and written back, at most `config.dock.max`) |
 | `docksize` | text | `settings` | `small` / `medium` / `large` |
 | `magnify` | text | `settings` | `on` / `off` |
 | `icons` | text | `settings` | `shown` / `hidden` |
@@ -166,7 +166,8 @@ Namespace `shell` (`locales/en/shell.js`, `locales/de/shell.js`); also uses `cor
 German `{weekday} {day}. {month}`). The two-language toggle's accessible name ends with the action in
 the TARGET language (`shell.langToggle` "Sprache: {current}.", then the other language's
 `shell.langSwitchTo`, read from its own `locales/<code>/shell.js` along its lookup chain; until loaded,
-the current language's phrase): German UI reads "Sprache: Deutsch. Switch to English", as in the
+the current language's phrase, naming the target in the current language, `displayName(next, lang)`,
+"Auf Englisch umschalten"): German UI reads "Sprache: Deutsch. Switch to English", as in the
 original. The name comes from the button's content — two visually hidden spans, the action's span with
 `lang` (and `dir` when it runs the other way) of the target language — not from `aria-label`, which is
 one string without a language: screen readers would speak the English action with the German voice.
@@ -197,6 +198,8 @@ shell: `dock-small`, `dock-large`, `dock-magnify`, `dock-dragging`, `icons-hidde
 - **Collections** replace the fixed tool/link categories: `{ collection: id }` in a site menu.
 - **Desktop icon columns** use a wrapping flex column (`wrap-reverse`) instead of the
   `direction: rtl` grid trick — the same look, and mirrored correctly in right-to-left languages.
+- **Desktop icons** skip aliases like the default dock pins do (since 1.3): an alias inherits
+  `desktop: true` from its target and showed a second icon.
 - **Dock**: "All apps" and the trash are optional (no crash without them); the trash tile shows the
   app's `iconFull` while `trash.count() > 0`; ids are escaped in selectors; Alt+arrows, drag and the
   "Move left/right" items follow the visual direction in RTL; `config.dock.pins`/`max` added.
@@ -205,6 +208,19 @@ shell: `dock-small`, `dock-large`, `dock-magnify`, `dock-dragging`, `icons-hidde
   transition), so the neighbours and the separator move aside instead of being drawn over. The
   original only scaled the tiles with `transform`, so hover never changed the layout. Off while
   reordering (`dock-dragging`, dock.js measures the items then) and in the compact layout.
+  **Aliases** (ARCHITECTURE §7, since 1.3): a pin of an alias id — in the own list or in
+  `config.dock.pins` — pins the target and shows the target's name and icon. The dock resolves the own
+  list when it loads it (start, reset, backup restore; a list another tab wrote is resolved in memory
+  only, so two tabs never answer each other's writes) and again on `apps:change` (an alias registered
+  later, e.g. by the vault), drops the duplicates that resolving creates (the first one keeps its place)
+  and writes the list back when it changed (`dock:change` is emitted then, outside the start). An id
+  the registry does not know stays as it is. `pinTarget(id, get, canPin)` (pure) is the rule: a visible
+  alias of an app that cannot be pinned stays the alias (as in 1.2), and so does an alias that does not
+  end at an app (a cycle) — a resolved id is never an alias again, so resolving settles in one pass.
+  The dock passes `dockable()` as `canPin` (not hidden, not `nodock`, not the launcher), not
+  `pinnable()`: availability changes while modules define their kinds after the shell's setup, and the
+  first resolution is written back. A visible alias whose target is not registered yet keeps its id.
+  Before 1.3 a stored pin of a hidden alias (an old id kept for old links) vanished.
 - **Launcher** lists `registry.list()` minus collection items and transient apps (the original listed
   the manifest's top-level apps); "Search everywhere" only when a search module is loaded.
 - **Shortcuts** became a registry with key specs, labels (help panel), scopes and contributions;

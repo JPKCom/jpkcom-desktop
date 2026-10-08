@@ -21,7 +21,8 @@
        '/…' outside the desktop), the start page inside it
      - icons: Tabler ids in src/icons/tabler.js (or at least in @tabler/icons → run
        `npm run icons`), custom glyphs from src/icons/custom.js, icons of the site icon
-       sets (config.iconSets); config.brand.glyph the same way (a warning)
+       sets (config.iconSets); config.brand.glyph the same way (a warning); config.iconReplace:
+       every key a known project icon, every target a known icon (errors; not built yet → warning)
      - site icon sets: each file of config.iconSets — exists, below the root and not below
        vault.dir, JSON in format jpkcom-desktop-icons/1, ids, prefixes, definitions against the
        allowlist of src/core/icon-sets.js, size
@@ -49,7 +50,7 @@ import { runInNewContext } from 'node:vm';
 import { UNSAFE_URL_CHARS, MAX_URL, safeUrl, isSafeUrl, isSafeScope } from '../src/core/url.js';
 import { cleanMan, isTextPath, MAN_VARS } from '../src/core/man.js';
 import { expandMan } from '../src/apps/terminal/lib.js';
-import { iconPrefix, safeViewBox, LARGE_SET_BYTES, DEFAULT_VIEWBOX } from '../src/core/icon-sets.js';
+import { iconPrefix, safeViewBox, cleanIconReplace, LARGE_SET_BYTES, DEFAULT_VIEWBOX } from '../src/core/icon-sets.js';
 import { readIconSets } from './icon-set-files.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -340,6 +341,15 @@ export function validateManifest(manifest, ctx) {
 	}
 
 	const isApp = id => ids.has(id);
+	/* The ids from id back to id when following its aliases comes back to it (a → b → a), else null */
+	const aliasCycle = id => {
+		const path = [id];
+		for (let cur = ids.get(id)?.alias; typeof cur === 'string' && path.length < 32; cur = ids.get(cur)?.alias) {
+			path.push(cur);
+			if (cur === id) return path;
+		}
+		return null;
+	};
 	const kindOf = id => {
 		let e = ids.get(id);
 		for (let i = 0; e?.alias && i < 5; i++) e = ids.get(e.alias);
@@ -417,6 +427,7 @@ export function validateManifest(manifest, ctx) {
 			if (typeof raw.alias !== 'string' || !ID.test(raw.alias)) err(where, 'alias must be an app id');
 			else if (!isApp(raw.alias)) err(where, `alias target '${raw.alias}' does not exist`);
 			else if (raw.alias === raw.id) err(where, 'an alias cannot point at itself');
+			else if (aliasCycle(raw.id)) err(where, `the aliases form a cycle (${aliasCycle(raw.id).join(' → ')}): none of them opens an app`);
 			text(where, raw.name);
 		} else {
 			if (typeof raw.kind !== 'string' || !KIND.test(raw.kind)) {
@@ -694,6 +705,39 @@ export function validateManifest(manifest, ctx) {
 			if (r === 'build') warn('config brand.glyph', `icon '${glyph}' is not in src/icons/tabler.js yet — run npm run icons (until then the menu bar shows ti-app-window)`);
 			else if (r !== 'ok') warn('config brand.glyph', `config.brand.glyph '${glyph}' is not a known icon — the menu bar shows ti-app-window`);
 		}
+		/* config.iconReplace (§13): key and target must be known icons. buildConfig reported the shape problems
+		   (config warnings); cleaning again here only keeps a raw config of a caller from being checked as is */
+		const replace = cleanIconReplace(cfg.iconReplace);
+		if (ctx.icon) {
+			const kept = [];
+			for (const [from, to] of Object.entries(replace)) {
+				const where = `config iconReplace['${from}']`;
+				const rf = ctx.icon(from);
+				if (rf === 'build') warn(where, `icon '${from}' is not in src/icons/tabler.js yet — run npm run icons (the browser drops the pair until then)`);
+				else if (rf !== 'ok') {
+					err(where, ICON_ID.test(from) ? `'${from}' does not exist in Tabler Icons — nothing to replace`
+						: `'${from}' is not a known project icon (Tabler subset or custom glyph) — nothing to replace`);
+					continue;
+				}
+				const rt = ctx.icon(to);
+				if (rt === 'build') warn(where, `target '${to}' is not in src/icons/tabler.js yet — run npm run icons (until then '${from}' stays)`);
+				else if (rt === 'set') {
+					const p = iconPrefix(to);
+					err(where, `target '${to}' is not in the site icon set(s) with prefix '${p}' (${(prefixes.get(p) ?? []).join(', ')}) — '${from}' would stay`);
+					continue;
+				} else if (rt !== 'ok') {
+					err(where, ICON_ID.test(to) ? `target '${to}' does not exist in Tabler Icons — '${from}' would stay`
+						: `target '${to}' is neither a Tabler id, a custom glyph nor an icon of a site icon set (config.iconSets) — '${from}' would stay`);
+					continue;
+				}
+				kept.push([from, to, where]);
+			}
+			/* chained only through a pair that is kept (a pair with an error is dropped, its key not replaced) */
+			const replaced = new Set(kept.map(([from]) => from));
+			for (const [from, to, where] of kept) {
+				if (replaced.has(to)) warn(where, `target '${to}' is replaced itself — replacements are not chained, '${from}' shows '${to}'`);
+			}
+		}
 		const more = cfg.about?.moreInfo;
 		if (typeof more === 'string' && ID.test(more) && !/[/.]/.test(more) && !isApp(more)) warn('config about.moreInfo', `app '${more}' does not exist`);
 		if (cfg.site?.home != null) url('config site.home', cfg.site.home);
@@ -815,10 +859,15 @@ export function validateIconSets(sets) {
 
 /**
  * Checks the site data the configuration points at: fortunes per language,
- * feeds per language, the Fortune config (online only, app texts — textKeys:
- * model.js TEXT_KEYS). read(path) → parsed JSON | undefined (missing) | Error.
+ * feeds per language, the Fortune config (online only, app texts — from model.js: textKeys
+ * TEXT_KEYS, placeholderWarning() for placeholders a key does not fill, hostWarning() for an
+ * askText that does not name the host; providerHosts: { <built-in provider id>: hosts }).
+ * read(path) → parsed JSON | undefined (missing) | Error.
  */
-export function validateSiteData(cfg, { languages, read, cleanFortunes = null, textKeys = null, modules = new Set() } = {}) {
+export function validateSiteData(cfg, {
+	languages, read, cleanFortunes = null, textKeys = null, placeholderWarning = null, hostWarning = null,
+	providerHosts = {}, modules = new Set()
+} = {}) {
 	const errors = [];
 	const warnings = [];
 	/* online only (fortune.local: false) — the same rule as the page and sw.js: remote must be a valid id */
@@ -837,9 +886,18 @@ export function validateSiteData(cfg, { languages, read, cleanFortunes = null, t
 				const where = `config fortune.texts.${k}`;
 				if (!textKeys.includes(k)) warnings.push({ where, msg: `texts.${k} cannot be replaced (keys: ${textKeys.join(', ')})` });
 				else if (!isFortuneText(v)) errors.push({ where, msg: `texts.${k} must be a text, '@ns.key' or { lang: text }` });
-				else if (isObj(v)) {
-					const missing = languages.filter(l => !(l in v));
-					if (missing.length) errors.push({ where, msg: `texts.${k} has no text for ${missing.map(l => `'${l}'`).join(', ')}` });
+				else {
+					if (isObj(v)) {
+						const missing = languages.filter(l => !(l in v));
+						if (missing.length) errors.push({ where, msg: `texts.${k} has no text for ${missing.map(l => `'${l}'`).join(', ')}` });
+					}
+					/* placeholders the app does not fill for this key (a typo such as {hots}); '@ns.key' is not checked */
+					const stray = typeof placeholderWarning === 'function' ? placeholderWarning(k, v) : null;
+					if (stray) warnings.push({ where, msg: stray });
+					/* the consent question must name who receives the request — known for the built-in providers */
+					const hosts = validRemote && Object.hasOwn(providerHosts ?? {}, cfg.fortune.remote) ? providerHosts[cfg.fortune.remote] : null;
+					const hostless = k === 'askText' && hosts && typeof hostWarning === 'function' ? hostWarning(v, hosts) : null;
+					if (hostless) warnings.push({ where, msg: hostless });
 				}
 			}
 		}
@@ -1049,10 +1107,17 @@ async function main() {
 	});
 	let cleanFortunes = null;
 	let textKeys = null;
+	let placeholderWarning = null;
+	let hostWarning = null;
+	let providerHosts = {};
 	try {
-		({ cleanFortunes, TEXT_KEYS: textKeys } = await import(pathToFileURL(join(ROOT, 'src/apps/fortune/model.js')).href));
+		({ cleanFortunes, TEXT_KEYS: textKeys, placeholderWarning, hostWarning } = await import(pathToFileURL(join(ROOT, 'src/apps/fortune/model.js')).href));
+		const { BUILT_IN } = await import(pathToFileURL(join(ROOT, 'src/apps/fortune/providers.js')).href);
+		providerHosts = Object.fromEntries(Object.values(BUILT_IN).map(p => [p.id, [...p.hosts]]));
 	} catch { /* the Fortune app is not there */ }
-	const data = validateSiteData(cfg, { languages: cfg.languages, read: readJson, cleanFortunes, textKeys, modules: loaded });
+	const data = validateSiteData(cfg, {
+		languages: cfg.languages, read: readJson, cleanFortunes, textKeys, placeholderWarning, hostWarning, providerHosts, modules: loaded
+	});
 
 	const sets = validateIconSets(iconSets.sets);
 	const errors = [...result.errors, ...data.errors, ...sets.errors];

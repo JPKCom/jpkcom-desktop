@@ -62,7 +62,8 @@ const launchable = () => Desk.apps.list().filter(a => a.kind !== 'launcher' && !
 
 function autoRows() {
 	const apps = launchable().length;
-	const langs = Desk.i18n.available().map(c => Desk.i18n.displayName(c));
+	/* Named in the language of the sentence (not endonyms: those are for language pickers) */
+	const langs = Desk.i18n.available().map(c => Desk.i18n.displayName(c, Desk.lang()));
 	return [
 		/* "Vanilla JavaScript" stays English in every language (lang marks it, as in the original) */
 		[t('about.system'), withName('about.systemValue', {}, 'stack', STACK)],

@@ -5,7 +5,8 @@
 # Copy this file as ".htaccess" into the folder that holds index.html — the web
 # root or a sub-folder such as /desktop/; nothing in it depends on the folder.
 # Apache 2.4.10 or newer with mod_headers, mod_mime and mod_alias (mod_dir,
-# mod_deflate, mod_brotli are used when present). The host must allow it:
+# mod_deflate, mod_brotli are used when present; mod_expires, when present, is
+# switched off for the desktop). The host must allow it:
 #   AllowOverride FileInfo Indexes Options=Indexes
 # (or "AllowOverride All"). Nothing here inherits from a parent .htaccess on
 # purpose: the header set is complete on its own and replaces security headers
@@ -53,6 +54,19 @@ RedirectMatch 404 "/\.(?!well-known/)"
 	AddOutputFilterByType DEFLATE text/html text/css text/javascript application/json application/manifest+json image/svg+xml
 </IfModule>
 
+# ---------- Expiry -----------------------------------------------------------
+
+# mod_expires stays off for the desktop: a parent .htaccess or the server config with
+# "ExpiresActive On" / ExpiresByType adds Expires and Cache-Control max-age, and a browser
+# could keep an old module next to new ones after an update. The caching headers below
+# replace both already; this keeps it so whatever order the modules run in (hardening).
+# Inside <Files> for the same reason as the headers below.
+<IfModule mod_expires.c>
+<Files "*">
+	ExpiresActive Off
+</Files>
+</IfModule>
+
 <IfModule mod_headers.c>
 # Inside <Files>: Apache applies <Files>/<FilesMatch> sections after all directory and .htaccess
 # directives, parents first — so only here do these headers win over a parent's <FilesMatch>.
@@ -80,7 +94,9 @@ RedirectMatch 404 "/\.(?!well-known/)"
 	#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
 	#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
 	#   frame-src    add the origins of 'web' apps whose url lives on another origin
-	#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+	#   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+	#                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+	#                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
 	#
 	# Then replace the line below with your extended copy, e.g. weather + DoH:
 	#   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"

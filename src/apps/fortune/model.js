@@ -225,12 +225,72 @@ export const isText = v => (typeof v === 'string' && v.length > 0)
 	|| (isObj(v) && Object.values(v).length > 0 && Object.values(v).every(x => typeof x === 'string' && x.length > 0));
 
 /**
- * The fortune texts a site may replace (config.fortune.texts) — those without
- * placeholders that may name the app.
+ * The fortune texts a site may replace (config.fortune.texts) — those that name or
+ * describe the app or its source (buttons, states, the consent question, the key hint,
+ * the consent row, the Backup/Reset label, the terminal help).
  */
 export const TEXT_KEYS = Object.freeze(['next', 'prev', 'copy', 'copied', 'loading', 'empty',
-	'localError', 'noSource', 'sourceLocal', 'askTitle', 'allow', 'deny', 'denyOnline', 'service',
-	'serviceHint', 'cmd', 'cmdMan']);
+	'localError', 'noSource', 'sourceLocal', 'askTitle', 'askText', 'askText2', 'askLang', 'allow',
+	'deny', 'denyOnline', 'keys', 'web', 'error', 'service', 'serviceHint', 'storageLabel', 'cmd', 'cmdMan']);
+
+/** The placeholders the app fills per replaceable text (keys not listed have none) */
+export const TEXT_PARAMS = Object.freeze({
+	askText: Object.freeze(['provider', 'host']),
+	askLang: Object.freeze(['language']),
+	keys: Object.freeze(['space', 'back', 'next']),
+	error: Object.freeze(['host'])
+});
+
+const PLACEHOLDER = /\{([A-Za-z0-9_]+)\}/g;
+
+/** The placeholder names a text uses, in order, once each */
+export const placeholdersOf = text => [...new Set([...String(text).matchAll(PLACEHOLDER)].map(m => m[1]))];
+
+/**
+ * Fills the named placeholders of a site text ({host} → params.host), like t() does for
+ * the app's own texts; a name params does not have stays as written.
+ */
+export function fillText(text, params) {
+	const s = String(text ?? '');
+	if (!params || !s.includes('{')) return s;
+	return s.replace(PLACEHOLDER, (all, name) => (Object.hasOwn(params, name) ? String(params[name] ?? '') : all));
+}
+
+/** The values of a plain or language-map text, [] for '@ns.key' (its locale is not loaded at config time) */
+const checkable = text => (typeof text === 'string' ? (text.startsWith('@') ? [] : [text])
+	: isObj(text) ? Object.values(text).filter(x => typeof x === 'string') : []);
+
+/** Placeholders of a plain or language-map text that its key does not fill (TEXT_PARAMS; '@ns.key' → []) */
+export function strayPlaceholders(key, text) {
+	const known = TEXT_PARAMS[key] ?? [];
+	return [...new Set(checkable(text).flatMap(placeholdersOf))].filter(n => !known.includes(n));
+}
+
+/**
+ * The warning for a text (texts.<key>) that uses placeholders its key does not fill, or null —
+ * one wording for validateConfig() and `npm run validate` (tools/validate-manifest.mjs)
+ */
+export function placeholderWarning(key, text) {
+	const stray = strayPlaceholders(key, text);
+	return stray.length ? `texts.${key} uses ${stray.map(n => `{${n}}`).join(', ')}, which the app does not fill `
+		+ `(placeholders: ${(TEXT_PARAMS[key] ?? []).join(', ') || 'none'})` : null;
+}
+
+/**
+ * texts.askText is the consent question (§16): it must say who receives the request. The warning when a
+ * plain or language-map value names neither {host} nor one of the provider's hosts, or null ('@ns.key',
+ * no text or no hosts → null: nothing to check). One wording for the page and `npm run validate`.
+ */
+export function hostWarning(text, hosts) {
+	const names = (Array.isArray(hosts) ? hosts : []).filter(x => typeof x === 'string' && x).map(x => x.toLowerCase());
+	if (!names.length) return null;
+	const named = v => v.includes('{host}') || names.some(n => v.toLowerCase().includes(n));
+	const lacking = typeof text === 'string' ? (checkable(text).some(v => !named(v)) ? [null] : [])
+		: isObj(text) ? Object.entries(text).filter(([, v]) => typeof v === 'string' && !named(v)).map(([l]) => l) : [];
+	if (!lacking.length) return null;
+	const where = lacking[0] === null ? '' : ` (${lacking.map(l => `'${l}'`).join(', ')})`;
+	return `texts.askText${where} does not name the host the request goes to — use {host} or write out ${names.join(', ')}`;
+}
 
 /** config.fortune.local: true (default) or false (online only); anything else → true with a warning */
 export function cleanLocal(v, warn = () => {}) {
@@ -251,7 +311,11 @@ export function cleanTexts(v, warn = () => {}) {
 	for (const [k, text] of Object.entries(v)) {
 		if (!TEXT_KEYS.includes(k)) warn(`texts.${k} cannot be replaced (keys: ${TEXT_KEYS.join(', ')}) — skipped`);
 		else if (!isText(text)) warn(`texts.${k} must be a text, '@ns.key' or { lang: text } — skipped`);
-		else out[k] = typeof text === 'string' ? text : Object.freeze({ ...text });
+		else {
+			const stray = placeholderWarning(k, text);
+			if (stray) warn(`${stray} — left as written`);
+			out[k] = typeof text === 'string' ? text : Object.freeze({ ...text });
+		}
 	}
 	return Object.freeze(out);
 }

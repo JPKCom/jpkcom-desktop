@@ -10,6 +10,201 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-10-08
+
+Fixes and options from moving a real site onto 1.2: dock pins and desktop icons that follow renamed apps,
+a start language that follows the browser's order, a vault that stays hidden in Settings → Reset, every
+Fortune text replaceable, notification banners that show the app an article opens in, the desktop's own
+glyphs from a site icon set, code colours in the Reader without a flood of CSP reports, and a service
+worker that no longer holds back an update for 30 s. Updating a site: see the upgrade notes below.
+
+### Upgrade notes
+
+- Upload the new `sw.js` with the rest: the shell cache gets a new name once (new version), visitors are
+  offered one reload.
+- Run `npm run preload` once if you keep your own `src/boot/preload.js`: it is generated, and its
+  start-language prediction changed (it now copies `matchLanguage()` of `src/core/i18n.js`).
+- `site/config.js` gains commented entries for `iconReplace`, `notify.label` and the new `reader` keys
+  (`keepStyles`, `styleScope`, `styleVars`), and updated comments for `search.pagefind` and
+  `fortune.texts` — copy them if you keep your own file; without them the defaults apply.
+- nginx: add `expires off;` next to `add_header Cache-Control $desk_cache_control;` in the server block.
+- Apache (optional): the 1.2.0 `.htaccess` already sends `no-cache` and removes `Expires`; the new
+  `<IfModule mod_expires.c>` block (`ExpiresActive Off`) of `docs/server/apache.htaccess` is extra
+  hardening. `ExpiresActive` needs `AllowOverride Indexes`; the documented
+  `AllowOverride FileInfo Indexes Options=Indexes` already includes it.
+- Pagefind: keep `'wasm-unsafe-eval'` in the desktop's policy whenever `search.pagefind` is set, even if
+  your bundle is served without a policy — Pagefind falls back to the page whenever its worker starts
+  slowly. It only allows compiling WebAssembly and does not allow `eval`.
+- Visitors whose browser lists a regional variant of an offered language before another offered language
+  (e.g. `de-AT, en` on a de/en site) now start in that first language. A stored choice and `?lang=` are
+  unaffected.
+- Code calling `i18n.displayName(code, inLang)` with an `inLang` other than `code` now gets the name in
+  `inLang`; call `displayName(code)` (or `displayName(code, code)`) for the endonym.
+- Sites that worked around duplicate desktop icons of aliases with override records such as
+  `{ id: '<alias item id>', desktop: false }` can remove them; they do no harm. `desktop: true` /
+  `dock: true` on an alias has no effect (as `dock: true` already had none): put the flag on the app
+  itself or on an override record of it.
+- An alias id in `config.dock.pins` now pins its target, and the dock shows the target's name, icon and
+  tint, not the alias's own. Exception: a visible alias of an app that cannot be pinned (e.g. of a hidden
+  `web` window) stays pinned as the alias. Stored dock lists that hold alias ids are rewritten once on the
+  first start (only when something changed); nothing to do.
+- A site that hid the vault's reset row with its own CSS (e.g.
+  `.set-row:has(> input[data-key="rs-vault"]) { display: none }`) should remove that rule — it would now
+  also hide the row while the vault is unlocked. Own code that called `storage.resetGroups()` gets only
+  the groups shown now; pass `{ all: true }` for every group.
+- A site that renamed the Fortune app can now also set `fortune.texts.askText`, `askText2`, `askLang`,
+  `keys`, `web`, `error` and `storageLabel` (list and placeholders: `docs/packages/p11-fortune-site.md`,
+  "App texts"). A replaced `askText` must keep naming who receives the request (`{host}` or the host
+  written out), or a warning is shown.
+- Notifications: sites with a fixed `notify.app` look the same. Sites with `notify.app: null` get app
+  tiles in the banners automatically; set `notify.label` for a "<label> · <app name>" meta line (a site
+  that fixed `notify.app` only to name its news section there can now keep `app: null`).
+- Reader: code blocks with highlighting written as `style="color:…"` now show their colours; set
+  `reader.keepStyles: false` for the old look. A dual-theme highlighter's custom properties need
+  `reader.styleVars` plus a rule in the site stylesheet; the kept colours are inline declarations, so the
+  rule needs `!important` and must switch text and background together (page classes carry the `c-`
+  prefix), e.g. `:root[data-theme="dark"] .reader-page pre.c-shiki, :root[data-theme="dark"] .reader-page
+  pre.c-shiki span { color: var(--shiki-dark) !important; background-color: var(--shiki-dark-bg)
+  !important }`. Colours set by the site stylesheet are not checked by the contrast guard. Content that
+  relied on an inline colour outside `pre`/`code` (or outside the configured scope) still loses it;
+  inline `code` keeps a colour only together with a background colour from the page.
+- `iconReplace`: nothing to do without it. To use it, add the target icons to your site icon set, add the
+  map to `site/config.js`, run `npm run icons` (the replaced Tabler ids stay in `src/icons/tabler.js` on
+  purpose — they are the fallback when the set does not load) and `npm run validate`. A pair whose key or
+  target the browser does not know is warned about at start and dropped; the original glyph stays. An id
+  used for two meanings is replaced in both (weather `sleet` and `hail` share `ti-cloud-snow`).
+
+### Added
+
+- **Replace the desktop's own glyphs** (`iconReplace` in `site/config.js`): map the icon ids the desktop
+  draws itself — menu bar, window controls, settings, dock, weather conditions … — to icons of a site
+  icon set (`{ 'ti-settings': 'acme-cog', 'wc-close': 'acme-xmark' }`) for one icon style throughout.
+  Keys are `ti-…`, `tif-…`, `wc-…` and `tile-…` ids (the author monogram `jpk` is not replaceable),
+  values any known icon; one step, never chained. `icon()` and `symbolHref()` resolve the map in one
+  place, so core, modules, apps and site modules follow it without a change (`docs/ARCHITECTURE.md` §6,
+  §13). `npm run validate` checks every pair: an unknown key or target is an error, an id not built yet
+  a warning ("run npm run icons"), a target missing from the set with its prefix an error naming the
+  set, a `ti-`/`tif-` typo "does not exist in Tabler Icons"; a chain is a warning.
+- **Reader: code colours survive.** Inside `reader.styleScope` (default `pre, code`) a small allowlist of
+  a page's inline styles is kept — `color`, `background-color`, `font-style`, `font-weight`,
+  `text-decoration-line` and, with `reader.styleVars` (e.g. `'--shiki-'`), custom properties of that
+  prefix — with plain colours (hex, `rgb()`, `hsl()`, named) or fixed keywords only. The Reader
+  re-serialises every value and sets it through CSSOM; the page's style text is never applied.
+  `reader.keepStyles: false` drops every inline style as before. A contrast guard (2:1) drops kept
+  colours that would hide text against their background (the tints of `mark` and `kbd` in between
+  count). Inside an element that keeps a page's colours everything inherits the checked text colour, so
+  no link or heading colour of the desktop lands on a background the page chose (links there are
+  underlined); an element that keeps only a background gets the checked text colour written too. A
+  `reader.styleVars` prefix that starts with a word of the desktop's own tokens (`--reader-`, `--text-`,
+  `--accent-` …) is refused with a warning.
+- Notifications: `notify.label` — a text or `{ lang: text }` map (at most 60 characters) shown before
+  the app name in the banners' meta line ("News · Blog"); `null` (default) keeps the app name alone.
+- Fortune app: `config.fortune.texts` can now replace every text that names or describes the app or its
+  source — also the consent question (`askText`, `askText2`), the language sentence (`askLang`), the key
+  hint (`keys`), the "Learn more" label (`web`), the error status (`error`) and the Backup/Reset label
+  (`storageLabel`). Site texts may use the placeholders the app fills for their key (`model.js`
+  `TEXT_PARAMS`: `askText` `{provider}` `{host}`, `askLang` `{language}`, `keys` `{space}` `{back}`
+  `{next}`, `error` `{host}`), in plain, `{ lang: text }` and `'@ns.key'` form.
+- Reset groups can declare `visible()` (descriptor `resetGroups[]`, `storage.registerGroup`): a group is
+  left out of Settings → Reset while it answers no and none of its keys holds data.
+  `storage.resetGroups()` returns the shown groups, `storage.resetGroups({ all: true })` every group with
+  `shown`. New bus event `'storage:groups'` `{ id }` tells Settings to redraw when the answer changes.
+- i18n: new named export `matchLanguage(offer, preferred)` in `src/core/i18n.js` (the browser-language
+  match of `detect()`); `tools/build-preload.mjs` copies its source into `src/boot/preload.js`.
+- Dock and desktop icons: new pure exports `pinTarget(id, get, canPin?)` (`src/shell/dock.js`) and
+  `desktopApps(list)` (`src/shell/desktop-icons.js`); `cleanPins(v, max, resolve?)` takes an optional
+  resolver.
+
+### Changed
+
+- Server configurations: the Apache `.htaccess` also switches `mod_expires` off for the desktop
+  (`ExpiresActive Off` in `<IfModule mod_expires.c><Files "*">`) — hardening against a host-wide
+  `ExpiresActive On`; its header block already sent `no-cache` and removed `Expires`.
+- i18n: `i18n.displayName(code, inLang)` returns the name of the language in `inLang` (Intl.DisplayNames
+  when the browser has data for that language, else the endonym, then the code); without `inLang` it is
+  still the language's own name (`meta.name`). Language pickers (menu, toggle, settings row, terminal
+  `lang` list) keep showing endonyms.
+- About: the Languages row names the offered languages in the current language ("Deutsch und Englisch"
+  instead of "Deutsch und English").
+- Notifications: with `notify.app: null` each banner now shows the tile and name of the app its article
+  opens in (the app the router picks, e.g. the page app with the longest URL prefix) instead of a generic
+  bell and only the date; the bell remains for articles that open in a new tab. The summary banner ("And
+  N more new articles") shows the app all new articles open in and opens it when it is their home
+  (`notify.app`, a routed app that is not a page app, or a page app whose URL holds every article);
+  otherwise it opens the newest article as before. A `notify.app` that cannot open (its module is
+  missing) no longer lends its tile to the banners; they show the app the router actually opens.
+- Settings → Reset: "Reset everything" also resets the groups hidden at the moment; picks of a group that
+  went hidden while Settings was open are dropped, and an open reset confirmation closes when the shown
+  groups change, so a confirmed partial reset never runs as "everything". The backup window lists a
+  hidden group only when the data holds it.
+- Fortune app: `validateConfig()` and `npm run validate` warn when a plain or language-map text in
+  `fortune.texts` uses a placeholder its key does not fill (e.g. `{hots}`). The text is kept as written.
+- Module loader: the contract (`docs/ARCHITECTURE.md` §8) now states the load order. A module's config
+  section is cleaned (`validateConfig`) before its declared parts are registered, so a declared value,
+  such as a storage label getter, may read `Desk.modules.config(id)`.
+- Manifest validator: an alias cycle (`a → b → a`) is an error; none of its ids opens an app.
+- Documentation: the condition for `'wasm-unsafe-eval'` with the Pagefind search is now stated exactly.
+  Pagefind compiles its WebAssembly in `pagefind-worker.js`, under the policy sent with that file. It
+  falls back to the page, under the desktop's policy, when the worker fails or has not started within 5
+  seconds, which can happen on a slow connection alone. The desktop's policy therefore needs it whenever
+  `search.pagefind` is set, and so does the policy sent with `pagefind-worker.js` (the shipped server
+  configurations send the desktop's policy with every file). Updated: README (en, de), `docs/deploy.md`
+  §6 and §13, ARCHITECTURE §5/§6, the comments of all server configurations, `site/config.js`, and the
+  `npm run serve` help.
+- The README copies of the server configurations are now checked against `docs/server/` by the tests.
+
+### Fixed
+
+- Dock: a visitor's own dock list keeps pins of an app whose id became an alias (an old id kept for old
+  links after a rename). Stored pins and `config.dock.pins` resolve aliases to their target, duplicates
+  this creates are dropped (the first keeps its place), and the resolved list is written back by the tab
+  that read it. An alias the registry learns later (vault, module) is resolved on `apps:change`. Before,
+  such a pin vanished silently. A visible alias of an app that cannot be pinned stays pinned as the
+  alias whatever kind its target has (the rule asks whether an app may take a dock place at all, not
+  whether its kind can open yet while modules load), and a visible alias whose target is not registered
+  yet keeps its id until it is.
+- Desktop icons: an alias (e.g. a collection item that points at an app) no longer shows a second icon
+  of its target — it inherited `desktop: true`. The default dock pins already skipped aliases.
+- i18n: the start language follows the browser's language order (RFC 4647 lookup per entry): for each
+  entry of `navigator.languages` the exact tag, then the tag shortened subtag by subtag, then another
+  region of the same language, before the next entry — `de-AT, en` now starts in German, not English.
+  `src/boot/preload.js` predicts the same start language as the boot, so the locale hints match the
+  language actually loaded.
+- Fortune app: "The texts are in {language}" names the language in the reader's language ("auf
+  Englisch", not "auf English").
+- Terminal: `lang <name>` also accepts the language's name in the current language (`lang englisch`);
+  the confirmation names the language in the current language.
+- Shell: until the target language's "Switch to …" phrase is loaded, the two-language toggle's fallback
+  action names the target language in the current language instead of an unmarked endonym.
+- Reader: no more CSP console reports while a page is parsed (`style=""`, `<style>`, `<base>` raised two
+  report lines each — hundreds per page of highlighted code). Pages are parsed with the `DOMParser` of a
+  removed same-origin `about:blank` iframe, whose document Chromium does not check; it is as inert as
+  before and the sanitiser is unchanged. Other engines fall back to the window's `DOMParser`.
+- Service worker: the second sweep of `offline.legacyCaches` (about 30 s after an activation) no longer
+  keeps an event open. In 1.2.0 the first request after an activation extended its event for 30 s, so a
+  newer worker (an update or a rollback) could not activate until it ended. The follow-up now runs on a
+  plain timer or on the first request after that moment, whichever comes first; a worker that a newer
+  one replaced drops it. Old caches are still deleted on activation, about 30 s later, and at every
+  start.
+- Service worker: the fast-start update check ends when a newer worker is installing or waiting, after
+  its delay, before each batch of compares and before the crawl. It ran inside the start's event, so a
+  newer worker had to wait for the whole compare and crawl.
+- Server configurations: the nginx server block sets `expires off;`. Otherwise an `expires` in nginx's
+  `http { }` block added `Expires` and a second `Cache-Control` with `max-age` to the code, so browsers
+  could mix module versions after an update. Caddy, Ferron and static-web-server needed no change.
+
+### Security
+
+- The vault's "Private bookmarks" row in Settings → Reset appears only while the vault is unlocked or a
+  login is kept on the device; visitors no longer learn that a vault exists, and no confirmation names it
+  otherwise.
+- Fortune app: a replaced consent question (`fortune.texts.askText`) that names neither `{host}` nor a
+  host of the online source is reported. The page reports it at `'modules:ready'`; `npm run validate`
+  reports it for the built-in providers. The text is kept.
+- The Reader's style allowlist refuses a whole `style` attribute that contains escapes, comments, quotes,
+  braces, `@` or `!important`, and never keeps `url()`, `var()`, `calc()`, image functions or any layout,
+  position, size or display property (SECURITY.md, Reader section).
+
 ## [1.2.0] — 2026-10-08
 
 Fresh feeds and data with the fast start, site icon sets, manual pages per item, web windows anywhere on
@@ -117,6 +312,9 @@ below.
 
 ### Changed
 
+- Server configurations: the Apache `.htaccess` also switches `mod_expires` off for the desktop
+  (`ExpiresActive Off` in `<IfModule mod_expires.c><Files "*">`) — hardening against a host-wide
+  `ExpiresActive On`; its header block already sent `no-cache` and removed `Expires`.
 - Sprite symbols have the DOM id `i-<icon id>` (was: the icon id), and `icon()` returns
   `<use href="#i-<id>">`. Code that wrote `href="#<icon id>"` by hand uses `Desk.icons.symbolHref(id)`
   instead. Element ids starting with `i-` are reserved for the sprite.
@@ -210,6 +408,9 @@ hardened supply chain. Updating a site: see the upgrade notes below.
 
 ### Changed
 
+- Server configurations: the Apache `.htaccess` also switches `mod_expires` off for the desktop
+  (`ExpiresActive Off` in `<IfModule mod_expires.c><Files "*">`) — hardening against a host-wide
+  `ExpiresActive On`; its header block already sent `no-cache` and removed `Expires`.
 - **Faster start: window code on demand** — an app definition can name its window code with
   `load: () => import('./window.js')` (a window kind with `defineKind(kind, { load })`), its window-only
   CSS with `windowStyles`. The boot no longer loads the editor, terminal, players, fortune, notes, todo,
@@ -307,7 +508,8 @@ Initial open-source release under the MIT License.
   builder and check, i18n check, site manifest validator, vault sealing tool, PWA icon renderer,
   headless browser check, and a `node --test` suite for the pure parts of every package.
 
-[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JPKCom/jpkcom-desktop/releases/tag/v1.0.0

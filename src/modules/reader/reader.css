@@ -222,6 +222,17 @@
 			color: inherit;
 		}
 
+		/* Inside an element that kept a page's colours (extract.js): every element takes the text
+		   colour the contrast guard checked, none of the desktop's (links, headings …) — a link stays
+		   recognisable by its underline. Inline colours the guard kept still win (style attribute) */
+		[data-reader-kept] * {
+			color: inherit;
+		}
+
+		[data-reader-kept] a {
+			text-decoration-line: underline;
+		}
+
 		/* Screen-reader-only text of the page (class visually-hidden / sr-only) */
 		:is(.c-visually-hidden, .c-sr-only) {
 			position: absolute;

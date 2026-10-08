@@ -126,11 +126,13 @@ A module adds an online source declaratively:
 - A site override `{ id: 'fortune', name: { de: '…', en: '…' }, icon: 'ti-…' }` (or `mark`, `logo`) in
   `site/apps.js` changes the dock, the title, the question tile **and** the card (same precedence as
   `Desk.tile()`: logo, mark, icon; `ti-cookie` when the icon is not built). Colour: `--fortune-mark`.
-- `config.fortune.texts` replaces the texts that name the app (keys in `model.js` `TEXT_KEYS`: next,
-  prev, copy, copied, loading, empty, localError, noSource, sourceLocal, askTitle, allow, deny,
-  denyOnline, service, serviceHint, cmd, cmdMan), for every source. Give a `{ lang: text }` map for
-  every configured language (`npm run validate` checks it; `i18n:check` cannot see config texts). Not
-  replaceable: texts with placeholders, and the storage label "Fortune source" in Backup/Reset.
+- `config.fortune.texts` replaces the texts that name or describe the app or its source (keys in
+  `model.js` `TEXT_KEYS`: next, prev, copy, copied, loading, empty, localError, noSource, sourceLocal,
+  askTitle, askText, askText2, askLang, allow, deny, denyOnline, keys, web, error, service, serviceHint,
+  storageLabel, cmd, cmdMan), for every source. Give a `{ lang: text }` map for every configured language
+  (`npm run validate` checks it; `i18n:check` cannot see config texts). Not replaceable: `by` (the
+  signature dash) and the texts that do not name the app (`source`, `category`, `any`, `retry`,
+  `privacy`, `toSettings`, `offline`).
 
 | Key | Shipped en | Used |
 |---|---|---|
@@ -144,19 +146,40 @@ A module adds an online source declaratively:
 | `noSource` | No source is available for this app right now. | status in online-only mode without a usable source |
 | `sourceLocal` | Built-in sayings | source select option |
 | `askTitle` | Before anything is fetched | question title |
+| `askText` | The texts of {provider} come from {host}, a service outside this site. … | question, who receives what — placeholders `{provider}` (the provider's name), `{host}` (its host names) |
+| `askText2` | Your choice applies to this browser — you can take it back at any time … | question, where to take it back |
+| `askLang` | The texts are in {language}. | question, shown when the provider's texts come in another language — placeholder `{language}` |
 | `allow` | Agree and load | question, agree button |
 | `deny` | No, use the built-in sayings | question, "no" button with `local: true` (switches to the built-in sayings) |
 | `denyOnline` | No, thanks | question, "no" button with `local: false` (closes the window) |
+| `keys` | {space} or N: next · {back}: previous | key hint under the card — placeholders `{space}` (the key name), `{back}`, `{next}` (arrows, mirrored right-to-left) |
+| `web` | Learn more | title-bar button of an entry with a link |
+| `error` | {host} is not answering right now. … | status when the online source fails — placeholder `{host}` |
 | `service` | Fortune: jokes and facts from the web | consent label (Settings → Online services) |
 | `serviceHint` | The app asks by itself before the first request | consent hint |
+| `storageLabel` | Fortune source | label of the storage key `fortune` in Backup and Reset |
 | `cmd` | a saying from the fortune cookie | terminal `help` line |
 | `cmdMan` | Prints one of the built-in sayings … | terminal `man fortune` |
 
 Values are manifest texts (ARCHITECTURE §12): `'@ns.key'` (a namespace some loaded module brings, e.g. a
 site module's `locales/`), `{ lang: text }` or a plain string, resolved with `Desk.L()` at the moment of
-use (so a language switch applies). A key with placeholders (`error`, `askText`, `askLang`, `keys`, `by`)
-cannot be replaced. The keys that have an action (`deny`, `denyOnline`) keep it: the text never changes
-what the button does.
+use (so a language switch applies; `storageLabel` is read once, when the storage key is registered —
+after `validateConfig()`, an order the loader promises (ARCHITECTURE §8 "Loader behaviour") — and
+resolved whenever Backup/Reset is drawn). The keys that have an action
+(`deny`, `denyOnline`) keep it: the text never changes what the button does.
+
+**Placeholders** (`model.js` `TEXT_PARAMS`): `askText` `{provider}` `{host}`, `askLang` `{language}`,
+`keys` `{space}` `{back}` `{next}`, `error` `{host}`; every other key has none. A site text in any form
+(plain, `{ lang: text }`, `'@ns.key'`) may use them; the app fills them like `t()` does (`fillText()`), and
+an unknown `{name}` stays as written. `validateConfig()` and `npm run validate` warn when a plain or
+language-map text uses a placeholder its key does not fill (a typo such as `{hots}`); the text is kept
+(one rule and wording for both: `model.js` `placeholderWarning()`).
+A placeholder may be left out — but a replaced `askText` must keep naming who receives the request
+(`{host}`, or one of the provider's hosts written out): the question is the consent. A plain or
+language-map `askText` that names neither is kept but reported (`model.js` `hostWarning()`): by the page
+at `'modules:ready'` when the online source is offered (`[fortune] config.fortune.texts.askText … does not
+name the host the request goes to …`, every provider), and by `npm run validate` when `fortune.remote` is
+a built-in provider (the validator does not load module providers). `'@ns.key'` texts are not checked.
 
 ### Data format (`site/data/fortunes/<lang>.json`)
 
@@ -211,8 +234,8 @@ what the button does.
 | Contribution point | `fortuneProviders: [def] \| { id: def }` — adopted in `setup()` and on `'module:loaded'` (ARCHITECTURE §8) |
 | Terminal | contribution `terminal: { fortune }` — `fortune` prints a built-in saying (`service.random()`) and, when it has one, its signature (`@fortune.by`, dimmed); never the online source (the terminal asks no consent); hidden (`when()`) with `fortune.local: false`. Help and man page are app texts (`cmd`, `cmdMan`), error `localError`. The command exists only while the module is loaded |
 | Consent | `{ id: 'fortune', hosts: <provider hosts>, label: texts.service \| '@fortune.service', hint: texts.serviceHint \| '@fortune.serviceHint' }` — registered when the provider `config.fortune.remote` names is adopted (built in at `setup()`, a module's `fortuneProviders` or `addProvider`), unregistered when its module fails; agreement bound to `<id>@<hosts>` (storage `agreed`), withdrawn at `'modules:ready'` on mismatch |
-| Storage | `fortune` (json, backup, reset group `settings`): `{ source?: 'local' \| 'remote', agreed?: '<id>@<hosts>' }`, validated by `cleanState` |
-| Config | `configKey: 'fortune'`, `validateConfig` → `{ remote: id \| null, local: boolean, dir, langs: [codes] \| null, block: [ids], texts: { key: text } }` — `local: false`: online only (needs `remote`); `langs`: the languages with a `<dir><lang>.json` (only these are fetched); `block`: category ids left out locally **and** remotely (the original's `BLOCKED` list); `texts`: keys of `TEXT_KEYS` |
+| Storage | `fortune` (json, backup, reset group `settings`): `{ source?: 'local' \| 'remote', agreed?: '<id>@<hosts>' }`, validated by `cleanState`; label `texts.storageLabel` \| `'@fortune.storageLabel'` (a getter, read at registration) |
+| Config | `configKey: 'fortune'`, `validateConfig` → `{ remote: id \| null, local: boolean, dir, langs: [codes] \| null, block: [ids], texts: { key: text } }` — `local: false`: online only (needs `remote`); `langs`: the languages with a `<dir><lang>.json` (only these are fetched); `block`: category ids left out locally **and** remotely (the original's `BLOCKED` list); `texts`: keys of `TEXT_KEYS`, placeholders per key `TEXT_PARAMS` |
 | Events consumed | `consent:change`, `store:change` (`fortune`, external), `storage:restore`, `module:loaded`, `module:failed`, `modules:ready` |
 | CSS | `.fortune`, `.fortune-ask`, `.fortune-tile`, `.fortune-btns`, `.fortune-textbtn`, `.fortune-main`, `.fortune-top`, `.fortune-field`, `.fortune-label`, `.fortune-select`, `.fortune-card`, `.fortune-mark` (`--fortune-mark`), `.fortune-quote`, `.fortune-by`, `.fortune-foot`, `.fortune-status`, `.fortune-next`, `.fortune-keys`, `.fortune-prev` |
 
@@ -305,9 +328,9 @@ the terminal's `man` prints, data files under `site/content/`): `manuals/writing
 - `site/data/fortunes/{en,de}.json`: 44 original sayings each (desktop tips, keyboard shortcuts, web
   development, accessibility, a few light jokes), signature JPKCom, some with "Learn more" links into the
   docs or the contrast demo.
-- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.2.0 released",
-  "JPKCom Desktop 1.1.0 released", "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
-  (`changelog.html?release=1.2.0`), because the notify module de-duplicates by path + query.
+- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.3.0 released",
+  "JPKCom Desktop 1.2.0 released", "JPKCom Desktop 1.1.0 released", "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
+  (`changelog.html?release=1.3.0`), because the notify module de-duplicates by path + query.
 - `site/wallpapers/README.md`: how to add picture wallpapers (`config.wallpaper.images`); none shipped.
 
 ---
@@ -325,7 +348,8 @@ author links, then checks:
 
 - ids (`[a-z0-9-]`), duplicates (site, author links, collection items), kinds and the module each kind
   needs (`page` → reader, `image`/`viewer` → viewer, `collection` → catalog);
-- references: aliases (app and item), override records, menu app ids and collections, submenu depth,
+- references: aliases (app and item; an alias that points at itself or whose chain comes back to it —
+  a cycle, since 1.3 — is an error), override records, menu app ids and collections, submenu depth,
   `config.site.legal`, `site.defaultPageApp`, `notify.app` (page apps), `vault.collection`, `about.moreInfo`;
 - collections: prefix, sort, itemKind, urlTemplate (`{slug}`), basePath (a folder), groups (unknown,
   duplicate, empty), slugs (unique), item urls/kinds (auto rule as the registry);
@@ -349,6 +373,12 @@ author links, then checks:
   id that exists in `@tabler/icons` but is not built yet → warning "run npm run icons"; an id with the
   prefix of a configured set that the set does not contain → error naming the set; unknown → error;
   `config.brand.glyph` the same way (warning);
+- `config.iconReplace` (§13): every key must be a known project icon (Tabler subset or custom glyph; an
+  existing Tabler id not built yet → warning "run npm run icons"; unknown → error, "does not exist in Tabler
+  Icons" for a `ti-`/`tif-` typo), every target a known icon the same way (set prefix but not in the set →
+  error naming the set); a target that is itself the key of a pair without an error → warning (one step, not
+  chained); shape problems (a key that is not `ti-`/`tif-`/`wc-`/`tile-`, `jpk`, a
+  value equal to its key) come as config warnings;
 - site icon sets: each file exists below the root and not below `vault.dir`, is JSON in format
   `jpkcom-desktop-icons/1`, ids and prefixes (reserved, duplicates across sets), definitions (`k`, `vb`,
   `a`, elements and attributes of the allowlist — every dropped item is an error), at most 2 MiB / 5000
@@ -356,6 +386,10 @@ author links, then checks:
   `stroke-width` in `a` → warning;
 - tints (config names or a hex pair), sizes, marks, boolean flags;
 - texts: every language map has a value for each of `config.languages`; `'@ns.key'` exists in the locales;
+  `fortune.texts`: known keys (`TEXT_KEYS`, else a warning), placeholders the key fills (`TEXT_PARAMS`, else a
+  warning — plain and language-map texts, `model.js` `placeholderWarning()`), a replaced `askText` names the
+  host of a built-in `fortune.remote` (`{host}` or the host written out, else a warning — `hostWarning()`,
+  hosts from `providers.js` `BUILT_IN`);
 - site data: `fortunes/<lang>.json` per language (cleaned with the app's own `cleanFortunes`), the notify
   feeds (exist, JSON Feed version).
 
@@ -376,7 +410,8 @@ Output: `✖`/`⚠` lines with the location, a summary line; exit 0 (fine), 1 (e
   and signature) and the host check; the source lifecycle `createSources()` (providers from modules set
   up before and after the app, the same contribution twice, duplicate ids, a failed module, invalid and
   class-instance definitions, the unknown `remote` reported once at ready, consent register/unregister),
-  the consent binding (`consentTag`, `staleConsent`), `cleanState` with `agreed`, `cleanTexts`,
+  the consent binding (`consentTag`, `staleConsent`), `cleanState` with `agreed`, `cleanTexts` (placeholders),
+  `fillText`, `placeholderWarning`/`strayPlaceholders`, `hostWarning`, the storage label from `texts.storageLabel`,
   `sourceFor`, `validateConfig` (`local`, `texts`), the descriptor's wiring and the terminal command's
   `when()`.
 - `tests/p11-site.test.mjs`: the validator (clean and broken manifests, site data, the CLI on the example

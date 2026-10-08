@@ -6,8 +6,10 @@
 
    The index (built by the Pagefind CLI over the site's pages) is imported
    on first use — when the search opens — from the same origin (CSP
-   script-src 'self'; Pagefind needs 'wasm-unsafe-eval' as well, see
-   docs/ARCHITECTURE.md §5). Pagefind picks its index from <html lang> when it
+   script-src 'self'). Pagefind compiles WebAssembly in its worker
+   (<bundle>/pagefind-worker.js, under the policy sent with that file) or, when
+   the worker fails or starts too slowly, in the page: both policies need
+   'wasm-unsafe-eval' — see docs/ARCHITECTURE.md §5. Pagefind picks its index from <html lang> when it
    initialises, so a language switch re-initialises it. A hit opens like any
    link of the desktop: its route, the page app with the longest URL prefix
    (Reader) or a new tab. */

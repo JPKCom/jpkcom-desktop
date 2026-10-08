@@ -11,7 +11,8 @@
      2. i18n: language metadata, start language, 'core' strings; <html lang dir> — and at
      3. the same time site data: site/apps.js (apps, collections, menus, files) into the
         registry, plus one link app per author profile; and the site icon sets
-        (config.iconSets, JSON) into src/core/icons.js — so every module sees their icons
+        (config.iconSets, JSON) into src/core/icons.js — so every module sees their icons;
+        then config.iconReplace (the desktop's own glyphs drawn with icons of those sets)
      4. window.JPKDesk (the frozen public API)
      5. modules: core parts (wm, shell, panels), then config.modules, then config.apps —
         imported in parallel, set up in dependency order
@@ -30,7 +31,7 @@ import { modules } from '../core/modules.js';
 import { has as hasService } from '../core/services.js';
 import Desk, { expose } from '../core/api.js';
 import { request } from '../core/net.js';
-import { addIconSet } from '../core/icons.js';
+import { addIconSet, setIconReplace } from '../core/icons.js';
 import { cleanIconSet, MAX_SET_BYTES } from '../core/icon-sets.js';
 
 /* Required parts of the desktop, each a descriptor at src/<part>/index.js */
@@ -81,6 +82,18 @@ async function loadIconSets() {
 	}
 }
 
+/* config.iconReplace (docs/ARCHITECTURE.md §13): once the sets are registered, before any module is imported.
+   A pair whose key or target is not a known icon is warned about and left out — the original glyph stays */
+function applyIconReplace() {
+	try {
+		const problems = setIconReplace(config.iconReplace);
+		for (const p of problems.slice(0, 10)) console.warn(`[icons] config.iconReplace: ${p}`);
+		if (problems.length > 10) console.warn(`[icons] config.iconReplace: ${problems.length - 10} more problems`);
+	} catch (err) {
+		console.warn('[icons] config.iconReplace left out:', err);
+	}
+}
+
 /* The pre-paint cover must never stay: removed when nobody shows a boot screen, at the latest after a while */
 const uncover = () => delete document.documentElement.dataset.boot;
 const coverTimer = setTimeout(uncover, Math.max(10000, config.boot.ms * 4));
@@ -93,6 +106,7 @@ async function boot() {
 	/* Strings, site data and icon sets side by side: registry.load() resolves texts only when they are
 	   read; no module is imported before all three are done */
 	await Promise.all([initI18n(), loadSiteData(), loadIconSets()]);
+	applyIconReplace();
 	document.title = config.brand.name;
 	const heading = document.getElementById('desk-title');
 	if (heading) heading.textContent = config.brand.name;

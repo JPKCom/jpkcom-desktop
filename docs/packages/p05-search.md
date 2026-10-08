@@ -115,8 +115,13 @@ search: { pagefind: { path: 'pagefind/pagefind.js', excerptLength: 16, maxHits: 
 
 (`pagefind: 'path/pagefind.js'` is accepted as a shorthand.) The module is imported on first open
 (`warm()`) from the same origin — `path` must be relative to the installation root or start with
-`/`; other schemes and `//host` are refused. Pagefind needs `'wasm-unsafe-eval'` in `script-src`
-(`npm run serve -- --wasm`, §5). Pagefind picks its index from `<html lang>` when it initialises, so a
+`/`; other schemes and `//host` are refused. Pagefind compiles its WebAssembly in a worker started
+from `<bundle>/pagefind-worker.js`, which runs under the policy sent with that file — or in the page,
+under the desktop's policy, when there is no worker, it fails or it has not started within 5 s
+(Pagefind 1.5, also on a slow connection; "falling back to main thread"). That fallback happens at
+runtime, so the desktop's policy needs `'wasm-unsafe-eval'` in `script-src` whenever Pagefind is
+configured, and so does the policy sent with `pagefind-worker.js` (§5); a bundle served without a
+policy only spares the latter (`npm run serve -- --wasm`: serve.mjs sends its policy with every file). Pagefind picks its index from `<html lang>` when it initialises, so a
 language switch destroys and re-initialises it. An import or init failure is warned once and marks
 the provider unavailable for the session (`available()` → `false`). Excerpts (HTML with `<mark>`) are parsed inertly with `DOMParser`;
 only text and fresh `<mark>` elements survive. Hit URLs are resolved with `router.resolveUrl`

@@ -27,7 +27,10 @@
      user() → name | null     unlocked() → boolean
      summary() → [{ id, name, count }]   the unlocked groups (name in the current language)
    Event 'vault:change' { unlocked, user } after every unlock and lock.
-   Terminal commands (contribution 'terminal', hidden from help): login, logout. */
+   Terminal commands (contribution 'terminal', hidden from help): login, logout.
+   Settings → Reset shows the vault's row only while it is unlocked or a login
+   is kept on this device (visible(), §14) — otherwise nothing there tells a
+   visitor that a vault exists; 'storage:groups' tells Settings to redraw. */
 
 import {
 	supported, derive, open, fileName, isFileId, clean, cleanConfig, toCollectionItems, collectionDef,
@@ -40,6 +43,16 @@ const STORE = 'login';
 let D = null;          // the Desk API
 let cfg = null;        // cleaned config.vault
 let current = null;    // { user, key, file, groups }
+let kept = false;      // a login is kept in IndexedDB (written by keep(), found by resume())
+
+/* The reset row follows unlocked || kept; Settings redraws on 'storage:groups' */
+const groupsChanged = () => D?.emit('storage:groups', { id: 'vault' });
+
+function setKept(on) {
+	if (kept === on) return;
+	kept = on;
+	groupsChanged();
+}
 
 /* ---------- IndexedDB: one record { key, file, user } ---------- */
 
@@ -76,7 +89,7 @@ function idb(mode, fn) {
 }
 
 const recall = () => idb('readonly', s => s.get(STORE));
-const forget = () => idb('readwrite', s => s.delete(STORE)).catch(() => { /* no IndexedDB */ });
+const forget = () => idb('readwrite', s => s.delete(STORE)).catch(() => { /* no IndexedDB */ }).then(() => setKept(false));
 
 /* ---------- Files ---------- */
 
@@ -148,7 +161,10 @@ function inject(data, login) {
 	current = { user: login.user, key: login.key, file: login.file, groups };
 }
 
-const changed = () => D.emit('vault:change', { unlocked: current !== null, user: current?.user ?? null });
+function changed() {
+	groupsChanged();
+	D.emit('vault:change', { unlocked: current !== null, user: current?.user ?? null });
+}
 
 /* ---------- Service ---------- */
 
@@ -186,6 +202,7 @@ async function keep() {
 	if (!current) return false;
 	try {
 		await idb('readwrite', s => s.put({ key: current.key, file: current.file, user: current.user }, STORE));
+		setKept(true);
 		return true;
 	} catch {
 		return false;
@@ -209,6 +226,8 @@ async function resume() {
 		return;
 	}
 	if (rec == null) return;
+	/* a login is kept here (also while offline): Settings → Reset may offer to forget it */
+	setKept(true);
 	const key = typeof CryptoKey === 'function' && rec.key instanceof CryptoKey ? rec.key : null;
 	if (!key || !isFileId(rec.file) || typeof rec.user !== 'string' || rec.user.length > 200) {
 		await forget();
@@ -304,8 +323,10 @@ export default {
 	configKey: 'vault',
 	validateConfig: (section, warn) => cleanConfig(section, warn),
 
-	/* Settings → Reset: sign out on this device (the original did this with "everything") */
-	resetGroups: [{ id: 'vault', label: '@vault.resetLabel', hint: '@vault.resetHint', order: 85, onReset: () => lock() }],
+	/* Settings → Reset: sign out on this device (the original did this with "everything") —
+	   the row only while there is something to sign out of, so it reveals nothing otherwise */
+	resetGroups: [{ id: 'vault', label: '@vault.resetLabel', hint: '@vault.resetHint', order: 85, onReset: () => lock(),
+		visible: () => current !== null || kept }],
 
 	terminal: {
 		login: { run: login, help: '@vault.cmdLogin', hidden: true, sensitive: true },

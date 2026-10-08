@@ -24,7 +24,7 @@ appearance preferences (theme, accent), the wallpaper layer with its motif gener
 | `src/panels/help.js` | *window* — How it works (generated) |
 | `src/panels/install.js` | service worker registration, install offer, offline reset, legacy cache sweep |
 | `src/panels/pure.js` | pure helpers the boot needs (contrast, wallpaper values, trash items, file dates, row order) — unit-tested |
-| `src/panels/pure-window.js` | *window* — pure helpers only the windows use (backup and reset summaries, About name and row parts) — unit-tested |
+| `src/panels/pure-window.js` | *window* — pure helpers only the windows use (backup and reset summaries, backup rows and reset plan with hidden groups, About name and row parts) — unit-tested |
 | `src/panels/settings.css`, `wallpaper.css`, `panels.css` | `@layer panels` + `@layer compact` — `windowStyles`: every rule is inside a panel window |
 | `src/wallpapers/kit.js` | the motif contract (`checkMotif`) and SVG building blocks |
 | `src/wallpapers/author.js` | author motifs: `author-monogram` (glyph `jpk`), `author-emblem` (`icons.logo('jpkcom')`), `author-blueprint` |
@@ -94,6 +94,8 @@ window and asks once its content is there; resolves when the question is answere
   toggle, segments, select, button, redraw, h, t, L }`. **A contribution with the id of a built-in row
   replaces it.** Read live on every redraw (failed modules are withdrawn by the loader).
 - `storage`/`resetGroups` of every module (through the storage registry) — backup summary and reset section.
+  Hidden groups (`visible()`, ARCHITECTURE §14) get no reset row; the backup window lists one only when the data
+  it shows (the stored values, or the file in a preview) holds one of its keys.
 - `trash` types of every module (`storage.trashType(type)`) — put back; `app` decides the tile.
 - `consent` services (`consent.list()`) — one switch per offered service in "Online services".
 - `shortcuts.list()` — the help panel shows each entry's ready `display` (every combination, or the
@@ -110,12 +112,12 @@ Built-in sections and rows (`order`):
 
 | Section | Rows |
 |---|---|
-| `general` (10) | `lang` 10 (segments for ≤ 3 languages, a select for more; names from `displayName()`), `restore` 20 (needs `session.setKeeping`), `seconds` 40 (needs `clock.setSeconds`/`seconds`), `install` 60 (PWA ready) |
+| `general` (10) | `lang` 10 (segments for ≤ 3 languages, a select for more; each language named in its own language, `displayName(code, code)`, and marked with its `lang`), `restore` 20 (needs `session.setKeeping`), `seconds` 40 (needs `clock.setSeconds`/`seconds`), `install` 60 (PWA ready) |
 | `look` (20) | `theme` 10, `accent` 20 (config accents + custom colour picker with contrast hint), `wallpaper` 30 |
 | `dock` (30) | `icons` 10 (`desktop.setHidden/hidden/enabled`), `docksize` 20 (`dock.size/setSize/sizes`), `magnify` 30 (`dock.magnify/setMagnify`), `dockreset` 40 (`dock.reset`, `dock.isCustom`) |
 | `online` (40) | `consent` 10 — one switch per `consent.list()` service; intro text only when the section has rows; hidden when empty |
 | `data` (50) | `storage` 10 (`store.usage()` + `fmtBytes`), `backup` 20, `trash` 30 |
-| `reset` (90) | `reset` 10 — every `storage.resetGroups()` group with its state; "Reset everything" also removes every key of the namespace and calls `vault.forget?.()` |
+| `reset` (90) | `reset` 10 — every group `storage.resetGroups()` shows now, with its state (a group with `visible()` that answers no and holds no data has no row, ARCHITECTURE §14); "Select all" and the confirmation cover only the shown groups, a pick whose group went hidden is dropped, and an open confirmation closes whenever the shown groups change (it never turns a confirmed part into everything, or the reverse); "Reset everything" (every shown group picked) resets every registered group, hidden ones included, removes every key of the namespace and calls `vault.forget?.()` — its confirmation names no group |
 
 Rows whose service is missing are left out, so the section list follows what is loaded.
 
@@ -129,7 +131,7 @@ Rows whose service is missing are left out, so the section list follows what is 
 | `install:change` | `{ state }` | **new**: install offer arrived/used, app installed, display mode changed |
 | `install:update` | `{}` | **new**: the service worker has a new version ready (`desk:update`); a banner (`notifyBanner`, `settings.updateReady`/`updateReadyHint`, run = reload) is shown once per page |
 
-Listened to: `store:change`, `storage:reset`, `consent:change`, `consent:register`, `service:provide`,
+Listened to: `store:change`, `storage:reset`, `storage:groups`, `consent:change`, `consent:register`, `service:provide`,
 `module:loaded`, `module:failed`, `dock:change`, `vault:change`, `install:change`, `env:motion`.
 
 ## Config keys
@@ -141,7 +143,7 @@ tone: `'light'` for a light picture — see "Wallpaper tone" below; default `'da
 `.reducedEffects` (`'auto' | 'on' | 'off'`); `trash.days`, `trash.max`; `backup.format`,
 `.filePrefix`, `.maxBytes` (`trash.*` and `backup.*` are validated by the core's `validateConfig()`; the
 panels read them as they are); `about.rows` (array of `{ label, value }` or a language map of such arrays —
-**replaces** the automatic rows system/apps/languages/licence; a value is a text or an array of parts,
+**replaces** the automatic rows system/apps/languages (named in the current language, `displayName(code, lang)`)/licence; a value is a text or an array of parts,
 texts and `{ text, lang?, abbr? }` — `[{ text: 'HTML', abbr: 'Hypertext Markup Language' }, ', ',
 { text: 'Vanilla JavaScript', lang: 'en' }]` renders `<abbr title>` and `<span lang>`; `pure.js` `rowParts()`), `about.moreInfo` (app id or URL),
 `about.copyright` `{ holder, since }` (holder: a name, or its parts with their languages

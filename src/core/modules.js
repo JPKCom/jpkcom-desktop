@@ -115,7 +115,9 @@ export function dropContributions(moduleId) {
 }
 
 /**
- * A module's own config section, cleaned once before its setup(): descriptor
+ * A module's own config section, cleaned once — before its declared parts are
+ * registered (registerParts) and before its setup(), so a declared value may read
+ * Desk.modules.config(id) (§8 loader behaviour): descriptor
  * { configKey: 'weather', validateConfig(section, warn) → cleaned }. Modules
  * without validateConfig get the merged section as it is (config[configKey]).
  */
@@ -323,6 +325,7 @@ export async function loadAll(groups, desk) {
 	/* 4. register and set up, in order */
 	for (const d of ordered) {
 		try {
+			/* the order is contract (§8): the cleaned section first, declared parts may read it */
 			prepareConfig(d);
 			registerParts(d);
 			beginSetup(d.id);

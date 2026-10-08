@@ -218,6 +218,43 @@ test('config: iconSets drops invalid entries and duplicates and keeps at most 8 
 	assert.match(warns.at(-1), /s8\.json/);
 });
 
+test('config: iconReplace defaults to {} and keeps replaceable keys with icon id values', () => {
+	assert.deepEqual({ ...buildConfig(undefined).iconReplace }, {});
+	assert.deepEqual({ ...DEFAULTS.iconReplace }, {});
+	const warns = [];
+	const map = { 'ti-settings': 'acme-cog', 'tif-star': 'acme-star', 'wc-close': 'acme-xmark', 'tile-left': 'ti-arrow-left' };
+	const c = buildConfig({ iconReplace: map }, w => warns.push(w));
+	assert.deepEqual({ ...c.iconReplace }, map);
+	assert.deepEqual(warns, []);
+	assert.ok(Object.isFrozen(c.iconReplace));
+});
+
+test('config: iconReplace drops keys that are not replaceable, bad values and self-replacements (warned), at most 500', () => {
+	const warns = [];
+	const c = buildConfig({ iconReplace: {
+		jpk: 'acme-x', 'jpk-emblem': 'acme-x', 'acme-cog': 'acme-x', 'TI-X': 'acme-x', 'ti-': 'acme-x',
+		'ti-sun': 7, 'ti-moon': 'Acme Moon', 'ti-cloud': 'ti-cloud', 'ti-x': `a${'b'.repeat(64)}`,
+		'ti-home': 'acme-home'
+	} }, w => warns.push(w));
+	assert.deepEqual({ ...c.iconReplace }, { 'ti-home': 'acme-home' });
+	assert.equal(warns.length, 9, warns.join('\n'));
+	assert.match(warns[0], /^config\.iconReplace: 'jpk' is not a replaceable icon id \(ti-…, tif-…, wc-…, tile-…; not jpk\) — skipped$/);
+	assert.match(warns.find(w => w.includes("'ti-sun'")), /must be an icon id \('acme-cog'\) — skipped 7/);
+	assert.match(warns.find(w => w.includes("'ti-cloud'")), /replaces the icon by itself/);
+	const many = Object.fromEntries(Array.from({ length: 502 }, (_, i) => [`ti-i${i}`, `acme-i${i}`]));
+	const w2 = [];
+	assert.equal(Object.keys(buildConfig({ iconReplace: many }, w => w2.push(w)).iconReplace).length, 500);
+	assert.deepEqual(w2, ["config.iconReplace: more than 500 pairs — 'ti-i500' and the rest skipped"]);
+});
+
+test('config: a non-object iconReplace (array, string, null) is warned about and becomes {}', () => {
+	for (const v of [[['ti-x', 'acme-x']], 'ti-x', null, 7]) {
+		const warns = [];
+		assert.deepEqual({ ...buildConfig({ iconReplace: v }, w => warns.push(w)).iconReplace }, {}, JSON.stringify(v));
+		assert.match(warns.join('\n'), /config\.iconReplace is invalid/);
+	}
+});
+
 test('config: a non-array iconSets (true, {}) is warned about and becomes []', () => {
 	for (const v of [true, {}, 'site/icon-sets/x.json', null]) {
 		const warns = [];

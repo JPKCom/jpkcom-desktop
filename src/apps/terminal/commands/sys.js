@@ -146,7 +146,8 @@ async function lang(args, io) {
 	const codes = Desk.i18n.available();
 	const q = fold(args.join(' '));
 	if (!q) {
-		for (const c of codes) io.say(`${c === Desk.lang() ? '*' : ' '} ${c.padEnd(6)} ${Desk.i18n.displayName(c)}`, 'term-pre');
+		/* each under its own name (endonym), like the language menu */
+		for (const c of codes) io.say(`${c === Desk.lang() ? '*' : ' '} ${c.padEnd(6)} ${Desk.i18n.displayName(c, c)}`, 'term-pre');
 		return;
 	}
 	const code = codes.find(c => fold(c) === q) ?? codes.find(c => fold(Desk.i18n.displayName(c)) === q || fold(Desk.i18n.displayName(c, Desk.lang())) === q);
@@ -155,7 +156,7 @@ async function lang(args, io) {
 		return;
 	}
 	if (code !== Desk.lang()) await Desk.i18n.setLang(code);
-	io.say(t('langSet', { name: Desk.i18n.displayName(code) }));
+	io.say(t('langSet', { name: Desk.i18n.displayName(code, Desk.lang()) }));
 }
 
 const MODES = ['dark', 'light', 'auto'];

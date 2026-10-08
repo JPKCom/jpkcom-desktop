@@ -5,7 +5,8 @@
    the descriptor, the config, the built-in sayings, the consent and the
    service). win.state.fortune is the open window's handle.
 
-   Texts that name the app go through appText() (config.fortune.texts). Key
+   Texts that name or describe the app go through appText() (config.fortune.texts,
+   placeholders filled for the site's text too). Key
    functions given to lb.bind()/winButton() run at once: they may only use
    module-level helpers (appText, cfg) or ones declared before the first bind. */
 
@@ -75,7 +76,7 @@ function mount(win, body) {
 	lb.bind(allowBtn, () => appText('allow'), ['text']);
 	lb.bind(setBtn, 'fortune.toSettings', ['text']);
 	lb.bind(askTitle, () => appText('askTitle'), ['text']);
-	lb.bind(askText2, 'fortune.askText2', ['text']);
+	lb.bind(askText2, () => appText('askText2'), ['text']);
 	const ask = h('section', { class: 'fortune-ask', 'aria-labelledby': askTitle.id, hidden: true },
 		Desk.tile(win.app, 'fortune-tile'),
 		askTitle, askText, askText2, askLang,
@@ -111,7 +112,7 @@ function mount(win, body) {
 
 	const prevBtn = winButton(win, lb, 'ti-chevron-left', () => appText('prev'), () => prev(), 'fortune-prev');
 	const copyBtn = winButton(win, lb, 'ti-copy', () => appText('copy'), () => copy());
-	const webBtn = winButton(win, lb, 'ti-external-link', 'fortune.web', () => openWeb());
+	const webBtn = winButton(win, lb, 'ti-external-link', () => appText('web'), () => openWeb());
 	win.addActions(prevBtn, copyBtn, webBtn);
 
 	/* ---------- Labels ---------- */
@@ -154,14 +155,14 @@ function mount(win, body) {
 		lb.apply();
 		const p = remoteProvider();
 		if (p) {
-			askText.textContent = t('fortune.askText', { provider: L(p.name), host: hostOf(p) });
+			askText.textContent = appText('askText', { provider: L(p.name), host: hostOf(p) });
 			/* The texts come in another language than the user's: say so */
 			const lang = pickLang(i18n.chain(), p.langs);
 			askLang.hidden = baseLang(lang) === baseLang(Desk.lang());
-			askLang.textContent = askLang.hidden ? '' : t('fortune.askLang', { language: i18n.displayName(lang, Desk.lang()) });
+			askLang.textContent = askLang.hidden ? '' : appText('askLang', { language: i18n.displayName(lang, Desk.lang()) });
 		}
 		const rtl = i18n.dir() === 'rtl';
-		keys.textContent = t('fortune.keys', { space: i18n.keys('Space'), back: rtl ? '→' : '←', next: rtl ? '←' : '→' });
+		keys.textContent = appText('keys', { space: i18n.keys('Space'), back: rtl ? '→' : '←', next: rtl ? '←' : '→' });
 		fillSelects();
 	}
 
@@ -178,7 +179,7 @@ function mount(win, body) {
 	function errorText() {
 		switch (st.error) {
 			case 'offline': return t('fortune.offline');
-			case 'error': return t('fortune.error', { host: hostOf(remoteActive() ?? remoteProvider()) });
+			case 'error': return appText('error', { host: hostOf(remoteActive() ?? remoteProvider()) });
 			case 'local': return appText('localError');
 			case 'empty': return appText('empty');
 			case 'nosource': return appText('noSource');

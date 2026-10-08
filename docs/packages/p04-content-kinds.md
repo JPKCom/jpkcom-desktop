@@ -8,7 +8,7 @@ not available (they leave All apps, the dock, menus and search instead of failin
 
 | Module | Window kinds | Service | Files |
 |---|---|---|---|
-| `reader` | `page` | `reader` | `src/modules/reader/index.js`, `kind.js`, `extract.js`, `sanitize.js`, `util.js`, `reader.css` |
+| `reader` | `page` | `reader` | `src/modules/reader/index.js`, `kind.js`, `extract.js`, `sanitize.js`, `parse.js`, `styles.js`, `util.js`, `reader.css` |
 | `viewer` | `image`, `viewer` (+ app `viewer`) | `viewer` | `src/modules/viewer/index.js`, `kind.js`, `util.js`, `viewer.css` |
 | `catalog` | `collection` | `catalog` | `src/modules/catalog/index.js`, `kind.js`, `util.js`, `catalog.css` |
 
@@ -17,7 +17,9 @@ configuration, the service, contributions (drop handler, context menu) and the k
 `defineKind(kind, { load: () => import('./kind.js'), … })`. The window hooks live in `kind.js` and come
 with the first window of the kind (`wm.open()` shows a spinner until then; `win.ready`). The Reader keeps
 `acceptUrl` in the descriptor (session restore and deep links ask it before any window exists);
-`extract.js` and `sanitize.js` are imported by `kind.js` only. The descriptors never import `kind.js`
+`extract.js` and `sanitize.js` are imported by `kind.js` only, and `parse.js` (the inert parser) and
+`styles.js` (the code-colour allowlist) by those two — window code, never the descriptor (`util.js`, which
+the descriptor imports, keeps only the config defaults of the code colours). The descriptors never import `kind.js`
 statically (`tests/p04-catalog.test.mjs` checks it); `kind.js` imports what it shares from `index.js`
 (Reader: `shared` rules/separator/cache; Catalog: labels and `actions`). The stylesheets are
 `windowStyles` (`reader.css`, `viewer.css`, `catalog.css`): every rule applies inside these windows only
@@ -45,7 +47,12 @@ pages natively, without an iframe:
    the response over at the headers (the Reader needs its type and final URL before reading); same origin only (other origins show the error notice
    with "Open in new tab"). A shared LRU cache keeps `config.reader.cacheSize` pages (0 = no cache);
    Reload bypasses it.
-2. **parse inert** with `DOMParser` (scripts never run, images never load).
+2. **parse inert** with `DOMParser` (scripts never run, images never load) — `parseInert()` (`parse.js`)
+   takes the parser of a same-origin `about:blank` iframe that is removed before the first parse (created
+   once, lazily). Chromium checks the window's CSP while it parses; a detached window's document is not
+   checked, so a page's `style=""`, `<style>` and `<base>` raise no console report (measured: 0 instead
+   of two lines per attribute). Fallback: the window's own `DOMParser` (reports again, nothing applied).
+   The document's URL is `about:blank` — every URL is resolved against the page URL, as before.
 3. **extract** by `config.reader.rules` (first matching rule wins, else the default rule
    `content: 'main article, article, main, [role="main"]', title: 'h1'`, then `<body>`):
 
@@ -68,6 +75,29 @@ pages natively, without an iframe:
      Unknown wrappers (`font`, `center`, custom elements, MathML) are unwrapped — their text stays.
    - attributes: per-element allowlist; never `style`, `on*`, `data-*`, `target`; `tabindex` only on
      `<pre>`; `lang`, `dir`, `title` (abbr!), `role` and `aria-*` stay.
+   - **code colours** (`config.reader.keepStyles`, default on): on an HTML element that matches
+     `config.reader.styleScope` (default `pre, code`, tested against the page's own markup) or lies inside
+     one, the `style` text is parsed (`parseStyle()`, `styles.js`) — never applied. Kept: `color`,
+     `background-color` (`background` when it is one plain colour), `font-style`
+     (`normal|italic|oblique`), `font-weight` (`normal|bold|bolder|lighter|1–1000`), `text-decoration-line`
+     (`text-decoration` with `none|underline|overline|line-through` only), custom properties with the
+     prefix `config.reader.styleVars`. Colour values: hex (3/4/6/8 digits), `rgb[a]()`, `hsl[a]()` (comma
+     or space syntax, `/ alpha`), CSS named colours. A `\`, `/*`, quote, `<`, `>`, `{`, `}`, `@` or
+     `!important` anywhere refuses the whole attribute; everything else that does not fit is dropped
+     declaration by declaration. The element gets a transient `data-reader-style` index; after the import
+     (step 5) the canonical values (`#rrggbb`, `rgb(r g b / a)`, keywords) go on with
+     `style.setProperty()` and the marker goes. **Contrast guard** (`guardPair()`): a kept text/background
+     pair must reach 2:1 (`MIN_CONTRAST`, alpha blended over what lies below); inside a `<pre>` the surface
+     is the code block's (probed once per page: `background-color`/`color` of a hidden `.reader-page pre`,
+     fallback `#11171e`/`#dde5ec`), outside a `<pre>` both colours must come from the page (own or from the
+     nearest styled ancestor) — else that element's `color` and `background-color` go (its font and
+     decoration stay). The tints `reader.css` lays on `mark` and `kbd` (probed with the surface) are
+     blended in between (`tintPair()`). An element that keeps a colour gets the checked text colour
+     written — also when the page gave only a background, so a desktop rule (link, heading) cannot colour
+     its text — and `data-reader-kept` (also set for kept custom properties; a page's own `data-*` never
+     survives): `reader.css` lets everything inside it inherit the text colour (`[data-reader-kept] *
+     { color: inherit }`, links there underlined), so no link or heading colour of the desktop lands on a
+     background the guard never compared it with.
    - ids get a per-window prefix (`r<n>-`); idrefs (`aria-labelledby`, `aria-describedby`, `aria-controls`,
      `aria-owns`, …, `for`, `headers`), `#fragment` links and SVG `url(#…)`/`href="#…"` follow it.
    - classes get a `c-` prefix, so no page class picks up a desktop style (style site classes with
@@ -80,7 +110,7 @@ pages natively, without an iframe:
      raster), `cite` `http(s)`, SVG references only inside the page. Links to other origins get
      `target=_blank rel="noopener noreferrer"`; images `loading=lazy decoding=async`; `<pre>` becomes a
      dark island (`data-island="dark"`).
-5. **import** node by node (`document.importNode`). Before that, every heading moves **two levels down**
+5. **import** node by node (`document.importNode`), then the kept code colours (step 4). Before that, every heading moves **two levels down**
    (`demotedLevel()`: h1 → h3, h2 → h4, h3 → h5, h4–h6 → h6) — the window title is an h2 and names the
    page, so the page's own outline nests under it; the class `reader-h<n>` keeps the look of the level the
    page wrote (`.reader-page .reader-h1` …).
@@ -111,7 +141,27 @@ matching URL prefix (`router.pageApp`, else `config.site.defaultPageApp`; nothin
 `config.vault.dir`, `router.pageAllowed`).
 
 Config `reader` (descriptor `configKey` + `validateConfig`, read via `Desk.modules.config('reader')`):
-`rules` (invalid regexes/selectors are reported and skipped), `titleSeparator`, `cacheSize` (0–200).
+`rules` (invalid regexes/selectors are reported and skipped), `titleSeparator`, `cacheSize` (0–200),
+`keepStyles` (boolean, default `true`), `styleScope` (selector list, default `'pre, code'`), `styleVars`
+(`null` or a prefix like `'--shiki-'`: `--`, lower-case letters/digits/hyphens, ending in `-`, max 32;
+refused with a warning when its first word is one of the desktop tokens `reader.css` reads — `accent`,
+`focus`, `font`, `highlight`, `ink`, `line`, `radius`, `reader`, `scroll`, `text`, `win` (`RESERVED_VARS`,
+`util.js`) — or a page could set `--reader-link` or `--text` on its own elements).
+A Shiki dual theme (`style="color:#…;--shiki-dark:#…"`) keeps its light colours on the element and, with
+`styleVars: '--shiki-'`, the dark ones as custom properties a site stylesheet can use. The kept colours are
+inline declarations (CSSOM), so a stylesheet rule only wins with `!important`, and it has to switch text
+and background together — otherwise dark-theme token colours land on the kept light background:
+
+```css
+:root[data-theme="dark"] .reader-page pre.c-shiki,
+:root[data-theme="dark"] .reader-page pre.c-shiki span {
+	color: var(--shiki-dark) !important;
+	background-color: var(--shiki-dark-bg) !important;
+}
+```
+
+Colours a site stylesheet applies this way are the site's own choice: the contrast guard only checks the
+values the Reader keeps from the page.
 
 ## Image viewer (`viewer`, kinds `image` and `viewer`)
 
@@ -238,8 +288,17 @@ The Catalog items carry their own look (no dependency on the shell's `.icon` sty
   collection (`webApp`, as the original's hidden sub-windows) or opens `webUrl`); several status-bar actions instead of one; locale-aware, diacritic-insensitive search; keyboard
   grid navigation with one tab stop; the sidebar hides without groups; the shown section survives a
   session restore.
-- **CSP reports while parsing**: browsers apply the page's CSP to inert documents too, so a fetched page
-  with `<base>`, `<style>` or `style=""` produces (blocked) `base-uri`/`style-src` reports in the console
-  while it is parsed. Nothing is applied — the sanitiser removes them — but content written for the Reader
-  should avoid inline styles. A string pre-filter was rejected (regexes on HTML would also change code
-  samples in the text).
+- **CSP reports while parsing** (1.3.0): Chromium checks the window's CSP while `DOMParser` builds an
+  inert document, so a page with `<base>`, `<style>` or `style=""` produced (blocked) `base-uri`/
+  `style-src` reports — hundreds for a page of highlighted code. Measured in headless Chromium: every parse
+  mode bound to the window reports (`DOMParser`, `Document.parseHTML[Unsafe]` even with a sanitizer
+  config, `XMLHttpRequest` documents, `<template>` content, `createContextualFragment`), stripping on the
+  inert document is too late, `importNode` and the sanitiser add none; a parser from a detached
+  `about:blank` window reports none. Rejected: a string pre-filter (a regex or tokenizer rewrite can merge
+  tokens — `<<style>…</style>script>` becomes `<script>` — and would also change code samples in the
+  text), `style-src-attr 'unsafe-inline'` (weakens the whole desktop), a helper page with a laxer CSP
+  (server changes), letting `importNode` carry the page's `style` (clones are not checked in Chromium —
+  the page text would apply unfiltered).
+- **Code colours** (1.3.0): the original dropped every inline style, so highlighted code lost its colours;
+  the allowlist above keeps colour, weight, style and decoration only, re-serialised and set through
+  CSSOM, with a contrast guard against hidden text.

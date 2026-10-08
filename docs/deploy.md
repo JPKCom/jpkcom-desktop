@@ -179,7 +179,7 @@ replace the active one.
 | Fortune app, remote `jokeapi` | `services.fortune: true`, `fortune.remote: 'jokeapi'` | `connect-src https://v2.jokeapi.dev` |
 | Fortune app, remote `uselessfacts` | `services.fortune: true`, `fortune.remote: 'uselessfacts'` | `connect-src https://uselessfacts.jsph.pl` |
 | Fortune app, an online source from your own module | `services.fortune: true`, `fortune.remote: '<id>'` | `connect-src https://<its hosts>` |
-| Full-text search with Pagefind | `search.pagefind: { path: … }` | `script-src 'wasm-unsafe-eval'` (WebAssembly; nothing else needs it) |
+| Full-text search with Pagefind | `search.pagefind: { path: … }` | `script-src 'wasm-unsafe-eval'` — see below (nothing else needs it) |
 | `web` apps from another origin | an app with `kind: 'web'` and a foreign `url` | `frame-src https://apps.example.org` |
 
 Example — weather (Open-Meteo) and the DNS commands switched on:
@@ -193,6 +193,34 @@ configurations also name `https://geocoding-api.open-meteo.com` in a separate co
 search by name would need it — the shipped weather providers never call it.) The
 settings section "Online services" of the desktop lists the services your site offers and their hosts.
 For a local test the same extensions exist as `npm run serve -- --connect https://api.open-meteo.com,https://dns.google --frame https://apps.example.org --wasm --geolocation`.
+
+**Pagefind and `'wasm-unsafe-eval'`.** The desktop imports `pagefind.js` into the page; Pagefind then
+starts a worker from `pagefind-worker.js` in the same folder, and that worker compiles the WebAssembly.
+A worker loaded from a URL runs under the policy your server sends with **that file**, not under the
+page's. `'wasm-unsafe-eval'` is needed wherever the WebAssembly is compiled under a policy without it,
+and where that is can change from one visit to the next:
+
+- **In the worker** — under the policy sent with `pagefind-worker.js`. The configurations of
+  [§10](#10-server-configurations) send the desktop's policy with every file they serve: with Apache, every
+  file in the desktop's folder and below (a bundle such as `pagefind/` next to `index.html`); with nginx,
+  Caddy, Ferron and static-web-server, every file of the host. A bundle your server sends without a policy
+  (or with its own that allows WebAssembly) needs nothing for the worker; `worker-src 'self'` already
+  allows it, it must be on the same origin.
+- **In the page** — under the desktop's policy, whenever Pagefind falls back from its worker: the worker
+  file is missing (Pagefind versions without `pagefind-worker.js`), blocked or fails, or it has not
+  answered within 5 seconds. Pagefind 1.5 races the worker's start — downloading and starting
+  `pagefind-worker.js` — against that timeout, so a slow connection alone triggers the fallback; the
+  console then says "falling back to main thread". This is a runtime event in each visitor's browser, not
+  a property of the deployment: a test on a fast connection that never falls back proves nothing.
+
+So **keep `'wasm-unsafe-eval'` in the desktop's policy whenever `search.pagefind` is set**, and add it to
+the policy sent with `pagefind-worker.js` if that is a different one. Leave it out of the desktop's policy
+only if you accept that the search fails for visitors whose browser falls back. It allows compiling
+WebAssembly only; it does not allow `eval`.
+
+To check: open the search, type a word, and look at the console — a refused WebAssembly compilation
+(`'wasm-unsafe-eval'`) names the policy that lacks it. `npm run serve` sends its policy with every file, so
+a bundle it serves needs `--wasm`.
 
 ## 7. MIME types
 
@@ -224,8 +252,13 @@ version.
 
 Do not put long `Expires`/`max-age` values on `.js`, `.css`, `.json`, `.html`, `manifest.webmanifest` or
 `sw.js`: the ES modules import each other by name, so a stale copy of one file next to fresh copies of
-the others can break the desktop. The Apache snippet removes an `Expires` header that a host-wide
-`mod_expires` rule may add.
+the others can break the desktop. A parent configuration can add such values without you noticing: a
+host-wide `mod_expires` rule (Apache) or an `expires` directive in nginx's `http { }` block. The Apache
+snippet therefore switches `mod_expires` off for the desktop (`ExpiresActive Off`) and removes an
+`Expires` header; the nginx snippet sets `expires off;` in its server block; static-web-server's built-in
+caching table is switched off (`cache-control-headers = false`). Caddy and Ferron add no expiry headers on
+their own. A CDN or proxy in front of the server can still add them — check with the `curl` lines of
+[§12](#12-checking-a-deployment).
 
 ## 9. Folders that need special care
 
@@ -285,6 +318,11 @@ the exact policy, MIME types, `Cache-Control` per file type, `304` on a conditio
 - Security headers that a parent `.htaccess` or the server config sets are replaced, not merged — two
   policies would both apply (`Header unset` removes the copies of plain `Header set`, `Header always set`
   writes the desktop's).
+- `ExpiresActive Off` (when `mod_expires` is loaded; allowed by `AllowOverride Indexes`): hardening — a
+  parent `ExpiresActive On` / `ExpiresByType` adds `Expires` and `Cache-Control: max-age`, which the
+  header block (`Header set Cache-Control`, `Header unset Expires`) already replaces; with it switched
+  off nothing depends on the order of the two modules. It stands in a `<Files "*">` section, like the
+  headers, so it also wins over a parent's `<FilesMatch>`.
 - In a `<VirtualHost>` or `<Directory>` block the same directives work as they are.
 
 ### nginx (`nginx.conf`)
@@ -295,6 +333,9 @@ the exact policy, MIME types, `Cache-Control` per file type, `304` on a conditio
   `add_header` lines of the server block for that location; the values that depend on the path
   (`Cache-Control`, `X-Robots-Tag`) therefore come from the maps. When you add locations of your own,
   do not put `add_header` into them (or repeat the whole set there).
+- `expires off;` at server level: an `expires` directive of the `http { }` block (a distribution default or
+  a copied snippet) is inherited otherwise and adds `Expires` plus a second `Cache-Control` with `max-age`
+  to the code.
 - No `try_files $uri $uri/` for the desktop's folder: it would serve `/desktop` without redirecting to
   `/desktop/`, and every relative path of the page would break. nginx redirects directories itself;
   `absolute_redirect off` keeps that redirect relative (correct behind proxies).
@@ -511,7 +552,7 @@ service worker to remove.
 
 ```sh
 # Headers of the desktop page
-curl -sI https://example.org/desktop/ | grep -iE '^(content-security|permissions|cache-control|x-|strict|referrer|cross-origin)'
+curl -sI https://example.org/desktop/ | grep -iE '^(content-security|permissions|cache-control|expires|x-|strict|referrer|cross-origin)'
 
 # The trailing slash redirect (expect 301/308 with Location: /desktop/)
 curl -sI https://example.org/desktop | grep -iE '^(HTTP|location)'
@@ -520,6 +561,9 @@ curl -sI https://example.org/desktop | grep -iE '^(HTTP|location)'
 curl -sI https://example.org/desktop/src/boot/main.js | grep -i '^content-type'      # text/javascript
 curl -sI https://example.org/desktop/manifest.webmanifest | grep -i '^content-type'  # application/manifest+json
 curl -sI https://example.org/desktop/sw.js | grep -iE '^(content-type|cache-control)'
+
+# Caching of the code: no-cache, and no Expires or max-age (a CDN or proxy in front can add them)
+curl -sI https://example.org/desktop/src/boot/main.js | grep -iE '^(cache-control|expires)'   # no-cache only
 
 # No listing of the vault folder (expect 403 or 404)
 curl -s -o /dev/null -w '%{http_code}\n' https://example.org/desktop/site/vault/
@@ -544,9 +588,9 @@ icons; *Application → Service workers* the worker and its scope; *Application 
 | Console: "Refused to connect to https://api…" | the service is on in `site/config.js` but its host is missing in `connect-src` ([§6](#6-online-services-opening-the-policy-step-by-step)) |
 | "My location" does nothing | `Permissions-Policy` still says `geolocation=()`, or the page is not on HTTPS |
 | A same-origin page will not open in a window | that page is sent with `X-Frame-Options: DENY` or `frame-ancestors 'none'` |
-| Pagefind search fails with a WebAssembly error | add `'wasm-unsafe-eval'` to `script-src` |
+| Pagefind search fails with a WebAssembly error (sometimes, e.g. only on slow connections) | add `'wasm-unsafe-eval'` to `script-src` of the desktop's policy — Pagefind falls back to the page when its worker fails or starts too slowly ("falling back to main thread") — and of the policy sent with `pagefind-worker.js` ([§6](#6-online-services-opening-the-policy-step-by-step)) |
 | No "Install" offer, no offline mode | not HTTPS; the `<link rel="manifest">` is missing in `index.html`; `pwa.enabled` is `false` |
-| An update does not show up | a long `Cache-Control`/`Expires` on `.js`/`.css` somewhere in front of the desktop (host defaults, a CDN): send `no-cache` ([§8](#8-caching)) |
+| An update does not show up | a long `Cache-Control`/`Expires` on `.js`/`.css` somewhere in front of the desktop (host defaults such as a parent `mod_expires` or nginx `expires`, a CDN): send `no-cache` ([§8](#8-caching)) |
 | Apache answers 500 | `AllowOverride` does not allow the directives of the `.htaccess`, or `mod_headers` / `mod_alias` is not loaded ([§10](#apache-apachehtaccess)) |
 | nginx: headers missing on some files | an `add_header` inside a `location` hides the server-level ones ([§10](#nginx-nginxconf)) |
 | "A new version is ready" after changing a data file | the file is outside the data folders: keep run-time data under `site/data/` (or `site/content/`); a file inside a module's folder, `site/apps.js`, `site/theme.css` or a wallpaper is code and is announced as a new version on purpose |

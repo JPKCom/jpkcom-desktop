@@ -6,7 +6,10 @@
 
    config.desktop.icons: false switches the icons off for the whole site;
    otherwise the person can hide them (stored 'icons': 'shown' | 'hidden',
-   body.icons-hidden) from the desktop's context menu or the settings. */
+   body.icons-hidden) from the desktop's context menu or the settings.
+
+   An alias never gets an icon of its own: it inherits desktop: true from
+   its target, whose icon is already there (ARCHITECTURE §7 "Aliases"). */
 
 import { config } from '../core/config.js';
 import { on } from '../core/bus.js';
@@ -38,8 +41,11 @@ export function setHidden(hidden) {
 	apply();
 }
 
+/** The apps of a list that get a desktop icon: desktop: true, never an alias (pure, exported for tests). */
+export const desktopApps = list => list.filter(a => a.desktop && !a.alias);
+
 /** The apps on the desktop, in manifest order (only those that can open now). */
-const apps = () => registry.list().filter(a => a.desktop);
+const apps = () => desktopApps(registry.list());
 
 export function render(force = false) {
 	if (!ul) return;

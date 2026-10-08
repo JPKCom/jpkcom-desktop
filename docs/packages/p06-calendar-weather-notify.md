@@ -118,11 +118,26 @@ Sections reuse `.cal-head`, `.cal-btn`, `.cal-sub` from `calendar.css`.
   (`config.site.hosts` count as this origin), optionally below `config.notify.pathPrefix` (relative to the root);
   newest first, at most 50, duplicates dropped.
 - 1.8 s after `'desk:ready'`: first visit → the latest item; later → every item newer than the last one announced
-  (stored per feed language). Banners through `Desk.notifyBanner({ title, body, app, url, date, timeout, run })`
+  (stored per feed language). Banners through `Desk.notifyBanner({ title, body, app, url, meta, date, timeout, run })`
   (shell `notifications`), 300 ms apart; more than `maxBanners` → `maxBanners − 1` banners + "And N more new
-  articles" (opens `config.notify.app`; with `app: null` or an app that is not installed, the newest article
-  through the router). Items open in `config.notify.app` (`launch(app, { url })`), else through
+  articles". Items open in `config.notify.app` (`launch(app, { url })`) when that app can open now, else through
   the router. `'notify:new'` `{ items }` is emitted for unannounced items.
+- **Which app a banner shows** (`appFor()` + `routedAppOf()` in `core.js`): the app its article opens in —
+  `config.notify.app` when it can open now, else the app the router sends the URL to, step by step as
+  `router.openUrl()` does (`route()` → a routed app that can open; a page → `pageApp()`, the page app with the
+  longest URL prefix or `site.defaultPageApp`). A file, a tab route or an app that cannot open → no app: the
+  shell's bell. The banner then has that app's tile and name.
+- **Summary banner** (`commonApp()`): when every new article — the shown and the folded ones — opens in the
+  same app, it shows that app; otherwise the bell. It opens that app (`launch(id)`, the app's start page, e.g.
+  the list of articles) when the app is the articles' home (`homeFor()`): `config.notify.app`, a routed app
+  that is not a page app (site route, collection item), or a page app — reached through a site route or by
+  its URL — one of whose URLs is a prefix of every article (`holdsAll()`). A page app that only shows them as
+  `site.defaultPageApp` is no home; then — and with the bell — the summary opens the newest article through
+  the router.
+- **Meta line**: the app name (shell default); with `config.notify.label` (a text or `{ lang: text }` map,
+  at most 60 characters, resolved with `Desk.L`) `t('notify.meta', { site, app })` — "<label> · <app name>" —
+  or the label alone when the banner has no app (`metaFor()`/`metaOf()`). A label equal to the app name is
+  shown once.
 - Opening the calendar dismisses the banners (`'calendar:open'`); a language switch dismisses them and loads the
   new language's feed without banners.
 - Calendar section (order 20): "New articles", the latest three, new ones with a dot and "(new)" for screen
@@ -198,8 +213,8 @@ Sites that offer the weather add the provider host to `connect-src` (`api.open-m
   `{ on }` in the stored weather settings (that field is ignored); coordinates are dropped when the
   `geolocation` consent goes. Hours/"as of" use the place's time zone (the original used the browser's with
   German places only). Attribution strings no longer crash a language without them (`UI[lang].wxSource`).
-- **Notify**: feeds per language from config with fallback chain and optional `pathPrefix` (was `/db/feed.json`,
-  `/db/`, app `blog`, "JPKCom DB"); banners come from the shell's notifications service; `maxBanners` replaces the
+- **Notify**: feeds per language from config with fallback chain and optional `pathPrefix` (was one fixed
+  feed, path prefix, app and section label); banners come from the shell's notifications service; `maxBanners` replaces the
   fixed three; neutral texts ("New articles").
 - **Calendar focus**: a redraw also restores the focus to a control that was disabled for a moment because it was
   busy (the weather refresh while loading; the original left it on the popover). The claim ends with the next

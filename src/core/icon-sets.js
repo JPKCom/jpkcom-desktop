@@ -12,6 +12,10 @@
      paths       SET_PATH: where a set may live (relative to the installation root; letters, digits,
                  . _ - / only, no segment starting with '.', ends in .json). src/core/config.js,
                  the generated src/boot/preload.js and sw.js (inline copy, checked by a test) use it
+     replacing   config.iconReplace: { project icon id: icon id } — cleanIconReplace() checks the
+                 shape (src/core/config.js), resolveIconReplace() which pairs can be used once the
+                 sets are registered (src/core/icons.js setIconReplace(), the validator has its own
+                 messages on the same rules)
 
    Definition format (docs/ARCHITECTURE.md §13):
      { k?: 'o' | 'f' | 'd', vb?: '0 0 24 24', a?: { attr: value }, e: [element], e2?: [element] }
@@ -32,6 +36,12 @@ export const MAX_ICON_ID = 64;
 export const MAX_ELEMENTS = 64;                     // per layer (e, e2) of a set icon
 export const MAX_VALUE = 64 * 1024;                 // characters of one attribute value
 export const MAX_TEXT = 200;                        // name and license of a set
+/* config.iconReplace: the project ids a site may replace — Tabler and the custom window/tile glyphs, never
+   the author's monogram (jpk, jpk-…, a brand asset) and never a set id (the site's own anyway) */
+export const REPLACEABLE_ID = /^(?:ti|tif|wc|tile)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/* Any icon id (the rule of icons.add()) — what a replacement may point at */
+export const ICON_ID = /^[a-z][a-z0-9-]*$/;
+export const MAX_REPLACE = 500;
 export const ICON_TAGS = new Set(['path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon']);
 export const ICON_ATTRS = new Set([
 	'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'points',
@@ -214,4 +224,62 @@ export function cleanIconSet(json, { taken = new Set() } = {}) {
 		result.icons[id] = clean;
 	}
 	return result;
+}
+
+/**
+ * config.iconReplace → a clean { from: to } (the shape only; whether the icons exist is known at boot).
+ * A key that is not REPLACEABLE_ID, a value that is not an ICON_ID or equals its key → warn + skipped;
+ * at most MAX_REPLACE pairs. map must be an object (src/core/config.js checks that first).
+ */
+export function cleanIconReplace(map, warn = () => {}) {
+	const out = {};
+	if (!isObj(map)) return out;
+	for (const [from, to] of Object.entries(map)) {
+		if (from.length > MAX_ICON_ID || !REPLACEABLE_ID.test(from)) {
+			warn(`config.iconReplace: '${from.slice(0, MAX_ICON_ID + 8)}' is not a replaceable icon id (ti-…, tif-…, wc-…, tile-…; not jpk) — skipped`);
+			continue;
+		}
+		if (typeof to !== 'string' || to.length > MAX_ICON_ID || !ICON_ID.test(to)) {
+			warn(`config.iconReplace['${from}'] must be an icon id ('acme-cog') — skipped ${JSON.stringify(to)?.slice(0, MAX_ICON_ID + 8)}`);
+			continue;
+		}
+		if (to === from) {
+			warn(`config.iconReplace['${from}'] replaces the icon by itself — skipped`);
+			continue;
+		}
+		if (Object.keys(out).length >= MAX_REPLACE) {
+			warn(`config.iconReplace: more than ${MAX_REPLACE} pairs — '${from}' and the rest skipped`);
+			break;
+		}
+		out[from] = to;
+	}
+	return out;
+}
+
+/**
+ * A cleaned config.iconReplace → { pairs: [[from, to]], problems: [string] }; known(id) tells whether an icon
+ * exists (after the site icon sets are registered). A pair with an unknown key or target is left out (the
+ * original glyph stays); a target that is the key of a kept pair itself stays in (one step, not chained) with
+ * a problem — a target whose own pair was left out is not replaced, so that is no chain.
+ */
+export function resolveIconReplace(map, known) {
+	const pairs = [];
+	const problems = [];
+	for (const [from, to] of Object.entries(isObj(map) ? map : {})) {
+		if (!known(from)) {
+			problems.push(`'${from}' is not a known icon (src/icons/tabler.js, src/icons/custom.js) — nothing to replace; run npm run icons`);
+			continue;
+		}
+		if (!known(to)) {
+			problems.push(`'${from}' → '${to}': '${to}' is not a known icon (is its site icon set loaded?) — '${from}' stays`);
+			continue;
+		}
+		pairs.push([from, to]);
+	}
+	/* second pass: only a kept pair makes its target a replaced icon */
+	const replaced = new Set(pairs.map(([from]) => from));
+	for (const [from, to] of pairs) {
+		if (replaced.has(to)) problems.push(`'${from}' → '${to}': '${to}' is replaced itself — replacements are not chained, '${from}' shows '${to}'`);
+	}
+	return { pairs, problems };
 }

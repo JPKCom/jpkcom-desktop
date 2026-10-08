@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	normalizeText, isSafeLink, cleanBlock, cleanFortunes, createDeck, pickLang, baseLang, cleanState, pushHistory, MAX_HISTORY,
-	cleanLangs, fetchCodes, DEFAULT_LANGS, cleanTexts, cleanLocal, sourceFor, TEXT_KEYS, MAX_HOSTS
+	cleanLangs, fetchCodes, DEFAULT_LANGS, cleanTexts, cleanLocal, sourceFor, TEXT_KEYS, TEXT_PARAMS, fillText, placeholdersOf,
+	strayPlaceholders, placeholderWarning, hostWarning,
+	MAX_HOSTS
 } from '../src/apps/fortune/model.js';
 import {
 	jokeapi, uselessfacts, cleanProvider, checkRequestUrl, categoriesFor, createSources, consentTag, staleConsent
@@ -407,14 +409,14 @@ test('cleanTexts keeps known keys with texts and reports the rest', () => {
 	assert.deepEqual(ok, { loading: 'x', service: { en: 'a', de: 'b' }, cmd: '@my.cmd' });
 	assert.ok(Object.isFrozen(ok) && Object.isFrozen(ok.service));
 	assert.deepEqual(warns, []);
-	for (const bad of [{ bogus: 'x' }, { next: 3 }, { next: {} }, { error: 'x' }, { next: { en: '' } }]) {
+	for (const bad of [{ bogus: 'x' }, { next: 3 }, { next: {} }, { by: 'x' }, { next: { en: '' } }]) {
 		const before = warns.length;
 		assert.deepEqual(cleanTexts(bad, w), {});
 		assert.equal(warns.length, before + 1, JSON.stringify(bad));
 	}
 	assert.match(warns[0], /texts\.bogus cannot be replaced \(keys: next, /);
 	assert.match(warns[1], /texts\.next must be a text/);
-	assert.match(warns[3], /texts\.error cannot be replaced/, 'a key with placeholders');
+	assert.match(warns[3], /texts\.by cannot be replaced/, 'the signature does not name the app');
 	const n = warns.length;
 	assert.deepEqual(cleanTexts(null, w), {});
 	assert.deepEqual(cleanTexts(undefined, w), {});
@@ -422,7 +424,78 @@ test('cleanTexts keeps known keys with texts and reports the rest', () => {
 	assert.deepEqual(cleanTexts('next', w), {});
 	assert.match(warns.at(-1), /texts must be an object/);
 	assert.ok(TEXT_KEYS.includes('noSource') && TEXT_KEYS.includes('denyOnline'));
-	for (const k of ['error', 'askText', 'askLang', 'keys', 'by']) assert.ok(!TEXT_KEYS.includes(k), `${k} has placeholders`);
+	assert.ok(!TEXT_KEYS.includes('by'), 'the signature stays');
+});
+
+test('TEXT_KEYS: every text that names or describes the app or its source, all in the locales', async () => {
+	for (const k of ['askText', 'askText2', 'askLang', 'keys', 'web', 'error', 'storageLabel']) assert.ok(TEXT_KEYS.includes(k), k);
+	assert.equal(new Set(TEXT_KEYS).size, TEXT_KEYS.length, 'no key twice');
+	for (const lang of ['en', 'de']) {
+		const { default: dict } = await import(`../locales/${lang}/fortune.js`);
+		for (const k of TEXT_KEYS) assert.equal(typeof dict[k], 'string', `${lang}/fortune.${k}`);
+		/* the shipped text uses only placeholders the app fills */
+		for (const k of TEXT_KEYS) {
+			for (const n of placeholdersOf(dict[k])) assert.ok((TEXT_PARAMS[k] ?? []).includes(n), `${lang}/fortune.${k}: {${n}}`);
+		}
+	}
+	for (const k of Object.keys(TEXT_PARAMS)) assert.ok(TEXT_KEYS.includes(k), `TEXT_PARAMS.${k} is a replaceable key`);
+	assert.ok(Object.isFrozen(TEXT_PARAMS) && Object.values(TEXT_PARAMS).every(Object.isFrozen));
+});
+
+test('cleanTexts: placeholders the key does not fill are reported, the text is kept', () => {
+	const warns = [];
+	const w = m => warns.push(m);
+	const texts = {
+		askText: { en: '{provider} sends your request to {host}.', de: '{provider} schickt die Anfrage an {host}.' },
+		error: '{host} is silent.',
+		keys: '{space}: more',
+		askText2: '@my.askText2',
+		storageLabel: { en: 'Fact source', de: 'Faktenquelle' },
+		web: 'More'
+	};
+	assert.deepEqual(cleanTexts(texts, w), texts);
+	assert.deepEqual(warns, [], 'known placeholders, none left out on purpose, @ns.key unchecked');
+	const out = cleanTexts({ error: '{hots} is silent', web: { en: 'More on {host}', de: 'Mehr' }, askLang: '@my.{x}' }, w);
+	assert.equal(out.error, '{hots} is silent', 'kept as written');
+	assert.deepEqual(out.web, { en: 'More on {host}', de: 'Mehr' });
+	assert.equal(warns.length, 2);
+	assert.match(warns[0], /texts\.error uses \{hots\}, which the app does not fill \(placeholders: host\) — left as written/);
+	assert.match(warns[1], /texts\.web uses \{host\}, which the app does not fill \(placeholders: none\)/);
+});
+
+test('fillText fills like t(): named placeholders, unknown ones stay, no params = as written', () => {
+	assert.equal(fillText('{provider} via {host}', { provider: 'P', host: 'a.example.org' }), 'P via a.example.org');
+	assert.equal(fillText('{space} or N · {back}', { space: 'Space', back: '←', next: '→' }), 'Space or N · ←');
+	assert.equal(fillText('{nope} and {host}', { host: 'h' }), '{nope} and h');
+	assert.equal(fillText('{host}', undefined), '{host}');
+	assert.equal(fillText('plain', { host: 'h' }), 'plain');
+	assert.equal(fillText('{host}', { host: '{provider}' }), '{provider}', 'one pass: a value is not filled again');
+	assert.equal(fillText('{host}', { host: null }), '');
+	assert.deepEqual(placeholdersOf('{a} {b} {a} {not a name}'), ['a', 'b']);
+});
+
+test('strayPlaceholders and placeholderWarning: one rule for the page and the validator', () => {
+	assert.deepEqual(strayPlaceholders('askText', { en: '{provider} {host} {x}', de: '{y} {x}' }), ['x', 'y']);
+	assert.deepEqual(strayPlaceholders('askText', '@my.{x}'), [], '@ns.key is not checked');
+	assert.deepEqual(strayPlaceholders('web', 'More'), []);
+	assert.equal(placeholderWarning('web', 'More'), null);
+	assert.equal(placeholderWarning('error', '{hots}'), 'texts.error uses {hots}, which the app does not fill (placeholders: host)');
+	assert.equal(placeholderWarning('web', '{host}'), 'texts.web uses {host}, which the app does not fill (placeholders: none)');
+	/* the validator imports these, it has no copy of the rule */
+	const tool = readFileSync(new URL('../tools/validate-manifest.mjs', import.meta.url), 'utf8');
+	assert.doesNotMatch(tool, /matchAll\(\/\\\{/, 'no own placeholder pattern in the validator');
+});
+
+test('hostWarning: a site askText must name who receives the request', () => {
+	const hosts = ['facts.example.org', 'cdn.example.org'];
+	for (const ok of ['{provider} at {host}', 'Ask Facts.Example.org?', 'via cdn.example.org', { en: '{host}', de: 'an {host}' }, '@my.ask', undefined, null]) {
+		assert.equal(hostWarning(ok, hosts), null, JSON.stringify(ok));
+	}
+	assert.equal(hostWarning('Load facts?', hosts),
+		'texts.askText does not name the host the request goes to — use {host} or write out facts.example.org, cdn.example.org');
+	assert.match(hostWarning({ en: 'Load?', de: 'von {host}', fr: 'Charger ?' }, hosts), /^texts\.askText \('en', 'fr'\) does not name/);
+	assert.equal(hostWarning('Load facts?', []), null, 'no hosts: nothing to check');
+	assert.equal(hostWarning('Load facts?', null), null);
 });
 
 test('cleanLocal and sourceFor: stored choice, online only, no source', () => {
@@ -461,6 +534,23 @@ test('validateConfig: local and texts', async () => {
 		assert.ok(r.warns.some(m => /local: false needs an online source/.test(m)), JSON.stringify(section));
 	}
 	assert.equal(run({ texts: { next: 'N' } }).out.texts.next, 'N');
+	r = run({ texts: { askText: '{provider} at {host}', storageLabel: 'Facts', error: '{hots}' } });
+	assert.deepEqual(r.out.texts, { askText: '{provider} at {host}', storageLabel: 'Facts', error: '{hots}' });
+	assert.equal(r.warns.length, 1);
+	assert.match(r.warns[0], /texts\.error uses \{hots\}/);
+});
+
+test('appText, the storage label and the window: the site text wins, placeholders filled', async () => {
+	const { default: fortune, appText } = await import('../src/apps/fortune/index.js');
+	const desc = Object.getOwnPropertyDescriptor(fortune.storage.fortune, 'label');
+	assert.equal(typeof desc.get, 'function', 'read when the key is registered (after validateConfig)');
+	assert.equal(fortune.storage.fortune.label, '@fortune.storageLabel', 'no site text: the app\'s');
+	assert.equal(typeof appText, 'function');
+	/* every replaceable text goes through appText() — no direct lookup of a TEXT_KEYS key */
+	for (const file of ['index.js', 'window.js']) {
+		const src = readFileSync(new URL(`../src/apps/fortune/${file}`, import.meta.url), 'utf8');
+		for (const k of TEXT_KEYS) assert.doesNotMatch(src, new RegExp(`['\`]fortune\\.${k}['\`]`), `${file}: fortune.${k} bypasses config.fortune.texts`);
+	}
 });
 
 test('the descriptor wires the lifecycle', async () => {

@@ -86,7 +86,7 @@ async function load(win, href, mode = 'push') {
 		if (!sameOrigin(target)) throw new Error('only pages of this site open in the Reader');
 		const hit = await fetchPage(target.href);
 		if (token !== r.token || r.closed) return;
-		page = extract(hit.html, hit.url, { rules: shared.rules, separator: shared.separator, prefix: r.prefix, origin: location.origin, resolve });
+		page = extract(hit.html, hit.url, { rules: shared.rules, separator: shared.separator, prefix: r.prefix, origin: location.origin, resolve, styles: shared.styles });
 		r.url = hit.url;
 		r.hist.list[r.hist.idx].url = hit.url;
 	} catch (err) {

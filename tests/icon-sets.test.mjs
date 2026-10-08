@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	cleanIconSet, cleanIconDef, safeAttrs, safeElement, safeViewBox, isSetPath, iconPrefix,
+	cleanIconReplace, resolveIconReplace, REPLACEABLE_ID,
 	SET_FORMAT, SET_PATH, MAX_SET_ICONS, ICON_TAGS, ICON_ATTRS, RESERVED_ICON_PREFIXES
 } from '../src/core/icon-sets.js';
 import tabler from '../src/icons/tabler.js';
@@ -205,4 +206,40 @@ test('icon sets: isSetPath accepts relative .json paths and refuses the table of
 	for (const p of BAD_PATHS) assert.equal(isSetPath(p), false, JSON.stringify(p));
 	assert.equal(GOOD_PATHS[3].length, 256);
 	assert.equal(SET_PATH.test('site/x.json'), true);
+});
+
+test('iconReplace: the replaceable ids are the reserved namespaces without the author monogram', () => {
+	assert.deepEqual(RESERVED_ICON_PREFIXES.filter(p => REPLACEABLE_ID.test(`${p}-x`)), ['ti', 'tif', 'wc', 'tile']);
+	for (const id of Object.keys(custom)) assert.equal(REPLACEABLE_ID.test(id), !/^jpk(?:-|$)/.test(id), id);
+	assert.ok(Object.keys(tabler).every(id => REPLACEABLE_ID.test(id)), 'every Tabler id of the subset is replaceable');
+	for (const id of ['jpk', 'jpk-x', 'acme-cog', 'ti', 'ti-', 'ti-A', 'ti--x', 'xti-x']) assert.equal(REPLACEABLE_ID.test(id), false, id);
+});
+
+test('iconReplace: cleanIconReplace keeps the shape only, warns for the rest, ignores a non-object', () => {
+	const warns = [];
+	assert.deepEqual(cleanIconReplace({ 'ti-a': 'acme-a', 'wc-min': 'ti-minus', jpk: 'acme-j', 'ti-b': null }, w => warns.push(w)), { 'ti-a': 'acme-a', 'wc-min': 'ti-minus' });
+	assert.equal(warns.length, 2);
+	for (const v of [null, undefined, [], 'x']) assert.deepEqual(cleanIconReplace(v), {});
+});
+
+test('iconReplace: resolveIconReplace keeps pairs whose key and target exist; one step, never chained', () => {
+	const known = new Set(['ti-a', 'ti-b', 'ti-c', 'acme-a', 'acme-c']);
+	const r = resolveIconReplace({ 'ti-a': 'acme-a', 'ti-b': 'acme-gone', 'ti-gone': 'acme-a', 'ti-c': 'ti-a' }, id => known.has(id));
+	assert.deepEqual(r.pairs, [['ti-a', 'acme-a'], ['ti-c', 'ti-a']]);
+	assert.equal(r.problems.length, 3, r.problems.join('\n'));
+	assert.match(r.problems[0], /'ti-b' → 'acme-gone': 'acme-gone' is not a known icon \(is its site icon set loaded\?\) — 'ti-b' stays/);
+	assert.match(r.problems[1], /'ti-gone' is not a known icon .* nothing to replace; run npm run icons/);
+	assert.match(r.problems[2], /'ti-c' → 'ti-a': 'ti-a' is replaced itself — replacements are not chained/);
+	assert.deepEqual(resolveIconReplace(null, () => true), { pairs: [], problems: [] });
+});
+
+test('iconReplace: a target whose own pair is left out is no chain (no notice)', () => {
+	const known = new Set(['ti-a', 'ti-b']);
+	const r = resolveIconReplace({ 'ti-a': 'ti-b', 'ti-b': 'acme-missing' }, id => known.has(id));
+	assert.deepEqual(r.pairs, [['ti-a', 'ti-b']]);
+	assert.equal(r.problems.length, 1, r.problems.join('\n'));
+	assert.match(r.problems[0], /'ti-b' → 'acme-missing': 'acme-missing' is not a known icon/);
+	/* order does not matter: the chained target listed before or after its own pair */
+	const r2 = resolveIconReplace({ 'ti-b': 'ti-a', 'ti-a': 'ti-b' }, id => known.has(id));
+	assert.equal(r2.problems.length, 2, r2.problems.join('\n'));
 });

@@ -106,6 +106,23 @@ test('validator: finds bad ids, kinds, references, urls, icons, tints and missin
 	assert.ok(!all.includes('also used by'), 'a duplicate site id is reported once');
 });
 
+test('validator: an alias cycle is an error, an alias chain is fine', () => {
+	const r = validateManifest({
+		apps: [
+			{ id: 'about', kind: 'page', icon: 'ti-book', name: { en: 'About', de: 'Über' }, url: { en: 'a.html', de: 'b.html' } },
+			{ id: 'old-about', alias: 'about', hidden: true },
+			{ id: 'older-about', alias: 'old-about', hidden: true },
+			{ id: 'loop-a', alias: 'loop-b', hidden: true },
+			{ id: 'loop-b', alias: 'loop-c', hidden: true },
+			{ id: 'loop-c', alias: 'loop-a', hidden: true }
+		]
+	}, ctx());
+	const all = r.errors.map(e => `${e.where}: ${e.msg}`);
+	assert.equal(all.length, 3, all.join('\n'));
+	assert.ok(all[0].startsWith("apps[3] 'loop-a': the aliases form a cycle (loop-a → loop-b → loop-c → loop-a)"), all[0]);
+	assert.ok(all.every(e => e.includes('form a cycle')));
+});
+
 test('validator: terminal files in the object form { url, aliases }', () => {
 	const ok = validateManifest({
 		files: {
@@ -475,6 +492,55 @@ test('validator: brand.glyph from a set passes; an unknown brand.glyph warns', (
 	});
 });
 
+test('validator: config.iconReplace — keys must be known project icons, targets known icons (set, Tabler, custom)', () => {
+	withSets({ 'site/icon-sets/a.json': SET({ 'acme-cog': { k: 'f', e: ['M0 0'] }, 'acme-sun': { k: 'd', e2: ['M0 0'] } }) }, { iconSets: ['site/icon-sets/a.json'] }, sets => {
+		const base = setIconCtx(sets);
+		const c = { ...base, icon: id => (id === 'ti-cookie' ? 'build' : ['ti-user', 'wc-close'].includes(id) ? 'ok' : base.icon(id)) };
+		const ok = validateManifest({ apps: [] }, { ...c, config: { iconReplace: { 'ti-book': 'acme-cog', 'wc-close': 'acme-sun', 'ti-user': 'ti-book' } } });
+		assert.deepEqual(ok.errors, []);
+		assert.deepEqual(ok.warnings.map(w => w.where), ["config iconReplace['ti-user']"], 'a target that is replaced itself: not chained (warning)');
+		assert.match(ok.warnings[0].msg, /'ti-book' is replaced itself — replacements are not chained, 'ti-user' shows 'ti-book'/);
+
+		const bad = validateManifest({ apps: [] }, { ...c, config: { iconReplace: {
+			'ti-nope': 'acme-cog', 'ti-book': 'acme-gone', 'ti-user': 'other-thing', 'wc-close': 'ti-cookie', jpk: 'acme-cog', 'acme-cog': 'ti-book'
+		} } });
+		const errs = bad.errors.map(e => `${e.where}: ${e.msg}`).join('\n');
+		assert.match(errs, /config iconReplace\['ti-nope'\]: 'ti-nope' does not exist in Tabler Icons — nothing to replace/);
+		assert.match(errs, /config iconReplace\['ti-book'\]: target 'acme-gone' is not in the site icon set\(s\) with prefix 'acme' \(site\/icon-sets\/a\.json\)/);
+		assert.match(errs, /config iconReplace\['ti-user'\]: target 'other-thing' is neither a Tabler id/);
+		assert.equal(bad.errors.length, 3, errs);
+		assert.match(bad.warnings.map(w => `${w.where}: ${w.msg}`).join('\n'), /config iconReplace\['wc-close'\]: target 'ti-cookie' is not in src\/icons\/tabler\.js yet — run npm run icons/);
+		assert.ok(!errs.includes('jpk') && !errs.includes("['acme-cog']"), 'keys that are not replaceable ids are config warnings (buildConfig), not checked here');
+
+		/* a Tabler-looking typo says so; a chain only through a pair without an error */
+		const typo = validateManifest({ apps: [] }, { ...c, config: { iconReplace: { 'ti-user': 'ti-book', 'ti-book': 'ti-bookz', 'wc-close': 'wc-nope' } } });
+		const terrs = typo.errors.map(e => `${e.where}: ${e.msg}`).join('\n');
+		assert.match(terrs, /config iconReplace\['ti-book'\]: target 'ti-bookz' does not exist in Tabler Icons — 'ti-book' would stay/);
+		assert.match(terrs, /config iconReplace\['wc-close'\]: target 'wc-nope' is neither a Tabler id/);
+		assert.equal(typo.errors.length, 2, terrs);
+		assert.deepEqual(typo.warnings, [], 'ti-book keeps its own glyph (its pair has an error) — ti-user → ti-book is no chain');
+	});
+});
+
+test('validator: the CLI reports iconReplace problems of the config (shape as config warnings, unknown target as error)', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'p11-replace-'));
+	try {
+		const conf = join(dir, 'config.js');
+		writeFileSync(conf, `${readFileSync(join(ROOT, 'site/config.js'), 'utf8')}\nwindow.DESKTOP_CONFIG.iconReplace = { 'ti-settings': 'ti-sun', 'jpk': 'ti-sun', 'ti-sun': 'acme-gone' };\n`);
+		const r = spawnSync(process.execPath, [join(ROOT, 'tools/validate-manifest.mjs'), '--config', conf, '--json'], { encoding: 'utf8' });
+		const out = JSON.parse(r.stdout);
+		assert.equal(r.status, 1);
+		assert.deepEqual(out.errors.map(e => e.where), ["config iconReplace['ti-sun']"]);
+		assert.match(out.errors[0].msg, /target 'acme-gone' is neither a Tabler id/);
+		const warns = out.warnings.map(w => w.msg).join('\n');
+		assert.match(warns, /config\.iconReplace: 'jpk' is not a replaceable icon id/);
+		assert.doesNotMatch(warns, /is replaced itself/, "'ti-sun' → 'acme-gone' has an error, so 'ti-sun' is not replaced — no chain");
+		assert.match(warns, /config\.iconReplace: 'jpk' is not a replaceable icon id/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test('validator: site data — fortunes and feeds per language', () => {
 	const files = {
 		'd/en.json': { items: ['x'] },
@@ -522,6 +588,47 @@ test('validator: fortune texts need every configured language', async () => {
 	r = run({ next: 3 });
 	assert.match(r.errors[0].msg, /must be a text/);
 	assert.deepEqual(run({ next: { en: 'N', de: 'N' } }).errors, []);
+});
+
+test('validator: fortune texts with placeholders the app does not fill', async () => {
+	const { TEXT_KEYS, placeholderWarning } = await import('../src/apps/fortune/model.js');
+	const run = texts => validateSiteData({ fortune: { texts } },
+		{ languages: ['en', 'de'], read: () => undefined, textKeys: TEXT_KEYS, placeholderWarning, modules: new Set(['fortune']) });
+	let r = run({ askText: { en: '{provider} from {host}', de: '{provider} von {host}' }, keys: '{space}', storageLabel: 'Facts', askText2: '@my.x' });
+	assert.deepEqual([...r.errors, ...r.warnings], []);
+	r = run({ error: { en: '{hots} is silent', de: '{host} schweigt' }, web: 'On {host}' });
+	assert.deepEqual(r.errors, []);
+	assert.equal(r.warnings.length, 2);
+	assert.match(r.warnings[0].msg, /texts\.error uses \{hots\}, which the app does not fill \(placeholders: host\)/);
+	assert.equal(r.warnings[0].where, 'config fortune.texts.error');
+	assert.match(r.warnings[1].msg, /placeholders: none/);
+	/* without placeholderWarning (an older model.js) nothing is checked */
+	r = validateSiteData({ fortune: { texts: { web: 'On {host}' } } },
+		{ languages: ['en'], read: () => undefined, textKeys: TEXT_KEYS, modules: new Set(['fortune']) });
+	assert.deepEqual(r.warnings, []);
+});
+
+test('validator: a replaced askText must name the host of a built-in provider', async () => {
+	const { TEXT_KEYS, placeholderWarning, hostWarning } = await import('../src/apps/fortune/model.js');
+	const providerHosts = { facts: ['facts.example.org'] };
+	const run = (askText, remote = 'facts', opts = {}) => validateSiteData({ fortune: { remote, texts: { askText } } },
+		{ languages: ['en', 'de'], read: () => undefined, textKeys: TEXT_KEYS, placeholderWarning, hostWarning, providerHosts, modules: new Set(['fortune']), ...opts });
+	for (const ok of [
+		{ en: 'Load from {host}?', de: 'Von {host} laden?' },
+		{ en: 'Load from facts.example.org?', de: 'Von FACTS.example.org laden?' },
+		'@my.ask'
+	]) assert.deepEqual(run(ok).warnings, [], JSON.stringify(ok));
+	let r = run({ en: 'Load facts?', de: 'Von {host} laden?' });
+	assert.deepEqual(r.errors, []);
+	assert.equal(r.warnings.length, 1);
+	assert.equal(r.warnings[0].where, 'config fortune.texts.askText');
+	assert.match(r.warnings[0].msg, /texts\.askText \('en'\) does not name the host the request goes to — use \{host\} or write out facts\.example\.org/);
+	r = run('Load facts?');
+	assert.match(r.warnings[0].msg, /^texts\.askText does not name the host/);
+	/* hosts unknown here (no remote, a provider a module adds) or no hostWarning → not checked */
+	assert.deepEqual(run('Load facts?', null).warnings, []);
+	assert.deepEqual(run('Load facts?', 'from-a-module').warnings, []);
+	assert.deepEqual(run('Load facts?', 'facts', { hostWarning: null }).warnings, []);
 });
 
 test('validator CLI: the example site has no errors and no warnings', () => {

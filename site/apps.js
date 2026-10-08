@@ -25,7 +25,9 @@
                         (leave it off for pages you do not control; sandbox those)
      kind 'link'        an external page in a new tab         url: 'https://…'
      kind 'collection'  a Catalog window                      collection: '<collection id>'
-     alias: '<app id>'  shows and launches another app
+     alias: '<app id>'  shows and launches another app — e.g. an old id kept for old links after a rename
+                        ({ id: 'old-name', alias: 'new-name', hidden: true }); never a desktop icon or dock
+                        place of its own: a stored dock pin of it moves to the target
 
    collections: [{ id, prefix, app, name, desc, icon, tint, sort: 'alpha' | 'manual',
                    itemKind: 'auto' | 'link' | 'web' | 'page' | 'image', basePath, urlTemplate, size, allowHttp,

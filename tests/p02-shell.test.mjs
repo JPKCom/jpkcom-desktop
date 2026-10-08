@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseKeys, matchKeys, searchShortcut } from '../src/shell/shortcuts.js';
-import { cleanPins, movePin } from '../src/shell/dock.js';
+import { cleanPins, movePin, pinTarget } from '../src/shell/dock.js';
+import { desktopApps } from '../src/shell/desktop-icons.js';
 import { parseHash, hashOf } from '../src/shell/deeplinks.js';
 import { kindOf, accepts, assign } from '../src/shell/drop.js';
 import { cleanSiteMenus, siteEntries } from '../src/shell/menubar.js';
@@ -58,6 +59,115 @@ test('dock: cleanPins keeps valid unique ids up to max', () => {
 	assert.deepEqual(cleanPins(['a', 'b', 'c'], 2), ['a', 'b']);
 	assert.equal(cleanPins('notes'), null);
 	assert.equal(cleanPins(null), null);
+});
+
+/* A site that renamed apps and kept the old ids as aliases for old links (ARCHITECTURE §7 "Aliases") */
+const aliasRegistry = () => {
+	const reg = createRegistry({ warn: () => {} });
+	reg.load({
+		apps: [
+			{ id: 'notes', kind: 'web', name: 'Notes', url: '/notes/', dock: true, desktop: true },
+			{ id: 'calc', kind: 'web', name: 'Calculator', url: '/calc/', dock: true },
+			{ id: 'old-notes', alias: 'notes', hidden: true },
+			{ id: 'older-notes', alias: 'old-notes', hidden: true },
+			{ id: 'notes-too', alias: 'notes' },
+			{ id: 'old-ghost', alias: 'not-there-yet', hidden: true },
+			/* a hidden web window and a visible alias of it (pinnable as the alias, as in 1.2) */
+			{ id: 'wiki-window', kind: 'web', name: 'Wiki', url: '/wiki/', hidden: true },
+			{ id: 'wiki', alias: 'wiki-window', hidden: false, name: 'Wiki' },
+			{ id: 'old-wiki', alias: 'wiki-window', hidden: true },
+			/* a manifest mistake: two aliases pointing at each other */
+			{ id: 'cyc-a', alias: 'cyc-b', hidden: true },
+			{ id: 'cyc-b', alias: 'cyc-a', hidden: true }
+		],
+		collections: [
+			{ id: 'picks', prefix: 'pick', name: 'Picks', itemKind: 'web', items: [{ slug: 'notes', app: 'notes' }] }
+		]
+	});
+	return reg;
+};
+
+/* the dock's pinnable() without the availability check */
+const canPin = a => typeof a.kind === 'string' && !a.hidden && !a.nodock;
+
+test('dock: cleanPins resolves alias ids to their target and keeps the first of each', () => {
+	const reg = aliasRegistry();
+	const resolve = id => pinTarget(id, x => reg.get(x), canPin);
+	assert.equal(reg.get('old-notes').alias, 'notes');
+	assert.equal(reg.get('older-notes').alias, 'notes', 'an alias of an alias ends at the app');
+	/* a stored list from before the rename: the old id keeps its place, the later target pin goes */
+	assert.deepEqual(cleanPins(['old-notes', 'calc', 'notes', 'older-notes', 'pick-notes', 'notes-too'], 60, resolve), ['notes', 'calc']);
+	assert.deepEqual(cleanPins(['calc', 'old-notes'], 60, resolve), ['calc', 'notes'], 'order kept');
+	/* ids the registry does not know (yet) stay; a hidden alias whose target is missing points at the target */
+	assert.deepEqual(cleanPins(['later-app', 'old-ghost'], 60, resolve), ['later-app', 'not-there-yet']);
+	/* max counts the resolved list; a resolver that answers nonsense keeps the stored id */
+	assert.deepEqual(cleanPins(['old-notes', 'notes', 'calc'], 2, resolve), ['notes', 'calc']);
+	assert.deepEqual(cleanPins(['notes', 'calc'], 60, () => 'Not An Id'), ['notes', 'calc']);
+	assert.deepEqual(cleanPins(['notes', 'notes'], 60, null), ['notes'], 'without a resolver as before');
+	assert.equal(cleanPins('old-notes', 60, resolve), null);
+});
+
+test('dock: pinTarget ends at an app or keeps the id, so resolving settles in one pass', () => {
+	const reg = aliasRegistry();
+	const get = x => reg.get(x);
+	const resolve = id => pinTarget(id, get, canPin);
+	assert.equal(resolve('notes'), 'notes');
+	assert.equal(resolve('old-notes'), 'notes');
+	assert.equal(resolve('later-app'), 'later-app', 'unknown ids stay');
+	/* a cycle never resolves: the stored id stays (before, a → b → a → … flipped on every pass) */
+	assert.equal(resolve('cyc-a'), 'cyc-a');
+	assert.equal(resolve('cyc-b'), 'cyc-b');
+	const once = cleanPins(['cyc-a', 'notes'], 60, resolve);
+	assert.deepEqual(once, ['cyc-a', 'notes']);
+	assert.deepEqual(cleanPins(once, 60, resolve), once);
+	/* a visible alias of an app that cannot be pinned stays the alias; a hidden one moves to the target */
+	assert.equal(resolve('wiki'), 'wiki');
+	assert.equal(resolve('old-wiki'), 'wiki-window');
+	/* without canPin every alias that ends at an app resolves */
+	assert.equal(pinTarget('wiki', get), 'wiki-window');
+	/* idempotent for every id the registry knows, and for raw views */
+	for (const a of reg.list({ hidden: true })) assert.equal(resolve(resolve(a.id)), resolve(a.id), a.id);
+	assert.equal(pinTarget('x', () => ({ id: 'x', alias: 'x' })), 'x', 'an alias of itself stays');
+	assert.equal(pinTarget('x', () => null), 'x');
+});
+
+test('dock: alias pins do not depend on which kinds the modules have defined yet', () => {
+	/* The dock resolves (and writes back) its own list at the shell's setup, before the Reader,
+	   Catalog and Viewer define page/collection/image: the wm's built-in kinds only */
+	const defined = new Set(['web', 'app', 'native', 'link', 'launcher']);
+	const reg = createRegistry({ warn: () => {}, kindCheck: k => defined.has(k) });
+	reg.load({ apps: [
+		{ id: 'about-page', kind: 'page', name: 'About', url: '/about/', hidden: true },
+		{ id: 'about', alias: 'about-page', hidden: false, name: 'About' },
+		{ id: 'old-about', alias: 'about-page', hidden: true },
+		{ id: 'help', kind: 'page', name: 'Help', url: '/help/' },
+		{ id: 'old-help', alias: 'help', hidden: true },
+		{ id: 'later', alias: 'vault-app' },
+		{ id: 'old-later', alias: 'vault-app', hidden: true }
+	] });
+	/* the dock's two tests: dockable (static, decides the alias rule) and pinnable (launchable now) */
+	const dockable = a => !!a && typeof a.kind === 'string' && a.kind !== 'launcher' && !a.hidden && !a.nodock;
+	const pinnable = a => dockable(a) && reg.available(a);
+	const resolve = id => pinTarget(id, x => reg.get(x), dockable);
+	const stored = ['about', 'old-about', 'old-help', 'later', 'old-later'];
+	const atStart = cleanPins(stored, 60, resolve);
+	assert.deepEqual(atStart, ['about', 'about-page', 'help', 'later', 'vault-app']);
+	assert.equal(pinnable(reg.get('about')), false, 'page is not defined yet');
+	defined.add('page');
+	assert.deepEqual(cleanPins(atStart, 60, resolve), atStart, 'the same list once page is defined');
+	assert.equal(pinnable(reg.get('about')), true, 'the visible alias is shown');
+	/* a visible alias waits for a target that comes later; then the usual rule applies */
+	reg.register({ id: 'vault-app', kind: 'page', name: 'Vault', url: '/v/' });
+	assert.deepEqual(cleanPins(atStart, 60, resolve), ['about', 'about-page', 'help', 'vault-app']);
+});
+
+test('desktop icons: desktopApps skips aliases, which inherit desktop: true from their target', () => {
+	const reg = aliasRegistry();
+	assert.equal(reg.get('notes-too').desktop, true, 'the alias view inherits the flag');
+	assert.equal(reg.get('pick-notes').desktop, true, 'so does an alias item');
+	assert.deepEqual(desktopApps(reg.list({ hidden: true })).map(a => a.id), ['notes']);
+	assert.deepEqual(desktopApps(reg.list()).map(a => a.id), ['notes']);
+	assert.deepEqual(desktopApps([{ id: 'a', desktop: true }, { id: 'b' }, { id: 'c', desktop: true, alias: 'a' }]).map(a => a.id), ['a']);
 });
 
 test('dock: movePin swaps within the section and keeps hidden pins', () => {

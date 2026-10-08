@@ -11,6 +11,13 @@
    the context menu — always within the apps or within the links; "All apps"
    stays first, running unpinned apps stay where they are.
 
+   A pin stands for an app, never for an alias of it: an alias id (an old id
+   kept for old links, a bookmark pointing at an app) pins its target — in
+   the own list, in config.dock.pins and in pin() — and the own list is
+   written back resolved (ARCHITECTURE §7 "Aliases"). Exceptions keep the
+   alias id: a visible alias of an app that cannot be pinned, and an alias
+   that does not end at an app (a cycle) — see pinTarget().
+
    Size and magnification: body.dock-small / dock-large / dock-magnify from
    the stored values 'docksize' and 'magnify' (defaults config.dock.size,
    config.dock.magnify) — the settings write them through this service.
@@ -38,10 +45,36 @@ export const SIZES = ['small', 'medium', 'large'];
 
 const maxPins = () => (Number.isInteger(config.dock?.max) && config.dock.max > 0 ? Math.min(config.dock.max, 500) : 60);
 
-/** A stored pin list: app ids, no duplicates, at most max (pure, exported for tests). */
-export function cleanPins(v, max = 60) {
+/**
+ * A stored pin list: app ids, each through resolve(id) → id (the dock maps an alias to its
+ * target), no duplicates (the first keeps its place), at most max (pure, exported for tests).
+ */
+export function cleanPins(v, max = 60, resolve = null) {
 	const list = V.list(v, V.id, max * 4);
-	return list ? [...new Set(list)].slice(0, max) : null;
+	if (!list) return null;
+	const ids = typeof resolve === 'function' ? list.map(id => V.id(resolve(id)) ?? id) : list;
+	return [...new Set(ids)].slice(0, max);
+}
+
+/**
+ * The id a pin of id stands for (pure, exported for tests): an alias's target — get(id) is the
+ * registry view, its `alias` the target id. Only to the end of the chain: when the target is
+ * itself still an alias (a cycle, or a chain longer than the registry follows) the id stays, so
+ * resolving settles after one step. A visible alias of an app that cannot be pinned (e.g. a
+ * hidden web window) stays too: canPin(view) → whether that view may ever take a dock place
+ * (static — not whether its kind can open yet, so the answer does not change while modules
+ * load). A visible alias whose target is not registered yet stays until it is.
+ */
+export function pinTarget(id, get, canPin = () => true) {
+	const app = get(id);
+	const target = app?.alias;
+	if (typeof target !== 'string' || target === id) return id;
+	const to = get(target);
+	/* a target the registry does not know yet (vault, module): a visible alias waits for it */
+	if (!to) return app.hidden || app.nodock ? target : id;
+	if (to.alias != null) return id;
+	if (!canPin(to) && canPin(app)) return id;
+	return target;
 }
 
 /**
@@ -67,24 +100,47 @@ let dragged = false;
 const rtl = () => document.documentElement.dir === 'rtl';
 const wm = () => service('wm');
 
-/* Pinnable: launchable now, not the launcher, not hidden, not excluded */
-const pinnable = app => !!app && app.kind !== 'launcher' && !app.hidden && !app.nodock && registry.available(app);
+/* May take a dock place at all: not the launcher, not hidden, not excluded (an alias whose target
+   the registry cannot reach has no kind). Pinnable: that, and launchable now */
+const dockable = app => !!app && typeof app.kind === 'string' && app.kind !== 'launcher' && !app.hidden && !app.nodock;
+const pinnable = app => dockable(app) && registry.available(app);
+
+/* An alias (a collection item or an old id that stands for another app) pins that app (pinTarget);
+   an id the registry does not know (yet) stays as it is. Decided on dockable(), not pinnable():
+   at the dock's start the modules have not defined their kinds yet (page, collection, image …),
+   and the resolved list is written back */
+const realId = id => pinTarget(id, x => registry.get(x), dockable);
 
 function defaults() {
 	const pins = config.dock?.pins;
-	if (Array.isArray(pins)) return pins.filter(id => typeof id === 'string' && pinnable(registry.get(id)));
+	if (Array.isArray(pins)) return [...new Set(pins.filter(id => typeof id === 'string').map(realId))].filter(id => pinnable(registry.get(id)));
+	/* the dock flag an alias inherits is its target's place */
 	return registry.list().filter(a => a.dock && pinnable(a) && !a.alias).map(a => a.id);
 }
 
 const pins = () => custom ?? defaults();
-/* A collection item that stands for another app pins that app */
-const realId = id => registry.get(id)?.alias ?? id;
 const isPinned = id => pins().includes(realId(id));
 const isLink = id => registry.get(id)?.kind === 'link';
 const visible = id => pinnable(registry.get(id));
 
-function loadPins() {
+/* write: false when another tab wrote the list — it is resolved here, but only the writing tab's
+   own resolving goes back to storage (two tabs never answer each other's writes) */
+function loadPins(write = true) {
 	custom = store.getJson(PINS_KEY, v => cleanPins(v, maxPins()), null);
+	resolvePins(write);
+}
+
+/* The own list with every alias id resolved to its target and the duplicates that makes dropped;
+   written back when that changed anything → true (an alias the registry learns later — vault,
+   module — is resolved on the next 'apps:change'). Resolving settles: a resolved id is never an
+   alias again (pinTarget), so a second pass changes nothing. */
+function resolvePins(write = true) {
+	if (!custom) return false;
+	const next = cleanPins(custom, maxPins(), realId);
+	if (next.length === custom.length && next.every((id, i) => id === custom[i])) return false;
+	custom = next;
+	if (write) store.setJson(PINS_KEY, custom);
+	return true;
 }
 
 function save(next) {
@@ -102,7 +158,8 @@ function trashApp() {
 function entries() {
 	const main = [];
 	const links = [];
-	for (const id of pins()) {
+	/* resolved once more: an alias registered since the last 'apps:change' never shows twice */
+	for (const id of new Set(pins().map(realId))) {
 		const app = registry.get(id);
 		if (!pinnable(app)) continue;
 		(app.kind === 'link' ? links : main).push(app);
@@ -340,7 +397,11 @@ function wireEvents() {
 	}, true);
 
 	const quiet = () => render();
-	for (const name of ['apps:change', 'window:close', 'window:minimize', 'window:focus', 'trash:change', 'vault:change']) on(name, quiet);
+	for (const name of ['window:close', 'window:minimize', 'window:focus', 'trash:change', 'vault:change']) on(name, quiet);
+	on('apps:change', () => {
+		if (resolvePins()) emit('dock:change', { pins: [...custom] });
+		render();
+	});
 	on('window:open', ({ win, restore } = {}) => {
 		if (restore || !win) render();
 		else bounce(win.app.id);
@@ -354,7 +415,7 @@ function wireEvents() {
 	on('service:provide', ({ name } = {}) => { if (name === 'launcher' || name === 'trash') render(true); });
 	on('store:change', ({ name, external } = {}) => {
 		if (name === PINS_KEY && external) {
-			loadPins();
+			loadPins(false);
 			render();
 		}
 		if (name === SIZE_KEY || name === MAGNIFY_KEY) applyPrefs();

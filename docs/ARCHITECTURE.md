@@ -135,11 +135,14 @@ so the desktop booted cleanly at every stage. All of them are replaced now; the 
 main.js
   1. initEnv()           body.compact (config.ui.compactQuery), body.standalone; scroll lock
                          (main.js then re-sets --anim from the validated config.ui.animMs)
-  2. initI18n()          start language (?lang → stored → navigator → default); _meta of all languages and
-                         the 'core' namespace for the whole fallback chain side by side → <html lang dir>
+  2. initI18n()          start language (?lang → stored → navigator.languages → default, §12 detect());
+                         _meta of all languages and the 'core' namespace for the whole fallback chain
+                         side by side → <html lang dir>
   3. site data           import(config.site.data) → registry.load(); registry.authorLinks(config.author.links)
      icon sets           fetch every config.iconSets file (JSON) → cleanIconSet() → icons.addIconSet();
                          a set that fails in any way is warned about and left out — never fails the boot
+     icon replacement    once 2 and 3 are done: icons.setIconReplace(config.iconReplace) — pairs whose
+                         key or target is not a known icon are warned about and dropped (§13)
                          (2 and 3 run at the same time; nothing of 5 is imported before they are done)
   4. expose()            window.JPKDesk = the frozen Desk API
   5. modules.loadAll()   [core: wm, shell, panels] → config.modules → config.apps
@@ -155,8 +158,8 @@ main.js
 Rules:
 
 - **Icon sets are complete before the first module is imported**: a module may call `hasIcon()` /
-  `icon()` at import time or in `setup()` and sees every set icon. Icons added later with
-  `Desk.icons.add()` are not (§13).
+  `icon()` at import time or in `setup()` and sees every set icon — and `config.iconReplace` is in force.
+  Icons added later with `Desk.icons.add()` are not (§13).
 - A core part must not rely on another core part's `setup()` having run unless it declares
   `requires: ['wm']`. Late work ("after everything is loaded") listens to `'desk:ready'`.
 - **`'desk:ready'` listeners run in module setup order**: wm → shell → panels → config.modules →
@@ -211,8 +214,15 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
   - `connect-src` + the hosts of the online services the site offers (`consent.hosts()`;
     `serve.mjs --connect https://api.open-meteo.com,…`);
   - `frame-src` + the origins of `web` apps whose url lives on another origin (`serve.mjs --frame https://…`);
-  - `script-src` + `'wasm-unsafe-eval'` only for WebAssembly — the optional Pagefind search provider (P5)
-    needs it (`serve.mjs --wasm`); nothing else in the desktop does.
+  - `script-src` + `'wasm-unsafe-eval'` only for WebAssembly — the optional Pagefind search provider (P5),
+    needed wherever its WebAssembly is compiled under a policy without it. Pagefind compiles it in a
+    worker started from `<bundle>/pagefind-worker.js`, and a worker loaded from a URL runs under the
+    policy sent with **its own** script, not the page's (with the shipped server snippets that is this
+    policy for every file they serve). It falls back to the page — this policy — when there is no worker
+    file, the worker fails, or it has not started within 5 s (Pagefind 1.5; a slow connection suffices;
+    console "falling back to main thread"). That fallback is a runtime event per visitor, so **this policy
+    needs it whenever `search.pagefind` is set**; a bundle sent without a policy only spares the worker's
+    (`serve.mjs --wasm` for a bundle it serves). Nothing else in the desktop needs it.
 
   The server snippets (P12) list the same three extensions as commented-out lines.
   Further headers: `Permissions-Policy`
@@ -231,10 +241,31 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
   reaches the sprite.
 - **Foreign HTML** (Reader) is fetched, parsed inert with `DOMParser`, sanitised with an **allowlist**
   of elements/attributes (no `style`, no `on*`, no `<base>`, no SVG animation), URLs re-resolved and
-  checked, then imported node by node. Browsers apply the page CSP to inert documents too: a fetched
-  page with `<base>`, `<style>` or `style=""` yields blocked `base-uri`/`style-src` reports while it is
-  parsed (nothing is applied — the sanitiser removes them). Content written for the Reader should avoid
-  inline styles.
+  checked, then imported node by node. Chromium checks the CSP of the parser's window while it parses —
+  every `<base>`, `<style>` and `style=""` of a fetched page would raise a (blocked) report, before any
+  sanitiser can see the node. The Reader therefore parses with the `DOMParser` of a same-origin
+  `about:blank` iframe that is removed before the first parse (`src/modules/reader/parse.js`): a document
+  of a detached window gets no CSP check and no report; it is just as inert, and the sanitiser still
+  removes all of them. Where that parser is unavailable the window's own `DOMParser` is used (reports
+  again, nothing applied). The parsed document's URL is `about:blank`: page URLs are always resolved
+  against the page's own URL from the attribute text, never through the document.
+- **Code colours** (Reader, `config.reader.keepStyles`, §6): the page's `style` text is **never applied**.
+  Inside `config.reader.styleScope` (default `pre, code`) it is parsed into declarations and only an
+  allowlist survives — `color`, `background-color` (also `background` when it is one plain colour),
+  `font-style`, `font-weight`, `text-decoration-line` (also `text-decoration` with line keywords only)
+  and custom properties with the prefix `config.reader.styleVars` — with plain-colour values only (hex,
+  `rgb[a]()`, `hsl[a]()`, named colours; keywords for the font and decoration properties). Never `url()`,
+  `var()`, `calc()`, `env()`, image functions, `currentcolor`, `!important`, escapes, comments or quotes
+  (the whole attribute is refused then), never a layout, position, size or display property. The Reader
+  writes each value itself in a canonical form and sets it through CSSOM (`style.setProperty`) on the
+  imported node. A **contrast guard** keeps hidden text out: a kept text/background pair must reach
+  2:1 (alpha blended); inside a `<pre>` against the code block's surface, outside one only when the page
+  itself gives both colours (own or from a styled ancestor in scope) — otherwise colour and background
+  of that element go. The translucent backgrounds the desktop lays on `mark` and `kbd` in between count.
+  An element that keeps a colour gets the checked text colour written (also when the page gave only a
+  background) and the attribute `data-reader-kept` (a page cannot set it: every `data-*` goes); inside
+  it every element inherits that colour, so no desktop rule (the link colour, heading colours) draws
+  text in a colour the guard never saw — links there are underlined.
 - **Files from the device** (drops, "Open …" pickers: image viewer, media players) live in `blob:` URLs
   of the desktop's origin and are **never opened as a document** — an SVG or HTML file there would run
   with access to the desktop's storage. So:
@@ -284,8 +315,8 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
 and validates. `Desk.config` is the merged, deep-frozen result.
 
 Merge: plain objects merge recursively; arrays and scalars replace; language maps at
-`site.description`, `site.home`, `notify.feeds`, `about.moreInfo`, `about.rows`, `terminal.manUrl`
-replace as a whole;
+`site.description`, `site.home`, `notify.feeds`, `notify.label`, `about.moreInfo`, `about.rows`,
+`terminal.manUrl` replace as a whole;
 in `theme.accents`, `theme.tints`, `services` a `null` removes a default (a removed service counts as
 not offered). Invalid values → `console.warn` + default.
 
@@ -301,6 +332,7 @@ not offered). Invalid values → `console.warn` + default.
 | `site` | `{ data: 'site/apps.js', origin: null, hosts: [], home: null, legal: [], description: {…}, routes: [], defaultPageApp: 'about' }` | manifest path, own hosts, routing rules |
 | `about` | `{ rows: null, moreInfo: null, copyright: { holder, since: 2026 } }` | About panel |
 | `theme` | `{ default: 'dark', accent: 'blue', allowCustomAccent: true, accents: {7}, tints: {10}, windowControls: { side: 'left', style: 'classic' } }` | appearance |
+| `iconReplace` | `{}` | the desktop's own glyphs drawn with other icons (§13 "Replacing the desktop's glyphs"): `{ '<project icon id>': '<icon id>' }`, e.g. `{ 'ti-settings': 'acme-cog' }`; keys `ti-…`, `tif-…`, `wc-…`, `tile-…` (never `jpk`/`jpk-…`), values any icon id (normally of a site icon set), at most 500 pairs, one step (never chained). A key that is not such an id, a value that is not an icon id or equals its key, a non-object → warned and dropped; at boot a key or target that is not a known icon → warned, the original glyph stays |
 | `iconSets` | `[]` | site icon sets (§13): paths of JSON files relative to the installation root (`'site/icon-sets/duotone.json'`; letters, digits, `. _ - /` only, no segment starting with `.`), at most 8, loaded before the modules; entries that are not such a path, duplicates and a set below `vault.dir` are warned about and dropped |
 | `wallpaper` | `{ default: { type: 'gradient', from: '#3c4955', to: '#0c1925', dir: 'glow' }, motifs: [9], colors: [8], gradients: [7], images: [], reducedEffects: 'auto' }` | wallpaper panel data |
 | `ui` | `{ animMs: 240, compactQuery: '(max-width: 760px), (max-height: 520px) and (pointer: coarse)' }` | motion, phone breakpoint |
@@ -313,13 +345,13 @@ not offered). Invalid values → `console.warn` + default.
 | `modules` | `['reader','viewer','catalog','search','calendar','notify']` | optional modules (`'id'` or `{ id, src }`) |
 | `apps` | `['editor','notes','todo','calc','terminal','media','fortune']` | apps |
 | `services` | `{ weather: false, geolocation: false, fortune: false, dns: false }` | site-level switch per online service |
-| `reader` | `{ rules: [{ match: 'site/content/', content, title, lead }], titleSeparator, cacheSize: 24 }` | content extraction; `match`: a path prefix **relative to the installation root** (resolved against `ROOT` like `site.routes[].prefix`, so it works in a sub-folder) or a regular expression starting with `^` (tested against the absolute path) |
-| `search` | `{ pagefind: null, maxPerGroup: 6, shortcut: 'Mod+K' }` | `pagefind`: `null`, a path string, or `{ path, excerptLength: 16, maxHits: 8, label: null (→ "Full-text search"), order: 900 }` (needs `'wasm-unsafe-eval'`, §5); `maxPerGroup` 1–50; `shortcut` a key spec or `null` (none) |
-| `notify` | `{ feeds: { de, en }, app: 'about', hideMs: 9000, maxBanners: 3, pathPrefix: null }` | JSON Feed per language (same origin); `app`: the page app items open in (`null` = through the router); `pathPrefix`: only items below this path (relative to the root) |
+| `reader` | `{ rules: [{ match: 'site/content/', content, title, lead }], titleSeparator, cacheSize: 24, keepStyles: true, styleScope: 'pre, code', styleVars: null }` | content extraction; `match`: a path prefix **relative to the installation root** (resolved against `ROOT` like `site.routes[].prefix`, so it works in a sub-folder) or a regular expression starting with `^` (tested against the absolute path). `keepStyles`: keep code colours (`false` = drop every inline style, as before 1.3.0; §5 "Code colours"); `styleScope`: selector list matched against the page's own markup — an element that matches or lies inside a match may keep them (invalid → default); `styleVars`: `null` or a custom-property prefix such as `'--shiki-'` (`--` + lower-case letters/digits/hyphens, ending in `-`, max 32 characters) whose plain-colour values are kept too, for a site stylesheet (`.reader-page .c-…`) to use (never one that starts with a word of the desktop tokens reader.css reads — `--accent-`, `--focus-`, `--font-`, `--highlight-`, `--ink-`, `--line-`, `--radius-`, `--reader-`, `--scroll-`, `--text-`, `--win-`: refused with a warning) — the kept colours are inline, so such a rule needs `!important` and must set text and background together (recipe: p04; the contrast guard does not check it) |
+| `search` | `{ pagefind: null, maxPerGroup: 6, shortcut: 'Mod+K' }` | `pagefind`: `null`, a path string, or `{ path, excerptLength: 16, maxHits: 8, label: null (→ "Full-text search"), order: 900 }` (needs `'wasm-unsafe-eval'` in the desktop's policy and in the one sent with `pagefind-worker.js`, §5); `maxPerGroup` 1–50; `shortcut` a key spec or `null` (none) |
+| `notify` | `{ feeds: { de, en }, app: 'about', hideMs: 9000, maxBanners: 3, pathPrefix: null, label: null }` | JSON Feed per language (same origin); `app`: the page app items open in (`null` = through the router); `pathPrefix`: only items below this path (relative to the root); `label`: `null` or a text / `{ lang: text }` map (at most 60 characters) shown before the app name in the banners' meta line (`<label> · <app name>`). A banner shows the tile and name of the app its article opens in — `app` when it can open now, else the app the router sends the URL to (a routed app or the page app with the longest URL prefix; a file or an app that cannot open → a bell); the summary banner shows that app when all new articles open in the same one and opens it when it is their home (`app`, a routed app that is not a page app, or a page app — routed or not — one of whose URLs holds every article; not `site.defaultPageApp` merely showing them), else it opens the newest article |
 | `holidays` | `{ region: null }` | region id, e.g. `'de-by'` |
 | `calendar` | `{ firstDay: 'auto', weekNumbers: true }` | |
 | `weather` | `{ provider: 'open-meteo', units: 'metric', defaultPlace: 'berlin', places: [5], freshMs: 900000, maxAgeMs: 10800000, everyMs: 1800000 }` | `provider`: `'open-meteo'` \| `'brightsky'` \| one added with `Desk.weather.addProvider()`; `units` `metric` \| `imperial`; `everyMs`: refresh interval |
-| `fortune` | `{ remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} }` | `remote`: an online source — `'jokeapi'`, `'uselessfacts'` or one a module adds (contribution `fortuneProviders`, §8, or `Desk.fortune.addProvider()` in its `setup()`); it needs `services.fortune` and its hosts in `connect-src`; an id no module provides is reported once at `'modules:ready'`; `local`: `false` = no built-in sayings (online only: nothing is fetched from `dir`, the service worker precaches nothing for it, the terminal command `fortune` is hidden; needs `remote`, else a warning and `true`); `dir`: folder of the local `<lang>.json` files (relative to the root); `langs`: the languages that have such a file — only these are fetched (`null`: try every language of the chain); `block`: category ids never shown (local and remote); `texts`: `{ <key>: text }` replaces texts of the app that name it (keys in P11 "App texts"), e.g. after renaming it with an override record |
+| `fortune` | `{ remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} }` | `remote`: an online source — `'jokeapi'`, `'uselessfacts'` or one a module adds (contribution `fortuneProviders`, §8, or `Desk.fortune.addProvider()` in its `setup()`); it needs `services.fortune` and its hosts in `connect-src`; an id no module provides is reported once at `'modules:ready'`; `local`: `false` = no built-in sayings (online only: nothing is fetched from `dir`, the service worker precaches nothing for it, the terminal command `fortune` is hidden; needs `remote`, else a warning and `true`); `dir`: folder of the local `<lang>.json` files (relative to the root); `langs`: the languages that have such a file — only these are fetched (`null`: try every language of the chain); `block`: category ids never shown (local and remote); `texts`: `{ <key>: text }` replaces texts of the app that name or describe it or its source — buttons, states, the consent question, the key hint, the terminal help, the consent row and the Backup/Reset label (keys: `model.js` `TEXT_KEYS`, list in P11 "App texts"), e.g. after renaming it with an override record; a text may use the placeholders the app fills for its key (`TEXT_PARAMS`: `askText` `{provider}` `{host}`, `askLang` `{language}`, `keys` `{space}` `{back}` `{next}`, `error` `{host}`) |
 | `media` | `{ maxItems: 200, seekStep: 5 }` | audio/video players: longest playlist (1–1000), seconds for ←/→ (1–60) |
 | `editor` | `{ maxTabs: 20, maxFileBytes: 5242880, wrap: false, invisibles: true }` | tabs at most (1–100), largest file that opens, word wrap / invisible characters before the user chose |
 | `calc` | `{ historySize: 50 }` | calculations kept (0–500) |
@@ -342,11 +374,13 @@ The Fortune descriptor's `validateConfig()` cleans `fortune.local` and `fortune.
 | `texts` not a plain object | `{}` | `texts must be an object { key: text } — ignored` |
 | `texts.<key>` with a key not in `TEXT_KEYS` | skipped | `texts.<key> cannot be replaced (keys: <list>) — skipped` |
 | `texts.<key>` not a text (non-empty string, `'@ns.key'` or a non-empty `{ lang: text }` map of non-empty strings) | skipped | `texts.<key> must be a text, '@ns.key' or { lang: text } — skipped` |
+| `texts.<key>` (string or language map) with a `{name}` the app does not fill for that key (`TEXT_PARAMS`; `'@ns.key'` is not checked here) | kept (`{name}` stays as written) | `texts.<key> uses {name}, which the app does not fill (placeholders: <list> \| none) — left as written` |
+| `texts.askText` (string or language map) that names neither `{host}` nor a host of the provider — checked at `'modules:ready'` when the online source is offered (the provider is known then), and by `npm run validate` for a built-in `remote` | kept | `[fortune] config.fortune.texts.askText (<langs>) does not name the host the request goes to — use {host} or write out <hosts>` |
 
 `DEFAULTS` is the single source of defaults and holds **every key any shipped part reads** (so
 `Desk.config` shows the full shape and `sw.js`/the tools see the same defaults). Modules still clean their
-own section: a module validates it before `setup()` with the descriptor fields `configKey` +
-`validateConfig(section, warn) → cleaned` (§8); the loader runs it once (on a writable copy) and keeps
+own section: a module validates it before its declared parts are registered and before `setup()` with the
+descriptor fields `configKey` + `validateConfig(section, warn) → cleaned` (§8); the loader runs it once (on a writable copy) and keeps
 the frozen result in `Desk.modules.config(id)`. Without `validateConfig`, `Desk.modules.config(id)` is
 the merged section as it is. A new module adds its keys to `DEFAULTS` and the cleaning to its own
 descriptor — and every new key gets a comment in `site/config.js`.
@@ -381,8 +415,37 @@ export default {
 | `linkPaths` | boolean | `web`: a deep link may open the window at a location of its own (`#app=<id>&path=/…`, §15). Default `false`: such a link opens the start page. Leave it off for apps that show content you do not control (uploads, user pages) and sandbox those (§5) |
 | `size` | `[w, h]` | default window size |
 | `fixed`, `desktop`, `dock`, `hidden`, `nodock`, `transient`, `download` | boolean | as in the original (`desktop`/`dock`: default placement; `hidden`: not in "All apps"; `nodock`: never pinnable; `transient`: never in session/deep links) |
-| `alias` | app id | shows and launches the target |
+| `alias` | app id | shows and launches the target (see **Aliases** below) |
 | custom fields | any | kept as they are |
+
+**Aliases**: `{ id: 'old-name', alias: 'new-name', hidden: true }` — an app (or a collection item) that
+stands for another one: an id kept for old links after a rename, or a bookmark pointing at an app.
+`registry.get(alias)` is the target with the alias's own fields on top (`id` stays the alias's, `alias` is
+the target's id; chains are followed), so an alias **inherits** the target's `desktop` and `dock` flags.
+Where the desktop keeps a *place* for an app, the alias stands for its target and never takes a place of
+its own:
+
+- **Desktop icons** and the **default dock pins** skip aliases — the inherited flag is the target's
+  placement (since 1.3; before, an alias of a desktop app showed a second icon). Put `desktop: true` /
+  `dock: true` on the app itself (or an override record), not on an alias.
+- **Dock pins**: pinning an alias pins its target. A pin of an alias id in the visitor's own list
+  (storage key `dock`, §14) or in `config.dock.pins` resolves to the target, and the dock shows the
+  target's name, icon and tint (an alias's own `name`/`icon` do not reach the dock); when an alias and
+  its target (or two aliases of one target) are both listed, the first one keeps its place. The
+  resolved own list is written back (only when something changed, and only by the tab that reads it
+  from its own start, reset or restore — a list another tab wrote is resolved in memory, never
+  answered with a write). An id the registry does not know yet (a vault or module app that comes
+  later) stays as it is and is resolved once it is registered (since 1.3; before, a stored pin of a
+  hidden alias was dropped silently).
+- Two cases keep the alias id as the pin: a **visible alias of an app that cannot be pinned** (e.g.
+  `{ id: 'wiki', alias: 'wiki-window', hidden: false }` of a hidden `web` app) — it is pinned and shown
+  as the alias, as in 1.2; and an alias that **does not end at an app** (a cycle `a → b → a`, or a chain
+  longer than `registry.get()` follows) — it is never shown and never resolved, so resolving always
+  settles after one pass. `tools/validate-manifest.mjs` reports alias cycles as errors. "Cannot be
+  pinned" is static (hidden, `nodock`, the launcher), never "its kind cannot open yet": the dock resolves
+  at the shell's setup, before modules define `page`, `collection`, `image` …. A visible alias whose
+  target is not registered yet (a vault or module app) keeps its id until the target comes.
+- Launching an alias (a deep link `#app=<alias>`, a menu entry, a Catalog item) opens the target (§15).
 
 **Override records**: a site entry with an id but **no `kind` and no `alias`** — `{ id: 'notes', dock: true }`
 — is not an app of its own: its fields go onto the app of that id that a module, a collection or the
@@ -503,7 +566,7 @@ export default {
 			validate: v => cleanNotes(v),     // returns the cleaned value or null
 			count: v => v.notes.length }      // for backup/reset summaries
 	},
-	resetGroups: [{ id: 'notes', label: '@notes.title', hint: '@notes.resetHint', order: 40, onReset() {} }],   // §14
+	resetGroups: [{ id: 'notes', label: '@notes.title', hint: '@notes.resetHint', order: 40, onReset() {} }],   // §14; optional visible(): hides a group whose existence would reveal something (vault)
 	trash: { note: { restore: (data, item) => true, icon: 'ti-note', label: '@notes.trashType' } },
 	consent: [{ id: 'weather', hosts: ['api.open-meteo.com'], label: '@weather.service', hint: '@weather.serviceHint' }],
 
@@ -522,7 +585,8 @@ export default {
 	fortuneProviders: [{ id: 'example', name: 'Example', hosts: ['api.example.org'], url(q) {}, parse(json, ctx) {} }], // P11
 
 	configKey: 'notes',                // optional: its config section (§6) …
-	validateConfig(section, warn) { return section },   // … cleaned once before setup() → Desk.modules.config(id)
+	validateConfig(section, warn) { return section },   // … cleaned once, before the declared parts are registered
+	                                   //   and before setup() → Desk.modules.config(id) (loader behaviour below)
 
 	async setup(desk) {},              // once, after registration; may provide services
 
@@ -637,6 +701,11 @@ Loader behaviour:
   enumerable properties (keyed objects get `id` = key unless the item has its own `id`, which wins).
   A consumer reads the list in its `setup()` (it runs after modules it `requires`) and listens to
   `'module:loaded'` for modules that come later.
+- Per module, in dependency order: **first its config section is cleaned** (`validateConfig`, then
+  `Desk.modules.config(id)` holds it), **then its declared parts are registered** (apps, `storage`,
+  `resetGroups`, `trash`, `consent`, contributions), then `setup()` runs. A declared value may therefore
+  read the cleaned section — e.g. a getter `get label() { return Desk.modules.config(id).texts?.x ?? '@ns.key'; }`
+  on a storage key is read once, at registration, and sees the site's value (the Fortune storage label does this).
 - `storage`, `resetGroups`, `trash`, `consent` are registered by the core (§14, §16).
 - An app gets `kind: 'app'` unless it says otherwise; a site entry with the same id wins field by
   field, the module adds its implementation (impl).
@@ -658,7 +727,7 @@ Loader behaviour:
 `import Desk from 'src/core/api.js'` (frozen) — also `window.JPKDesk`.
 
 ```ts
-Desk.version: string                          // '1.2.0'
+Desk.version: string                          // '1.3.0'
 Desk.project: { name, author, url, repo, license }
 Desk.config                                   // deep-frozen effective config
 
@@ -694,7 +763,8 @@ Desk.tile(app, cls?) → HTMLSpanElement
 Desk.icons: { icon, has(id), add(pack, { override }), symbolHref(id) → '#i-<id>'|null, logo(id?) → SVG|null, addLogo(id, build),
               brandGlyph(cls?), tile, appGlyph(app, { cls = 'i', fallback = 'ti-app-window' }?) → SVGElement | HTMLSpanElement,
               tintValue(tint) }
-            // has()/icon() include the site icon sets (§13) from the start
+            // has()/icon() include the site icon sets (§13) from the start; icon() and symbolHref() draw the
+            // target of config.iconReplace for a replaced id (has() and appGlyph's choice still name the id asked for)
             // appGlyph: an app's glyph without the tile, same precedence as tile(): app.logo (true → brand logo)
             // → app.mark (text, <span aria-hidden>) → app.icon (when known) → fallback; cls goes on the element
 Desk.announce(text, { assertive = false })
@@ -800,6 +870,7 @@ Every event is also dispatched on `document` as `CustomEvent('<namespace>:<name>
 | `store:change` | `{ name, external }` | core store (`external: true` = another tab) |
 | `storage:restore` | `{ names }` | storage registry (backup applied) |
 | `storage:reset` | `{ groups }` | storage registry |
+| `storage:groups` | `{ id }` | the owner of a reset group with `visible()` (§14), whenever its answer may have changed — Settings redraws its reset section |
 | `apps:change` | `{}` | registry (batched) |
 | `consent:register` / `consent:change` | `{ id, removed? }` / `{ id, granted }` | consent (`removed: true` on unregister; `id: null` = `revokeAll()`: every consent withdrawn — handle it like your own id) |
 | `service:provide` | `{ name }` | services |
@@ -855,7 +926,22 @@ i18n.resolve(text, params?) → { text, lang }   // the same lookup plus the lan
   // Desk.dom.markLang(el, lang), Desk.dom.langText(text) (a <span lang> when foreign),
   // Desk.apps.nameLang(app) for app names. Shell, menus, window titles and settings rows do this.
 i18n.lang() → code     i18n.locale(code?) → Intl tag (meta.intl)     i18n.dir(code?) → 'ltr'|'rtl'
-i18n.available() → codes (config.languages)     i18n.meta(code?)     i18n.displayName(code, inLang?)
+i18n.available() → codes (config.languages)     i18n.meta(code?)
+i18n.displayName(code, inLang = code) → string
+  // the name of language `code` in language `inLang`: inLang === code (the default) → the endonym,
+  // meta(code).name; otherwise Intl.DisplayNames in locale(inLang) ('en' in 'de' → 'Englisch') when the
+  // runtime has Intl data for that locale (supportedLocalesOf — without it DisplayNames would answer in the
+  // browser's own language), falling back to the endonym, then to the code. Language pickers (menu, toggle, settings row, terminal list)
+  // show endonyms; a language named inside a sentence uses displayName(code, i18n.lang()).
+i18n.detect({ query, stored, preferred }) → code   // the start language (boot): ?lang= → stored → preferred → default
+  // query and stored: an offered code (any case); preferred (navigator.languages): matchLanguage() below;
+  // nothing matched: config.defaultLang when offered, else the first offered language
+matchLanguage(offer, preferred) → code | null   // named export of src/core/i18n.js, pure and self-contained
+  // RFC 4647 lookup per preferred tag in priority order: the exact tag, then the tag truncated subtag
+  // by subtag ('de-CH-1996' → 'de-CH' → 'de'; a trailing singleton goes too), then another offered tag
+  // of the same base language ('pt-PT' → 'pt-BR') — only then the next preferred tag. Case-insensitive,
+  // returns the offered spelling. tools/build-preload.mjs copies its source into src/boot/preload.js,
+  // so the preload hints predict exactly the language detect() picks.
 i18n.setLang(code) → Promise<boolean>   // loads every namespace in use, stores 'lang', sets <html lang dir>, emits 'lang:change'
 i18n.use(ns | ns[], code?) → Promise    // load namespaces (modules: use descriptor.i18n instead)
 i18n.has(key) → boolean     i18n.chain(code?) → codes     i18n.isYes(answer) → boolean
@@ -878,7 +964,11 @@ Rules: never concatenate translated fragments into sentences; never branch on a 
 manifest/config texts go through `L()` (or `resolve()` + `markLang` where they are rendered: a text
 that fell back to another language must carry its `lang`, WCAG 3.1.2); settings rows take `'@ns.key'`
 labels so their fallback language can be marked; dates/numbers only through the formatters. Language
-switching UI: toggle for 2 languages, menu for 3+ (P2), names from `displayName()`.
+switching UI: toggle for 2 languages, menu for 3+ (P2), names from `displayName(code, code)` (endonyms;
+the menu items and the settings row mark each with its `lang`, the toggle marks its action once the
+target language's phrase is loaded — until then the action is the current language's phrase with
+`displayName(next, i18n.lang())`; the terminal `lang` list is plain text); a language named in running
+text: `displayName(code, i18n.lang())`.
 
 ## 13. Icons
 
@@ -971,6 +1061,32 @@ switching UI: toggle for 2 languages, menu for 3+ (P2), names from `displayName(
     the licence allows self-hosting the glyphs in a web page, keep its notice in `license`, and never commit
     a commercially licensed set to a public repository (the public `.gitignore` ignores `site/icon-sets/*`;
     a private site repository that tracks its set removes that line).
+- **Replacing the desktop's glyphs** (`config.iconReplace`, §6): the core, the modules and the apps draw
+  fixed ids (`'ti-settings'`, `'wc-close'`, the weather conditions `'ti-sun'` …). A site that wants one
+  icon style maps them to icons of its set:
+
+  ```js
+  iconReplace: { 'ti-settings': 'acme-cog', 'ti-sun': 'acme-sun', 'wc-close': 'acme-xmark' }
+  ```
+
+  - Keys: the replaceable project ids — Tabler `ti-…`/`tif-…` and the custom glyphs `wc-…`/`tile-…`. The
+    author's monogram (`jpk`, `jpk-…`) is not replaceable (brand asset, `CREDITS.md`; choose your own brand
+    glyph with `brand.glyph`), and set ids are the site's own anyway.
+  - Values: any icon id known when the boot applies the map — an icon of a site icon set, a Tabler id of the
+    subset or a custom glyph. One step: a target that is itself the key of a kept pair is drawn as it is
+    (warned); a target whose own pair was dropped is no chain (it keeps its glyph, no notice).
+  - Resolution in one place, `src/core/icons.js`: `icon(id)` and `symbolHref(id)` draw the target
+    (`<use href="#i-<target>">`), so every caller — core, modules, apps, tiles, `Desk.icon` — follows the map,
+    the site's own manifest included. `has(id)` still answers for the id asked for, and `glyphOf()` /
+    `appGlyph()` choose by it; only the drawing changes.
+  - The map applies after the sets are registered and before any module is imported (§3). A pair whose key
+    is not a known icon (not in `src/icons/tabler.js` or `custom.js`) or whose target is not known (a set
+    that failed to load, a typo) is warned about and dropped: the original glyph stays. **The replaced Tabler
+    icons stay in the subset** — `npm run icons` finds the quoted keys in `site/config.js` — so a set that
+    does not load degrades to the stock look, not to empty glyphs.
+  - Find a glyph's id in the sources (`'ti-` in `src/`) or in the sprite (`svg.sprite symbol[id]`). An id
+    used for two meanings is replaced in both (weather `sleet` and `hail` share `ti-cloud-snow`).
+  - `npm run validate` checks every pair against the subset, the custom glyphs and the set files.
 - Logos: `icons.logo(id)` builds a fresh `<svg>` with unique gradient ids (`logos.jpkcom`);
   `icons.addLogo(id, build)` for site logos. `config.brand.logo`/`glyph` choose the brand (`glyph` may be
   a set icon).
@@ -993,14 +1109,27 @@ store.sget/sset/sremove(name)           // sessionStorage, same prefix
 V.isObj V.str(v, max) V.int(v, min, max) V.num V.bool V.oneOf(v, list) V.hex V.id V.list(v, fn, max) V.path(v, max)
 
 storage.registerKey(name, { type, backup, reset, validate, count, label }, module)
-storage.registerGroup({ id, label, hint, order, onReset }, module)
+storage.registerGroup({ id, label, hint, order, onReset, visible }, module)
 storage.registerTrash(type, { restore, icon, label, app }, module)
-storage.key(name)  storage.listKeys()  storage.resetGroups() → [{ …group, keys }]
+storage.key(name)  storage.listKeys()
+storage.resetGroups({ all }?) → [{ …group, keys, shown }]   // without all: only the groups shown now
 storage.trashType(type)  storage.listTrashTypes()
 storage.read(name) → validated value     storage.snapshot() → backup document
 storage.inspect(doc) → { ok, created, entries, unknown }     storage.restore(entries) → boolean
-storage.reset(groupIds) → Promise<doneIds>
+storage.reset(groupIds) → Promise<doneIds>             // any registered id, shown or not
 ```
+
+**Hidden reset groups.** A group may declare `visible()` (descriptor `resetGroups[]` or `registerGroup`): a
+synchronous predicate, read live on every draw. While it returns a falsy value **and none of the group's keys
+holds a stored value**, the group is hidden: `storage.resetGroups()` leaves it out, Settings → Reset shows no row
+for it, "Select all" and the confirmation never name it, and the backup window lists it only when the data it
+shows holds one of its keys. Stored data always makes a group visible — a predicate can hide a group, never data
+from a reset. A predicate that throws is reported once (`console.warn`) and the group is shown. `storage.reset(ids)`
+still resets a hidden group named by id, and "Reset everything" in Settings (every shown group picked) resets every
+group, hidden ones included. An open confirmation in Settings closes when the shown groups change, so a confirmed
+part never turns into everything (or the reverse). The owner emits `'storage:groups'` `{ id }` (§11) whenever the answer may have
+changed. Use it for groups whose mere existence would reveal something (the vault, P7) — not to tidy up empty
+groups.
 
 Backup document: `{ format: config.backup.format, version, created: ISO, data: { name: value } }`.
 Device-bound keys (`session`, feed state, cached weather) declare `backup: false` and reset group
@@ -1015,7 +1144,7 @@ and reset follow them without a hand-kept list — the original's key names are 
 | core | `lang` | text | yes | `settings` |
 | wm (P1) | `session` | json | no (device-bound) | `session` |
 | wm (P1) | `restore` (`'on'`/`'off'`) | text | yes | `settings` |
-| shell (P2) | `dock` (own pin list) | json | yes | `dock` |
+| shell (P2) | `dock` (own pin list; alias ids resolved to their target, §7) | json | yes | `dock` |
 | shell (P2) | `docksize`, `magnify`, `icons`, `seconds` | text | yes | `settings` |
 | panels (P3) | `theme`, `accent` | text | yes | `settings` |
 | panels (P3) | `wallpaper` | json | yes | `wallpaper` |
@@ -1030,7 +1159,8 @@ and reset follow them without a hand-kept list — the original's key names are 
 
 **Reset groups** (Settings → Reset, by `order`): `settings` 10 (core; also revokes every consent),
 `wallpaper` 20, `dock` 30 ("Dock layout"), `notes` 40, `todos` 45, `editor` 50, `calc` 55, `terminal` 58,
-`trash` 80, `vault` 85 (no keys; `onReset` locks and forgets a kept login), `session` 90 (core),
+`trash` 80, `vault` 85 (no keys; `onReset` locks and forgets a kept login; `visible()`: only while unlocked or a
+login is kept on this device), `session` 90 (core),
 `offline` 95 (panels; no keys, registered only where service workers exist: unregisters this
 installation's worker and deletes its caches and the caches named in `config.offline.legacyCaches`).
 
@@ -1069,6 +1199,14 @@ Other storage:
   **Legacy caches**: the names in `config.offline.legacyCaches` (exact, or `prefix*`) belong to a
   service worker the site used before. `sw.js` deletes them on activation, once more about 30 s later
   (the earlier worker may still finish requests and write again) and at every start of the desktop.
+  The follow-up never extends an event: a plain timer armed on activation, or the first request at or
+  after that moment, whichever comes first; a worker that a newer one replaced drops it.
+  **Extended events hold updates**: while the active worker has an extended event (`waitUntil`), a newer
+  worker that called `skipWaiting()` cannot activate. So no `waitUntil` of `sw.js` spans a wait of its
+  own such as the legacy follow-up. The one exception is the fast-start update check (P12): it runs inside
+  the start's `waitUntil` (`CHECK_DELAY_MS`, then the compare and maybe the crawl into `-next`) and ends
+  after its delay and before each step when `self.registration` has an `installing` or `waiting` worker —
+  so a newer worker waits at most for the delay or the step in progress.
   `install.js` deletes them about 30 s after `controllerchange`, at every start when this page does not
   register the worker (`pwa.enabled: false`), and in the `offline` reset. A name of this project's
   scheme (`<namespace>:<any folder>:<version>-<hash>`, `-next`, `:pages`) is never matched, so no
@@ -1185,7 +1323,9 @@ the agreement per service id only. The Fortune app therefore binds it to the pro
 agrees, it records `<provider id>@<sorted hosts>` in its storage key `fortune` (`agreed`). At
 `'modules:ready'`, an agreement recorded for another provider or other hosts, or one without a record, is
 withdrawn (`Desk.consent.set('fortune', false)`), so the question comes again. The label and hint of the
-`fortune` row follow `config.fortune.texts.service` / `serviceHint` when the site sets them.
+`fortune` row follow `config.fortune.texts.service` / `serviceHint` when the site sets them, the app's own
+question `texts.askTitle` / `askText` / `askText2` / `askLang` — a site that replaces `askText` keeps naming
+who receives the request (`{host}`, or a host written out); one that does not is reported (§6).
 
 ## 17. CSS conventions and tokens
 
@@ -1615,7 +1755,9 @@ its ids (`'<prefix>-<name>'`) in `site/apps.js` like Tabler ids. `npm run valida
 `npm run seal` accepts the set's icons in vault data. Tune the secondary layer with `--icon-duo-opacity` /
 `--icon-duo-color` in `site/theme.css`. `npm run icons` is still needed for the Tabler icons of the
 desktop itself. The public repository ignores `site/icon-sets/*`; in a private site repository remove that
-line if the set should be tracked there.
+line if the set should be tracked there. To draw the desktop's own glyphs (menu bar, window controls,
+settings, weather …) from the set as well, map their ids in `iconReplace` of `site/config.js`
+(`{ 'ti-settings': 'acme-cog' }`, §13) and put the targets into the set.
 
 **An online service** — declare `consent: [{ id, hosts, label, hint }]`, fetch with
 `Desk.net.getJson(url, { service: id })`, add `services.<id>: false` to the config docs, list the host
@@ -1627,7 +1769,8 @@ definition). The site sets `fortune.remote: '<provider id>'` and `services.fortu
 provider's hosts to its CSP `connect-src` (locally: `node tools/serve.mjs --connect https://<host>`). Run
 `npm run preload` after adding or changing the module (`tools/build-preload.mjs`). `fortune.local: false`
 drops the built-in sayings (online only). A site that renames the app (`{ id: 'fortune', name, icon }` in
-`site/apps.js`) sets `fortune.texts` for the texts that name it; the window's card follows the app's
+`site/apps.js`) sets `fortune.texts` for the texts that name or describe it (the consent question and the Backup/Reset
+label included); the window's card follows the app's
 logo, mark or icon.
 
 ## 22. Tools and tests
@@ -1636,11 +1779,11 @@ logo, mark or icon.
 |---|---|
 | `npm run serve` (`node tools/serve.mjs --port 8080 --base / --connect https://… --frame https://… --wasm`) | static server with the production headers; directory → `index.html`; dotfiles, `node_modules`, `tools`, `tests` are 404; `--connect`/`--frame` add https origins to `connect-src`/`frame-src`, `--wasm` adds `'wasm-unsafe-eval'` (Pagefind) — §5; `--extra <url-path>=<file>[,…]` serves single files from outside the project tree (test fixtures, a trial config — never in production) |
 | `npm run icons` / `npm run icons:check` | build / verify `src/icons/tabler.js` (sources + `site/icons.json`; Tabler only — site icon sets are not built here) |
-| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed); the generated script also hints the files of `config.iconSets` (it reads the list from the config at run time, so changing the list needs no rebuild; the path rule is generated from `src/core/icon-sets.js` `SET_PATH`) |
+| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed); the generated script also hints the files of `config.iconSets` (it reads the list from the config at run time, so changing the list needs no rebuild; the path rule is generated from `src/core/icon-sets.js` `SET_PATH`); the start language it predicts comes from the source of `matchLanguage()` in `src/core/i18n.js` (§12), copied into the file |
 | `npm run browsers` | downloads the headless Chromium that `playwright-core` drives (`check:browser`, `icons:pwa`) — install scripts are off (`.npmrc`), so this is a separate step |
 | `npm run icons:pwa` (`node tools/build-pwa-icons.mjs`) | renders the PNG app icons (`assets/icons/icon-*.png`, `maskable-*.png`, `apple-touch-icon.png`) from `favicon.svg` / `maskable.svg` in headless Chromium; run after changing either SVG and commit the PNGs |
 | `npm run i18n:check [-- <lang>…]` | compare locales with `en`; warns about plural categories a language lacks |
-| `npm run validate` / `npm run validate:strict` (`node tools/validate-manifest.mjs [--manifest …] [--config …] [--strict] [--quiet] [--json]`) | checks `site/apps.js` against the config before it goes online: ids, kinds and the modules they need, references (aliases, overrides, menus, `site.legal`, `notify.app`, `vault.collection`, …), collections, urls (local files exist), icons (Tabler subset, custom glyphs, the site icon sets of `config.iconSets` — the set files themselves are checked too: format, ids, reserved prefixes, definitions against the allowlist, size, location), tints, language maps for every configured language, the fortunes and feeds; exit 0 / 1 (errors, or warnings with `--strict`) / 2 (not loadable) |
+| `npm run validate` / `npm run validate:strict` (`node tools/validate-manifest.mjs [--manifest …] [--config …] [--strict] [--quiet] [--json]`) | checks `site/apps.js` against the config before it goes online: ids, kinds and the modules they need, references (aliases, overrides, menus, `site.legal`, `notify.app`, `vault.collection`, …), collections, urls (local files exist), icons (Tabler subset, custom glyphs, the site icon sets of `config.iconSets` — the set files themselves are checked too: format, ids, reserved prefixes, definitions against the allowlist, size, location; every pair of `config.iconReplace`: key and target known), tints, language maps for every configured language, the fortunes and feeds; exit 0 / 1 (errors, or warnings with `--strict`) / 2 (not loadable) |
 | `npm run seal` (`node tools/seal-vault.mjs --in <json> [--out <dir>] [--keep \| --prune]`, `--list`, `--new-salt`) | seals private bookmarks for the vault (P7). **The plain-text JSON must lie outside the project and the web root** (the tool refuses it below `site/`, in the output folder and below the web root that folder belongs to); see `site/vault/README.md`. Vault icons may come from a site icon set (`config.iconSets`, read below the web root of the output folder — the project by default). |
 | `npm run check:browser` (`node tools/browser-check.mjs [--path p] [--lang de-DE] [--base /desk/] [--mobile] [--scenario f.mjs] [--site-config c.js [--keep-sw]] [--route path=file …] [--no-sw] [--screenshot s.png] [--size WxH] [--wait ms] [--serve-args=value]`) | headless Chromium (playwright-core, devDependency) against `tools/serve.mjs` with the production headers: fails on console errors, page errors, CSP violations and failed requests; a scenario module (`export default async ({ page, desk, log, assert }) => …`; `desk(fn, …args)` runs `fn(window.JPKDesk, …args)` in the page) drives the desktop and declares the failures it provokes on purpose with **`export const expect = { http: [RegExp \| { status, url: RegExp }], console: [RegExp] }`** — matching events are listed as expected instead of failing the run. `--site-config` swaps `site/config.js` through `page.route()`, which a service worker bypasses, so it blocks service workers (`--keep-sw` keeps them and warns when one controls the page; `--no-sw` blocks them without a config). Every option also takes `--name=value`; `--serve-args` passes options to `serve.mjs` even when they start with `--` (`--serve-args="--connect https://… --wasm"`). `--route path=file` (repeatable) serves a local file at `<base><path>` through `page.route()` before the first navigation — e.g. a site module that is not in the tree; like `--site-config` it blocks service workers unless `--keep-sw`. Run checks one at a time on small machines (`flock <lock> node tools/browser-check.mjs …`) |
 | `npm test` | `node --test "tests/*.test.mjs"` (Node ≥ 24, `engines`): i18n (chain, plurals, placeholders, number grouping, keys, L, detection, formatters), store (prefix, failure modes, validators), registry + router (overrides, kind check, tab fallback, acceptPath (sub-folder install, start pages outside the root, absolute scopes, reserved folders, case variants, dot/encoded segments)), config merge/validation, module loader (hooks, withdrawal after a failed setup), dom guards, version sync (package.json = `VERSION`), token sync, the source hygiene test (`tests/hygiene.test.mjs`: no bidirectional-control or zero-width characters in `src/`, `locales/`, `tests/`, `site/`, `tools/`, `index.html`, `sw.js` — write them as `\u` escapes), and one test file per package (`tests/p<NN>-*.test.mjs`: pure functions, the service worker in `node:vm`, the server snippets against §5) |
@@ -1690,6 +1833,14 @@ The version lives in `package.json` and `src/core/env.js` (`VERSION`); `tests/ve
   accessible implementation without importing app code.
 - **Site override records** (`{ id, dock: true }` without kind) replace the original's habit of editing a
   module's app entry; they survive the app going and coming back.
+- **Aliases take no place of their own** (§7, since 1.3): desktop icons and default dock pins skip them,
+  stored dock pins of an alias id move to the target. Considered and rejected: honouring an alias's own
+  `desktop: true` — the alias view cannot tell an own flag from an inherited one, and an override record
+  on the target does the same; resolving pins only when drawing — the stored list would keep the old ids
+  and `pins()` / `dock:change` would report ids that are not in the dock. Resolving stops at the end of
+  the chain (a cycle keeps the stored id) and a list another tab wrote is never written back, so two
+  tabs cannot answer each other's writes; a visible alias of an app that cannot be pinned keeps its pin
+  (dropping it would lose a 1.2 dock place).
 - **Boot cover before the first paint** (`html[data-boot=pending]`): the original showed the boot screen at the
   end of its synchronous script; with ES modules the shell runs later, so a plain cover bridges the gap.
 - **Placeholder numbers group from 10 000 up** (min2), so years in sentences never read "2.026".
@@ -1715,6 +1866,12 @@ The version lives in `package.json` and `src/core/env.js` (`VERSION`); `tests/ve
   the tools read JSON without executing it; `JSON.parse` is faster than a script literal of the same size
   (about 1.6 ms against 2.9 ms for 200 KB in Node). The price is one new hint type,
   `<link rel=preload as=fetch crossorigin>`, whose reuse is checked in the browser scenario (one request).
+- **`iconReplace` lives in the config and maps ids, one step** (§13). Rejected: a `replace` field in the
+  set file (the set is the converter's artifact of a licensed pack, the mapping is the site's design choice;
+  up to eight sets would need a merge rule), `Desk.icons.add(…, { override: true })` from a site module (too
+  late for glyphs already placed, invisible to the tools, and the Tabler fallback is gone), semantic slot
+  names (`settings`, `weather.rain` — a second naming scheme to keep stable; ids already are), lazy
+  resolution at every `icon()` call (timing-dependent; the boot check warns once and stays deterministic).
 - **Two-tone icons use a class and tokens**, not baked-in `opacity` attributes: the secondary layer of
   every copy follows `--icon-duo-opacity` / `--icon-duo-color` (themes, parts).
 - **Sprite symbols have the DOM id `i-<icon id>`**, not the icon id: icon ids are a namespace of their own

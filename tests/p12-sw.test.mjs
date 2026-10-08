@@ -52,9 +52,9 @@ function basic(body, { status = 200, type = 'text/plain', headers = {} } = {}) {
 /**
  * Loads sw.js. files: { '/desk/path': string } served by fetch (or serveDisk: true for the project);
  * base: the installation folder; config: source of site/config.js (null = none);
- * timer: the worker's setTimeout (default: the real one).
+ * timer, clear: the worker's setTimeout and clearTimeout (default: the real ones).
  */
-function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false, delay = 0, online = true, origin = ORIGIN, timer = setTimeout } = {}) {
+function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false, delay = 0, online = true, origin = ORIGIN, timer = setTimeout, clear = clearTimeout } = {}) {
 	const handlers = {};
 	const state = { online, delay, fetched: [], unregistered: false, claimed: false, skipped: false, preload: false, messages: [] };
 	const serve = async url => {
@@ -79,7 +79,7 @@ function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false,
 	};
 	const sandbox = {
 		console: { info() {}, warn() {}, log() {}, error: console.error },
-		URL, Request, Response, Headers, AbortController, setTimeout: timer, clearTimeout,
+		URL, Request, Response, Headers, AbortController, setTimeout: timer, clearTimeout: clear,
 		location: { href: `${origin}${base}sw.js` },
 		caches: new FakeCaches(),
 		registration: {
@@ -882,6 +882,46 @@ test('update check: a prepared update leaves data out', async () => {
 	assert.equal(await feedText(sw), 'v2', 'the feed copy is still the fresh one');
 });
 
+test('update check: ends when a newer worker is installing or waiting (the check would hold its activation)', async () => {
+	const files = { ...MINI };
+	/* the start-up delay (CHECK_DELAY_MS) passes at once; other delays run as usual */
+	const timer = (fn, ms, ...args) => setTimeout(fn, ms === 3000 ? 0 : ms, ...args);
+	const sw = loadSW({ files, timer });
+	assert.equal(sw.run('CHECK_DELAY_MS'), 3000);
+	await sw.install();
+	files['/desk/site/apps.js'] = 'export default { apps: [] };';
+	const names = sw.run('NAMES');
+	const check = () => sw.run('checkForUpdate')(sw.run('CONFIG'), names);
+	const reg = sw.sandbox.registration;
+	for (const state of ['installing', 'waiting']) {
+		reg[state] = { state };
+		const before = sw.state.fetched.length;
+		assert.equal(await check(), false, state);
+		assert.equal(sw.state.fetched.length, before, `${state}: not one request`);
+		assert.equal(await sw.caches.has(names.next), false, `${state}: no '-next'`);
+		reg[state] = null;
+	}
+	/* the start-up check: after its delay it sees the newer worker and ends at once */
+	reg.waiting = { state: 'installed' };
+	const before = sw.state.fetched.length;
+	const start = await sw.fetchEvent(nav('/desk/'), { preload: basic('<!doctype html>new', { type: 'text/html' }) });
+	assert.equal(await start.response.text(), MINI['/desk/']);
+	assert.equal(sw.state.fetched.length, before, 'the start-up check compared nothing');
+	assert.equal(sw.run('checking'), null);
+	assert.deepEqual(sw.state.messages, []);
+	/* a newer worker that appears during the compare: no crawl into '-next' */
+	reg.waiting = null;
+	const fetch = sw.sandbox.fetch;
+	sw.sandbox.fetch = async (...args) => { reg.installing = { state: 'installing' }; return fetch(...args); };
+	assert.equal(await check(), false, 'changed, but superseded before the crawl');
+	assert.equal(await sw.caches.has(names.next), false);
+	sw.sandbox.fetch = fetch;
+	reg.installing = null;
+	/* alone again: the same change is found and prepared */
+	assert.equal(await check(), true);
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+});
+
 test('code inside a data folder stays part of the version', async () => {
 	const config = CONFIG({ site: { data: 'site/data/apps.js' } });
 	const files = { ...MINI, '/desk/site/config.js': config, '/desk/site/data/apps.js': 'export default {};' };
@@ -1136,19 +1176,34 @@ const LEGACY_INPUT = ['oldsite-pages', 'oldsite-shell-*', 'oldsite-pages', 'abc*
 const MANY = Array.from({ length: 40 }, (_, i) => `oldsite-${i}`);
 const LEGACY_CONFIG = CONFIG({ offline: { legacyCaches: ['oldsite-shell-*', 'oldsite-pages'] } });
 
-/** A setTimeout that records every delay and runs the legacy follow-up (30 s) at once */
-function quickTimer() {
+/** A setTimeout that records every delay and holds the legacy follow-up (30 s) until fire() runs it;
+    clear is the matching clearTimeout. Other delays run on the real timer. */
+function heldTimer() {
 	const delays = [];
+	const held = new Map();
 	const timer = (fn, ms, ...args) => {
 		delays.push(ms);
-		if (ms === 30000) {
-			fn(...args);
-			return 0;
-		}
-		return setTimeout(fn, ms, ...args);
+		if (ms !== 30000) return setTimeout(fn, ms, ...args);
+		const id = { held: held.size + 1 };
+		held.set(id, () => fn(...args));
+		return id;
 	};
-	return { delays, timer };
+	const clear = id => (held.has(id) ? held.delete(id) : clearTimeout(id));
+	/* runs the held timers as the browser would after 30 s; how many there were */
+	const fire = () => {
+		const due = [...held.values()];
+		held.clear();
+		for (const fn of due) fn();
+		return due.length;
+	};
+	return { delays, held, timer, clear, fire };
 }
+
+/** Resolves true when p settles within ms (real time), else false — an event whose waitUntil waits for the
+    held 30 s timer never settles */
+const settlesWithin = (p, ms = 500) => Promise.race([Promise.resolve(p).then(() => true, () => true), new Promise(ok => setTimeout(ok, ms, false))]);
+/** Lets the worker's pending cache operations finish */
+const flush = () => new Promise(ok => setTimeout(ok, 10));
 
 test('cleanConfig: offline.legacyCaches keeps exact names and prefixes, drops the rest', () => {
 	const clean = loadSW().run('cleanConfig');
@@ -1204,7 +1259,9 @@ test('cache names: legacyCaches do not change the shell cache name', () => {
 });
 
 test('activate deletes the caches named in offline.legacyCaches, never one of another installation', async () => {
-	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG });
+	/* the held timer: activation arms the 30 s follow-up, which must not keep the test process alive */
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
 	const names = sw.run('NAMES');
 	const gone = ['oldsite-shell-v3', 'oldsite-shell-v4', 'oldsite-pages'];
 	const stay = [
@@ -1219,24 +1276,30 @@ test('activate deletes the caches named in offline.legacyCaches, never one of an
 	for (const n of gone) assert.ok(!left.includes(n), `deleted: ${n}`);
 	for (const n of [...stay, names.shell]) assert.ok(left.includes(n), `kept: ${n}`);
 	assert.deepEqual(sw.state.messages, [], 'a fresh install that only removed legacy caches announces nothing');
+	assert.equal(t.held.size, 1, 'the follow-up is armed');
 });
 
 test('legacy caches: deleted again after the hand-over and at every start', async () => {
-	const { delays, timer } = quickTimer();
-	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer });
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
 	const FOLLOW_UP = sw.run('LEGACY_FOLLOW_UP_MS');
 	assert.equal(FOLLOW_UP, 30000);
 	await sw.install();
 	await sw.activate();
+	assert.equal(t.held.size, 1, 'armed on activation, before any request');
 	sw.run('lastCheck = Date.now()');   // no update check in this test
 	await sw.caches.open('oldsite-pages');   // the earlier worker writes late
 	const r = await sw.fetchEvent(req('/elsewhere/picture.png', { destination: 'image' }));
 	assert.equal(r.handled, false, 'a request the worker leaves alone');
-	assert.deepEqual(delays.filter(ms => ms === FOLLOW_UP), [FOLLOW_UP]);
+	assert.ok((await sw.caches.keys()).includes('oldsite-pages'), 'not before the moment');
+	assert.equal(t.fire(), 1);
+	await flush();
 	assert.ok(!(await sw.caches.keys()).includes('oldsite-pages'), 'deleted by the follow-up');
 	await sw.caches.open('oldsite-pages');
 	await sw.fetchEvent(req('/elsewhere/picture.png', { destination: 'image' }));
-	assert.equal(delays.filter(ms => ms === FOLLOW_UP).length, 1, 'one follow-up per activation');
+	assert.equal(sw.run('legacyDue'), 0, 'nothing pending after it ran');
+	assert.equal(sw.run('legacyFollowUp()'), null);
+	assert.equal(t.delays.filter(ms => ms === FOLLOW_UP).length, 1, 'one follow-up per activation');
 	assert.ok((await sw.caches.keys()).includes('oldsite-pages'));
 	const start = await sw.fetchEvent(nav('/desk/'));
 	assert.equal(await start.response.text(), MINI['/desk/']);
@@ -1248,8 +1311,8 @@ test('legacy caches: deleted again after the hand-over and at every start', asyn
 	assert.ok(!(await slow.caches.keys()).includes('oldsite-pages'), 'deleted at the start (network first)');
 
 	/* Without the key: no follow-up, and fetch events never look at the cache list */
-	const plain = quickTimer();
-	const none = loadSW({ files: MINI, timer: plain.timer });
+	const plain = heldTimer();
+	const none = loadSW({ files: MINI, timer: plain.timer, clear: plain.clear });
 	await none.install();
 	await none.activate();
 	none.run('lastCheck = Date.now()');
@@ -1261,13 +1324,93 @@ test('legacy caches: deleted again after the hand-over and at every start', asyn
 	await none.fetchEvent(nav('/desk/'));
 	await none.fetchEvent(req('/desk/src/core/api.js', { destination: 'script' }));
 	assert.equal(plain.delays.includes(FOLLOW_UP), false);
+	assert.equal(plain.held.size, 0);
 	assert.equal(listed, 0);
 	assert.ok((await none.caches.keys()).includes('oldsite-pages'));
 });
 
+test('legacy caches: the follow-up never keeps an event open (a newer worker can activate at once)', async () => {
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
+	await sw.install();
+	/* Every waitUntil of activation and of the requests right after it settles while the 30 s are still
+	   pending (the browser activates a worker that called skipWaiting() only once the active one has no
+	   extended events left); 1.2.0 kept the first fetch event open for the whole 30 s */
+	assert.ok(await settlesWithin(sw.activate()), 'activation');
+	sw.run('lastCheck = Date.now()');
+	assert.ok(await settlesWithin(sw.fetchEvent(req('/elsewhere/picture.png', { destination: 'image' }))), 'first request after activation');
+	assert.ok(await settlesWithin(sw.fetchEvent(req('/desk/src/core/api.js', { destination: 'script' }))), 'a request of the desktop');
+	assert.ok(await settlesWithin(sw.fetchEvent(nav('/desk/'))), 'a start of the desktop');
+	assert.equal(t.held.size, 1, 'the follow-up is still pending — on a plain timer');
+	/* nothing in the worker waits for it: the extended events above all settled */
+	const waits = [];
+	const e = { request: req('/elsewhere/x.png', { destination: 'image' }), preloadResponse: Promise.resolve(), respondWith() {}, waitUntil: p => waits.push(p) };
+	sw.handlers.fetch(e);
+	assert.equal(waits.length, 0, 'a request before the moment extends nothing');
+});
+
+test('legacy caches: the first request after the moment runs the follow-up when the timer did not', async () => {
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
+	await sw.install();
+	await sw.activate();
+	sw.run('lastCheck = Date.now()');
+	await sw.caches.open('oldsite-pages');
+	await sw.fetchEvent(req('/elsewhere/picture.png', { destination: 'image' }));
+	assert.ok((await sw.caches.keys()).includes('oldsite-pages'), 'not before the moment');
+	/* the timer was throttled or lost; the moment has passed */
+	sw.run('legacyDue = Date.now() - 1');
+	const waits = [];
+	const e = { request: req('/elsewhere/picture.png', { destination: 'image' }), preloadResponse: Promise.resolve(), respondWith() {}, waitUntil: p => waits.push(p) };
+	sw.handlers.fetch(e);
+	assert.equal(waits.length, 1, 'the sweep extends this event, nothing more');
+	assert.ok(await settlesWithin(Promise.all(waits)), 'a sweep, not a wait');
+	assert.ok(!(await sw.caches.keys()).includes('oldsite-pages'), 'deleted by the request');
+	assert.equal(t.held.size, 0, 'the timer is cleared');
+	assert.equal(t.fire(), 0, 'and runs no second sweep');
+	assert.equal(sw.run('legacyDue'), 0);
+
+	/* a start at that moment sweeps once, not twice */
+	const u = heldTimer();
+	const nav2 = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: u.timer, clear: u.clear });
+	await nav2.install();
+	await nav2.activate();
+	nav2.run('lastCheck = Date.now()');
+	let listed = 0;
+	const keys = nav2.caches.keys.bind(nav2.caches);
+	nav2.caches.keys = async () => { listed++; return keys(); };
+	nav2.run('legacyDue = Date.now() - 1');
+	await nav2.caches.open('oldsite-pages');
+	const start = await nav2.fetchEvent(nav('/desk/'));
+	assert.equal(await start.response.text(), MINI['/desk/']);
+	assert.ok(!(await nav2.caches.keys()).includes('oldsite-pages'));
+	assert.equal(listed, 2, 'one sweep (one list) plus the check above');
+});
+
+test('legacy caches: a replaced worker drops the follow-up', async () => {
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
+	sw.sandbox.serviceWorker = { state: 'activated' };
+	await sw.install();
+	await sw.activate();
+	await sw.caches.open('oldsite-pages');
+	sw.sandbox.serviceWorker.state = 'redundant';   // a newer worker took over
+	assert.equal(t.fire(), 1);
+	await flush();
+	assert.ok((await sw.caches.keys()).includes('oldsite-pages'), 'left to the newer worker');
+	assert.equal(sw.run('legacyDue'), 0, 'dropped, not postponed');
+
+	/* still the active one: the timer sweeps */
+	sw.sandbox.serviceWorker.state = 'activated';
+	sw.run('armLegacyFollowUp()');
+	assert.equal(t.fire(), 1);
+	await flush();
+	assert.ok(!(await sw.caches.keys()).includes('oldsite-pages'));
+});
+
 test('pwa.enabled false: legacy caches are deleted before the worker unregisters, and once more after', async () => {
-	const { delays, timer } = quickTimer();
-	const sw = loadSW({ files: MINI, config: CONFIG({ pwa: { enabled: false }, offline: { legacyCaches: ['oldsite-pages'] } }), timer });
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: CONFIG({ pwa: { enabled: false }, offline: { legacyCaches: ['oldsite-pages'] } }), timer: t.timer, clear: t.clear });
 	await sw.caches.open('oldsite-pages');
 	await sw.caches.open('jpkdesk:/desk/:pages');
 	await sw.caches.open('someone-else');
@@ -1277,7 +1420,9 @@ test('pwa.enabled false: legacy caches are deleted before the worker unregisters
 	assert.ok(sw.state.unregistered);
 	await sw.caches.open('oldsite-pages');
 	assert.equal((await sw.fetchEvent(nav('/desk/'))).handled, false, 'a switched-off worker answers nothing');
-	assert.ok(delays.includes(30000));
+	assert.ok(t.delays.includes(30000));
+	assert.equal(t.fire(), 1);
+	await flush();
 	assert.deepEqual(await sw.caches.keys(), ['someone-else'], 'the follow-up still ran');
 });
 

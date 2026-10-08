@@ -9,7 +9,7 @@
 
 import Desk from '../core/api.js';
 import { HEX, onAccent, contrast } from './pure.js';
-import { groupState } from './pure-window.js';
+import { groupState, sameIds, keptPicks, resetPlan } from './pure-window.js';
 import { installService } from './install.js';
 import { download as downloadBackup } from './backup.js';
 import {
@@ -55,7 +55,8 @@ let refocus = null;   // a selector to focus after the next render (language swi
 
 function langRow() {
 	const codes = Desk.i18n.available();
-	const list = codes.map(c => [c, Desk.i18n.displayName(c), c]);
+	/* A language picker: each language under its own name (endonym), marked with its lang */
+	const list = codes.map(c => [c, Desk.i18n.displayName(c, c), c]);
 	const change = v => {
 		refocus = codes.length <= 3 ? `[data-key="lang"][value="${Desk.dom.cssEscape(v)}"]` : '[data-key="lang"]';
 		Desk.i18n.setLang(v);
@@ -143,6 +144,7 @@ function consentRows() {
 const picked = new Set();
 let resetAsk = false;
 let askFresh = false;   // the question just appeared: it takes the focus and scrolls into view
+let asked = null;       // the ids of the groups shown when the question was asked
 
 function stateText(g) {
 	if (g.id === 'offline') return t('settings.resetOfflineState');
@@ -168,18 +170,37 @@ function restart() {
 	else location.reload();
 }
 
+/* The groups shown now (a group with visible() may be hidden, §14). A pick whose group
+   went hidden meanwhile (e.g. a logout in the terminal) is dropped, so nothing names it;
+   an open question closes whenever the shown groups changed — what it asked about (a
+   partial pick or everything) may mean something else now */
+function shownGroups() {
+	const groups = storage.resetGroups();
+	const ids = groups.map(g => g.id);
+	const keep = new Set(keptPicks(picked, ids));
+	for (const id of picked) if (!keep.has(id)) picked.delete(id);
+	if (resetAsk && !sameIds(asked, ids)) resetAsk = false;
+	return groups;
+}
+
 /* Open apps write what they still hold first (closing flushes), then the keys go,
    then the desktop restarts — nothing in memory can write them back */
 async function runReset() {
-	const groups = storage.resetGroups();
-	const ids = groups.filter(g => picked.has(g.id)).map(g => g.id);
-	if (!ids.length) return;
-	const everything = ids.length === groups.length;
+	/* Only what the question asked about: a changed set of shown groups closes it instead
+	   (a partial pick must never turn into everything, nor everything into a part) */
+	const shown = storage.resetGroups().map(g => g.id);
+	const plan = resetAsk ? resetPlan(shown, picked, storage.resetGroups({ all: true }).map(g => g.id), asked) : null;
+	if (!plan) {
+		resetAsk = false;
+		redraw();
+		return;
+	}
 	const wm = Desk.wm;
 	for (const w of wm?.list?.() ?? []) wm.close(w, { force: true });
-	await storage.reset(ids);
+	/* Everything also reaches the groups hidden now (their onReset, e.g. a forgotten login) */
+	await storage.reset(plan.ids);
 	/* Everything means every key of the desktop, also ones no group knows (yet) */
-	if (everything) {
+	if (plan.everything) {
 		for (const name of store.names()) store.remove(name);
 		try {
 			await Desk.vault?.forget?.();
@@ -191,7 +212,7 @@ async function runReset() {
 }
 
 function resetRows() {
-	const groups = storage.resetGroups();
+	const groups = shownGroups();
 	const all = groups.length > 0 && groups.every(g => picked.has(g.id));
 	const names = groups.filter(g => picked.has(g.id)).map(g => L(g.label));
 	const pick = (id, on) => {
@@ -215,7 +236,7 @@ function resetRows() {
 				resetAsk = false;
 				redraw();
 			}),
-			button({ key: 'rs-go', label: '@settings.resetGo', danger: true, disabled: !picked.size || resetAsk, run: () => { resetAsk = true; askFresh = true; redraw(); } })),
+			button({ key: 'rs-go', label: '@settings.resetGo', danger: true, disabled: !picked.size || resetAsk, run: () => { resetAsk = true; askFresh = true; asked = groups.map(g => g.id); redraw(); } })),
 		...(resetAsk && picked.size ? [h('div', { class: 'set-confirm', role: 'alert' },
 			h('p', { text: all ? t('settings.resetAskAll') : t('settings.resetAsk', { names: Desk.i18n.list(names) }) }),
 			h('div', { class: 'set-actions' },

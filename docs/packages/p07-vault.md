@@ -62,6 +62,8 @@ Desk.vault.summary() → [{ id, name, count }]   // unlocked groups, name in the
 
 `'vault:change'` `{ unlocked, user }` after every unlock, resume and lock (also as the document event
 `<namespace>:vault:change`). The terminal (P9) updates its prompt (`user@host`) from it.
+`'storage:groups'` `{ id: 'vault' }` (ARCHITECTURE §11) whenever the reset row's `visible()` may have changed:
+unlock, lock, a login kept (`keep()`), found (`resume()`) or forgotten (`forget()`).
 
 ## Collection merge
 
@@ -93,8 +95,13 @@ closed, an open Catalog window redraws (as in the original, `eject()` + `refresh
   history (and so in backups) and echoes `login …`. `io.say(text, cls?)`, `io.err(text)`,
   `io.table(rows)` and `io.dim(text)` when present (else `io.say(text, 'term-dim')`). The keep question
   ("[y/N]") is answered through `i18n.isYes()` (the `yes` pattern of each `_meta.js`).
-- `resetGroups: [{ id: 'vault', label: '@vault.resetLabel', hint: '@vault.resetHint', order: 85, onReset: lock }]`
-  (Settings → Reset; the original forgot a kept login with "reset everything").
+- `resetGroups: [{ id: 'vault', label: '@vault.resetLabel', hint: '@vault.resetHint', order: 85, onReset: lock, visible }]`
+  (Settings → Reset; the original forgot a kept login with "reset everything"). `visible()` answers yes only while
+  the vault is unlocked or a login is kept on this device (a record was found by `resume()` or written by
+  `keep()`, and not forgotten since): a visitor who never logged in sees no "Private bookmarks" row, and neither
+  "Select all" nor the confirmation names it (ARCHITECTURE §14, hidden reset groups). "Reset everything" still
+  runs its `onReset`. The module emits `'storage:groups'` `{ id: 'vault' }` whenever unlocked or kept changes
+  (before `'vault:change'` on unlock and lock), so an open Settings window follows.
 
 ## Configuration (`config.vault`, cleaned by `validateConfig` → `Desk.modules.config('vault')`)
 
@@ -147,7 +154,8 @@ prefer generic icons for sensitive entries; unknown icons, tints, clashing ids, 
   config and manifest of the site instead of a fixed repository layout.
 - **Event** `'vault:change'` through the bus (was the document event `jpkdesk-vault` without payload);
   `available` is a function (§10).
-- **Reset**: an own reset group instead of a special case in "reset everything".
+- **Reset**: an own reset group instead of a special case in "reset everything" — shown only while unlocked or a
+  login is kept on this device, so the row does not reveal that a vault exists.
 - **Collection created on demand** when the site has none (the original always had its bookmarks list).
 - **Vault-made Catalog window closes on lock** (the original's bookmarks window was public and stayed).
 
@@ -155,4 +163,4 @@ prefer generic icons for sensitive entries; unknown icons, tints, clashing ids, 
 
 Applied at integration: the registry keeps the per-item `nodock`, `hidden` and `allowHttp` fields and offers
 `removeCollection(id)`; the terminal (P9) consumes `terminal` contributions with the `io` described above;
-Settings → Reset lists the key-less group `vault`.
+Settings → Reset lists the key-less group `vault` while its `visible()` answers yes.

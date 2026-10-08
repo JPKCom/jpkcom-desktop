@@ -19,6 +19,10 @@
      '@ns.key'), plus the language the text was found in — null for plain
      strings and missing keys. A text that fell back to another language than
      the page's gets that lang (and dir) on its element: dom.markLang(el, lang).
+   - detect(): ?lang= → stored → navigator.languages one entry after the other
+     (matchLanguage: exact, truncated, same base — RFC 4647 lookup) → default.
+   - displayName(code, inLang): the name in inLang; the endonym when inLang is code
+     or when the runtime has no Intl data for inLang.
    - setLang(): the last request wins — a slower earlier switch that finishes
      later is dropped, and choosing the current language cancels a pending one.
    - Every date, number, list and byte size goes through the formatters here,
@@ -42,6 +46,34 @@ const INTERNAL = new WeakMap();
 const isObj = V.isObj;
 const isPluralForm = v => isObj(v) && typeof v.other === 'string'
 	&& Object.entries(v).every(([k, x]) => (PLURAL.has(k) || /^=\d+$/.test(k)) && typeof x === 'string');
+
+/**
+ * The offered language for the preferred ones (navigator.languages), or null: RFC 4647 lookup per
+ * preferred tag in priority order — the exact tag, then the tag truncated subtag by subtag
+ * ('de-CH-1996' → 'de-CH' → 'de'; a singleton left at the end goes too), then another offered tag of
+ * the same base language ('pt-PT' → 'pt-BR') — and only then the next preferred tag, so 'de-AT, en'
+ * finds 'de' before 'en'. Case-insensitive; returns the offered spelling.
+ * Self-contained on purpose: tools/build-preload.mjs copies this source into src/boot/preload.js.
+ */
+export function matchLanguage(offer, preferred) {
+	const low = c => String(c).toLowerCase();
+	const list = Array.isArray(offer) ? offer.filter(c => typeof c === 'string') : [];
+	for (const p of Array.isArray(preferred) ? preferred : []) {
+		if (typeof p !== 'string' || !p) continue;
+		let range = low(p);
+		while (range) {
+			const hit = list.find(x => low(x) === range);
+			if (hit) return hit;
+			const cut = range.lastIndexOf('-');
+			range = cut < 0 ? '' : range.slice(0, cut);
+			if (/-[a-z0-9]$/.test(range)) range = range.slice(0, -2);
+		}
+		const base = low(p).split('-')[0];
+		const near = list.find(x => low(x).split('-')[0] === base);
+		if (near) return near;
+	}
+	return null;
+}
 
 /** Splits 'ns.key' → ['ns', 'key']; an unqualified key belongs to 'core'. */
 export const splitKey = key => {
@@ -270,19 +302,13 @@ export function createI18n({ languages, defaultLang, debug = false, load, loadMe
 	/** Resolves a manifest text: string, '@ns.key' or { lang: text } (resolve() without the language). */
 	const L = v => resolve(v).text;
 
-	/** Picks the start language: ?lang= → stored → browser languages → default. */
+	/** Picks the start language: ?lang= → stored → browser languages (matchLanguage) → default. */
 	function detect({ query = null, stored = null, preferred = [] } = {}) {
 		const offer = languages;
 		const exact = c => offer.find(x => x.toLowerCase() === String(c).toLowerCase());
 		if (query && exact(query)) return exact(query);
 		if (stored && exact(stored)) return exact(stored);
-		for (const p of preferred) if (exact(p)) return exact(p);
-		for (const p of preferred) {
-			const base = String(p).split('-')[0].toLowerCase();
-			const hit = offer.find(x => x.toLowerCase() === base) ?? offer.find(x => x.split('-')[0].toLowerCase() === base);
-			if (hit) return hit;
-		}
-		return offer.includes(defaultLang) ? defaultLang : offer[0];
+		return matchLanguage(offer, preferred) ?? (offer.includes(defaultLang) ? defaultLang : offer[0]);
 	}
 
 	let target = null;   // the language a pending setLang() is loading
@@ -328,15 +354,28 @@ export function createI18n({ languages, defaultLang, debug = false, load, loadMe
 		init: code => { if (languages.includes(code)) lang = code; },
 		dir: (code = lang) => (meta(code).dir === 'rtl' ? 'rtl' : 'ltr'),
 		available: () => [...languages],
-		/** Display name of a language: its own meta.name, else Intl.DisplayNames */
+		/**
+		 * The name of language `code` in language `inLang`. The default (inLang = code) is the endonym:
+		 * the language's own meta.name ('Deutsch'). Any other inLang: Intl.DisplayNames in that
+		 * language's locale ('en' in 'de' → 'Englisch') if the runtime has data for it, else the
+		 * endonym, else the code.
+		 */
 		displayName(code, inLang = code) {
-			const m = metas.get(code);
-			if (m && m.name !== code) return m.name;
-			try {
-				return new Intl.DisplayNames([locale(inLang)], { type: 'language' }).of(code) ?? code;
-			} catch {
-				return code;
-			}
+			const own = metas.get(code)?.name;
+			const endonym = typeof own === 'string' && own && own !== code ? own : null;
+			const intlName = tag => {
+				try {
+					/* No Intl data for the locale: DisplayNames would quietly answer in the runtime's
+					   default language (a third language in the sentence) — take the endonym instead */
+					if (!Intl.DisplayNames.supportedLocalesOf([tag]).length) return null;
+					const name = new Intl.DisplayNames([tag], { type: 'language', fallback: 'none' }).of(code);
+					return typeof name === 'string' && name && name !== code ? name : null;
+				} catch {
+					return null;
+				}
+			};
+			if (inLang === code) return endonym ?? intlName(locale(code)) ?? String(code);
+			return intlName(locale(inLang)) ?? endonym ?? String(code);
 		},
 		/** Yes/no answer test of the language (terminal prompts) */
 		isYes(answer) {

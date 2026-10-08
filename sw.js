@@ -14,7 +14,11 @@
    pages ({ type: 'desk:update' } → "new version, reload"). The next start of
    the desktop moves it in place before the first file is answered, so a page
    never mixes old and new code. A changed sw.js or site/config.js still
-   installs a new worker as before (and tells the pages the same).
+   installs a new worker as before (and tells the pages the same). The check
+   runs inside the start's waitUntil (the browser keeps the worker for it), so
+   a newer worker cannot activate before it ends: after its delay and before
+   each step (a batch of compares, the crawl) it ends when one is installing
+   or waiting.
    Runtime copies: a file of the shell (not a data file, see below) the crawl
    did not fetch but the desktop read later (a man or cat text outside the data
    folders, an image — not a script or style) is stored with the header
@@ -79,7 +83,8 @@
    before (config.offline.legacyCaches: exact names or 'prefix*') are deleted on
    activation, once more 30 s after it (that worker may still finish requests and
    write to them) and at every start. A name of this scheme, for any folder, is
-   never deleted that way.
+   never deleted that way. The 30 s never keep an event open (waitUntil): while
+   the active worker has an extended event, a newer one cannot activate.
 
    config.pwa.enabled === false switches it off for good: a service worker that is
    still registered from before installs, deletes its caches and unregisters itself. */
@@ -87,7 +92,7 @@
 'use strict';
 
 /* Keep equal to package.json "version" and VERSION in src/core/env.js (tests/p12-sw.test.mjs checks it) */
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 /* Defaults for what this worker reads from the config — mirror src/core/config.js DEFAULTS
    (tests/p12-sw.test.mjs checks that they match) */
@@ -130,7 +135,7 @@ const INSTALL_TIMEOUT_MS = 20000; // per file during the install
 const CHECK_DELAY_MS = 3000;      // fast start: the update check waits until the desktop has started
 const CHECK_GAP_MS = 60000;       // … and runs at most once in this time
 const CHECK_BATCH = 6;            // files compared at the same time
-const LEGACY_FOLLOW_UP_MS = 30000; // legacy caches: once more after the hand-over
+const LEGACY_FOLLOW_UP_MS = 30000; // legacy caches: once more after the hand-over (never inside waitUntil)
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const NS = /^[a-z][a-z0-9-]{0,23}$/;
@@ -720,11 +725,12 @@ async function checkForUpdate(cfg, names, fresh = null) {
 		const [now, before] = await Promise.all([res.arrayBuffer(), copy ? copy.arrayBuffer() : null]);
 		if (!before || !sameBytes(now, before)) changed = true;
 	};
-	for (let i = 0; i < keys.length && !changed; i += CHECK_BATCH) {
+	for (let i = 0; i < keys.length && !changed && !superseded(); i += CHECK_BATCH) {
 		const results = await Promise.allSettled(keys.slice(i, i + CHECK_BATCH).map(compare));
 		if (results.some(r => r.status === 'rejected')) return false;
 	}
-	if (!changed) return false;
+	/* a newer worker appeared meanwhile: no crawl (it would hold that worker; its activation replaces '-next') */
+	if (!changed || superseded()) return false;
 	await caches.delete(names.next);
 	const { offline } = await precache(cfg, names.next, { data: false });
 	if (offline) {
@@ -739,12 +745,24 @@ async function checkForUpdate(cfg, names, fresh = null) {
 let checking = null;
 let lastCheck = -Infinity;
 
+/** A newer worker of this registration is installing or waiting. The update check runs inside the start's
+    waitUntil, and a newer worker that called skipWaiting() activates only once this one has no extended
+    events: the check stops there (the newer worker brings its own copy; the next start checks again). */
+function superseded() {
+	const reg = self.registration;
+	return !!(reg && (reg.installing || reg.waiting));
+}
+
 /** After a start: one check, a little later, not more often than CHECK_GAP_MS */
 function scheduleCheck(fresh) {
 	if (checking || Date.now() - lastCheck < CHECK_GAP_MS) return fresh ? fresh.catch(() => {}) : Promise.resolve();
 	lastCheck = Date.now();
 	checking = new Promise(resolve => setTimeout(resolve, CHECK_DELAY_MS))
-		.then(() => checkForUpdate(CONFIG, NAMES, fresh))
+		.then(() => {
+			if (!superseded()) return checkForUpdate(CONFIG, NAMES, fresh);
+			if (fresh) fresh.catch(() => {});
+			return false;
+		})
 		.catch(err => console.info('[sw] update check failed', err))
 		.finally(() => { checking = null; });
 	return checking;
@@ -774,8 +792,42 @@ const NAMES = cacheNames(CONFIG);
 
 /* Legacy caches (config.offline.legacyCaches) are deleted on activation, once more LEGACY_FOLLOW_UP_MS
    later and at every start: the earlier worker may still finish requests after the hand-over and write
-   to them again (it controlled the page while this one installed) */
-let legacyFollowUp = false;
+   to them again (it controlled the page while this one installed).
+   The follow-up never extends an event: a newer worker that called skipWaiting() activates only once
+   the active one has no extended events, so a waitUntil() spanning the 30 s held every update (and a
+   rollback) that long. It runs once, from a plain timer or from the first fetch event at or after the
+   moment, whichever comes first; a stopped worker loses the timer, a replaced one drops it, and the
+   next start of the desktop sweeps in any case. */
+let legacyDue = 0;        // Date.now() from which the follow-up is due; 0 = none pending
+let legacyTimer = null;
+
+/** Activation: the follow-up LEGACY_FOLLOW_UP_MS from now (one per activation) */
+function armLegacyFollowUp() {
+	if (legacyTimer !== null) clearTimeout(legacyTimer);
+	legacyDue = Date.now() + LEGACY_FOLLOW_UP_MS;
+	legacyTimer = setTimeout(() => {
+		legacyTimer = null;
+		legacyFollowUp();
+	}, LEGACY_FOLLOW_UP_MS);
+}
+
+/** Is this worker still the active one? A worker a newer one replaced is 'redundant'.
+    Without self.serviceWorker (older engines): yes, as before. */
+function stillActive() {
+	const me = self.serviceWorker;
+	return !me || me.state === 'activating' || me.state === 'activated';
+}
+
+/** Runs a pending follow-up once; the sweep's promise, or null when none was due or the worker was replaced */
+function legacyFollowUp() {
+	if (!legacyDue) return null;
+	legacyDue = 0;
+	if (legacyTimer !== null) {
+		clearTimeout(legacyTimer);
+		legacyTimer = null;
+	}
+	return stillActive() ? sweepLegacy().catch(() => {}) : null;
+}
 
 async function sweepLegacy() {
 	const gone = (await caches.keys()).filter(NAMES.legacy);
@@ -796,11 +848,11 @@ self.addEventListener('activate', event => {
 		const current = CONFIG.enabled ? [NAMES.shell, NAMES.pages] : [];
 		const keys = await caches.keys();
 		await Promise.all(keys.filter(k => NAMES.own.test(k) && !current.includes(k)).map(k => caches.delete(k)));
-		/* also a switched-off worker; the follow-up waits for the first fetch event (a delay here would
-		   hold every request of the claimed pages: fetch events wait until this worker is activated) */
+		/* also a switched-off worker; the follow-up is armed, never awaited (a delay here would hold every
+		   request of the claimed pages: fetch events wait until this worker is activated) */
 		if (CONFIG.legacy.length) {
 			await sweepLegacy();
-			legacyFollowUp = true;
+			armLegacyFollowUp();
 		}
 		if (!CONFIG.enabled) {
 			await self.registration.unregister();
@@ -817,12 +869,11 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-	/* Legacy caches: once more LEGACY_FOLLOW_UP_MS after the activation — before classify, so it also runs
-	   for requests this worker leaves alone and for a switched-off worker that still controls its pages */
-	if (legacyFollowUp) {
-		legacyFollowUp = false;
-		event.waitUntil(new Promise(ok => setTimeout(ok, LEGACY_FOLLOW_UP_MS)).then(sweepLegacy).catch(() => {}));
-	}
+	/* Legacy caches: the follow-up, when its timer has not run yet although the moment has come — before
+	   classify, so it also runs for requests this worker leaves alone and for a switched-off worker that
+	   still controls its pages. Only the sweep itself (milliseconds) extends this event. */
+	const followedUp = legacyDue && Date.now() >= legacyDue ? legacyFollowUp() : null;
+	if (followedUp) event.waitUntil(followedUp);
 	const req = event.request;
 	const route = classify(req, CONFIG);
 	if (!route) return;
@@ -830,7 +881,7 @@ self.addEventListener('fetch', event => {
 	switch (route.kind) {
 		case 'shell-nav':
 			/* every start: the legacy caches once more (this worker always has the current list) */
-			if (CONFIG.legacy.length) event.waitUntil(sweepLegacy().catch(() => {}));
+			if (CONFIG.legacy.length && !followedUp) event.waitUntil(sweepLegacy().catch(() => {}));
 			if (CONFIG.fastStart) {
 				/* From the copy (after moving a prepared update in place); the check uses the preload answer */
 				event.respondWith((async () => {

@@ -10,7 +10,11 @@
 
    and the backup panel, the reset section and the trash read everything from
    here. Keys that belong to the device rather than the person (window
-   session, last weather data) set backup: false. */
+   session, last weather data) set backup: false.
+
+   A reset group may declare visible(): while it answers no and none of its
+   keys holds a value, the group is hidden (its mere existence could reveal
+   something, e.g. the vault). Stored data always shows it. */
 
 import { config } from './config.js';
 import { VERSION } from './env.js';
@@ -22,6 +26,7 @@ const NAME = /^[a-z][a-z0-9-]{0,63}$/;
 const keys = new Map();
 const groups = new Map();
 const trashTypes = new Map();
+const brokenPredicates = new Set();   // groups whose visible() threw (reported once)
 
 /** Declares a stored key (name without the namespace prefix). */
 export function registerKey(name, def = {}, module = null) {
@@ -44,7 +49,8 @@ export function registerKey(name, def = {}, module = null) {
 	}));
 }
 
-/** Declares a reset group (a row in Settings → Reset). onReset() runs after its keys are removed. */
+/** Declares a reset group (a row in Settings → Reset). onReset() runs after its keys are removed;
+    visible() (optional) hides the row while it answers no and no key of the group holds a value. */
 export function registerGroup(def, module = null) {
 	if (!def || !NAME.test(def.id ?? '')) {
 		console.warn(`[storage] invalid reset group ${JSON.stringify(def)} — skipped`);
@@ -54,7 +60,8 @@ export function registerGroup(def, module = null) {
 	groups.set(def.id, Object.freeze({
 		id: def.id, module, label: def.label ?? def.id, hint: def.hint ?? null,
 		order: Number.isFinite(def.order) ? def.order : 100,
-		onReset: typeof def.onReset === 'function' ? def.onReset : null
+		onReset: typeof def.onReset === 'function' ? def.onReset : null,
+		visible: typeof def.visible === 'function' ? def.visible : null
 	}));
 }
 
@@ -80,11 +87,31 @@ export const listKeys = () => [...keys.values()];
 export const trashType = type => trashTypes.get(type) ?? null;
 export const listTrashTypes = () => [...trashTypes.values()];
 
-/** Reset groups in order, each with the names of its keys */
-export function resetGroups() {
-	return [...groups.values()]
+/* Shown: no predicate, a stored key, or visible() answers yes. A throwing predicate shows the
+   group — a reset must never lose its way to data */
+function shown(g, names) {
+	if (!g.visible || names.some(n => store.get(n) != null)) return true;
+	try {
+		return Boolean(g.visible());
+	} catch (err) {
+		if (!brokenPredicates.has(g.id)) {
+			brokenPredicates.add(g.id);
+			console.warn(`[storage] visible() of reset group '${g.id}' failed — shown:`, err);
+		}
+		return true;
+	}
+}
+
+/** Reset groups in order, each with the names of its keys and whether it is shown now.
+    Without { all: true } only the shown ones. */
+export function resetGroups({ all = false } = {}) {
+	const list = [...groups.values()]
 		.sort((a, b) => a.order - b.order)
-		.map(g => ({ ...g, keys: [...keys.values()].filter(k => k.reset === g.id).map(k => k.name) }));
+		.map(g => {
+			const names = [...keys.values()].filter(k => k.reset === g.id).map(k => k.name);
+			return { ...g, keys: names, shown: shown(g, names) };
+		});
+	return all === true ? list : list.filter(g => g.shown);
 }
 
 /** Current value of a declared key, validated (json parsed, text as string), or null */
@@ -146,10 +173,10 @@ export function restore(entries) {
 	return ok;
 }
 
-/** Removes the keys of the given reset groups and runs their onReset hooks. */
+/** Removes the keys of the given reset groups (hidden ones too) and runs their onReset hooks. */
 export async function reset(groupIds) {
 	const done = [];
-	for (const g of resetGroups()) {
+	for (const g of resetGroups({ all: true })) {
 		if (!groupIds.includes(g.id)) continue;
 		for (const name of g.keys) store.remove(name);
 		try {

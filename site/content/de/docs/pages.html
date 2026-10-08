@@ -42,6 +42,7 @@
 <li><strong>Links:</strong> Relative Links auf andere Seiten öffnen sich im selben Fenster, Links auf andere Websites in einem neuen Tab; <code>#Anker</code> scrollen.</li>
 <li><strong>Erlaubt:</strong> Text, Überschriften, Listen, Tabellen, Abbildungen und Bilder, <code>details</code>, <code>pre</code> und <code>code</code>, Audio und Video mit Bedienelementen.</li>
 <li><strong>Entfernt:</strong> Skripte, Styles und <code>style</code>-Attribute, Formulare, iframes, Event-Handler. Das eigene Stylesheet der Seite zählt nur, wenn sie außerhalb des Desktops geöffnet wird.</li>
+<li><strong>Code-Farben:</strong> In <code>pre</code> und <code>code</code> bleiben Inline-Farben (Textfarbe, Hintergrund, Schriftstil und -stärke, Linien) erhalten, gefiltert und nur, wo Text und Hintergrund einen Kontrast von 2:1 halten. Das steuern die Schlüssel <code>keepStyles</code>, <code>styleScope</code> und <code>styleVars</code> von <code>reader</code> in <code>site/config.js</code>.</li>
 <li><strong>Klassen</strong> bekommen das Präfix <code>c-</code>, damit keine Klasse einer Seite den Desktop verändern kann. Gestalte sie mit <code>.reader-page .c-name</code> in einem eigenen Stylesheet.</li>
 </ul>
 

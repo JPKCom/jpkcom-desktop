@@ -115,7 +115,27 @@
 			if (url.href.startsWith(root.href)) hint(p, 'fetch');
 		}
 
-		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain */
+		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain.
+		   matchLanguage is the source of src/core/i18n.js matchLanguage(), copied by the tool */
+		const matchLanguage = function matchLanguage(offer, preferred) {
+			const low = c => String(c).toLowerCase();
+			const list = Array.isArray(offer) ? offer.filter(c => typeof c === 'string') : [];
+			for (const p of Array.isArray(preferred) ? preferred : []) {
+				if (typeof p !== 'string' || !p) continue;
+				let range = low(p);
+				while (range) {
+					const hit = list.find(x => low(x) === range);
+					if (hit) return hit;
+					const cut = range.lastIndexOf('-');
+					range = cut < 0 ? '' : range.slice(0, cut);
+					if (/-[a-z0-9]$/.test(range)) range = range.slice(0, -2);
+				}
+				const base = low(p).split('-')[0];
+				const near = list.find(x => low(x).split('-')[0] === base);
+				if (near) return near;
+			}
+			return null;
+		};
 		const offer = Array.isArray(cfg.languages) && cfg.languages.length && cfg.languages.every(c => typeof c === 'string' && LANG.test(c))
 			? cfg.languages : G.defaults.languages;
 		const defaultLang = typeof cfg.defaultLang === 'string' && LANG.test(cfg.defaultLang) ? cfg.defaultLang : G.defaults.defaultLang;
@@ -126,8 +146,7 @@
 		const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
 		const base = c => String(c).split('-')[0].toLowerCase();
 		const lang = exact(new URLSearchParams(location.search).get('lang')) ?? exact(stored)
-			?? preferred.map(exact).find(Boolean)
-			?? preferred.map(p => offer.find(x => x.toLowerCase() === base(p)) ?? offer.find(x => base(x) === base(p))).find(Boolean)
+			?? matchLanguage(offer, [...preferred])
 			?? (offer.includes(defaultLang) ? defaultLang : offer[0]);
 		const known = new Set([...offer, 'en']);
 		const chain = [...new Set([lang, base(lang), defaultLang, 'en'])].filter(c => c === lang || known.has(c));

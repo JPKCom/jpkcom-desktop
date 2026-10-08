@@ -343,3 +343,21 @@ test('modules: a locales value JSON cannot write (BigInt, circular) is reported 
 	}
 	assert.ok(out.some(w => w.includes('bigint')), 'the type names the value');
 });
+
+test('modules: the config section is cleaned before the declared parts are registered (§8)', async () => {
+	globalThis.__jpkModules = modules;
+	await quiet(() => modules.loadAll([{ kind: 'module', refs: [ref('cfg-first', `export default {
+		id: 'cfg-first',
+		configKey: 'calc',
+		validateConfig: section => ({ ...section, label: '@cfg-first.cleaned' }),
+		storage: {
+			'cfg-first': { type: 'json', get label() { return globalThis.__jpkModules.config('cfg-first')?.label ?? '@cfg-first.default'; } }
+		},
+		resetGroups: [{ id: 'cfg-first', get label() { return globalThis.__jpkModules.config('cfg-first')?.label ?? 'none'; } }]
+	}`)] }], {}));
+	delete globalThis.__jpkModules;
+	assert.equal(modules.isLoaded('cfg-first'), true);
+	assert.equal(modules.config('cfg-first').label, '@cfg-first.cleaned');
+	assert.equal(storage.key('cfg-first').label, '@cfg-first.cleaned', 'a storage label getter sees the cleaned section');
+	assert.equal(storage.resetGroups().find(g => g.id === 'cfg-first')?.label, '@cfg-first.cleaned', 'so does a reset group');
+});

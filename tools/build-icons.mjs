@@ -19,6 +19,8 @@
 
    Site icon sets (config.iconSets, site/icon-sets/) are not built here: they are the site's
    own JSON data (docs/ARCHITECTURE.md §13), and the scan skips site/icon-sets/.
+   The quoted keys of config.iconReplace in site/config.js are found like any other id and stay
+   in the subset on purpose: they are the fallback when a set does not load.
 
    Usage
      node tools/build-icons.mjs            write src/icons/tabler.js

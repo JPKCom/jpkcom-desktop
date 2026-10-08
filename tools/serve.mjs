@@ -18,7 +18,9 @@
      --connect   extra origins for connect-src (online services you switched on)
      --frame     extra origins for frame-src ('web' apps whose url lives on another origin)
      --wasm      adds 'wasm-unsafe-eval' to script-src (only for WebAssembly, e.g. the
-                 optional Pagefind search provider; nothing else needs it)
+                 optional Pagefind search provider; nothing else needs it). This server sends
+                 its policy with every file, so it covers both Pagefind's worker and its
+                 fallback to the page (docs/deploy.md §6)
      --geolocation  allows geolocation=(self) in Permissions-Policy (only when site/config.js
                  sets services.geolocation: true — production blocks it otherwise)
      --extra     serves single files from outside the project tree at <base><url-path>, with the

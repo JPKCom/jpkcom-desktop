@@ -17,7 +17,7 @@
    descriptor's configKey + validateConfig, see docs/ARCHITECTURE.md §6);
    validateConfig() below covers what the core itself reads. */
 
-import { isSetPath, MAX_SETS } from './icon-sets.js';
+import { isSetPath, cleanIconReplace, MAX_SETS } from './icon-sets.js';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -106,6 +106,8 @@ export const DEFAULTS = {
 
 	/* Site icon sets (docs/ARCHITECTURE.md §13): JSON files relative to the installation root, loaded before the modules */
 	iconSets: [],
+	/* The desktop's own glyphs drawn with other icons (§13): { 'ti-settings': 'acme-cog' } — applied at boot */
+	iconReplace: {},
 
 	wallpaper: {
 		default: { type: 'gradient', from: '#3c4955', to: '#0c1925', dir: 'glow' },
@@ -167,7 +169,11 @@ export const DEFAULTS = {
 		/* match: a path prefix relative to the installation root, or a regular expression starting with '^' */
 		rules: [{ match: 'site/content/', content: 'main article, article, main', title: 'h1', lead: '.lead' }],
 		titleSeparator: '\\s[|—–]\\s',
-		cacheSize: 24
+		cacheSize: 24,
+		/* Code colours: a few inline styles (colour, background, font style/weight, decoration) survive in this scope */
+		keepStyles: true,
+		styleScope: 'pre, code',
+		styleVars: null
 	},
 	search: { pagefind: null, maxPerGroup: 6, shortcut: 'Mod+K' },
 	notify: {
@@ -175,7 +181,8 @@ export const DEFAULTS = {
 		app: 'about',
 		hideMs: 9000,
 		maxBanners: 3,
-		pathPrefix: null
+		pathPrefix: null,
+		label: null
 	},
 	holidays: { region: null },
 	calendar: { firstDay: 'auto', weekNumbers: true },
@@ -213,7 +220,7 @@ export const isPlainObject = v => v !== null && typeof v === 'object' && Object.
 
 /* Language maps ({ de: …, en: … }) replace as a whole: a site that writes only
    { en } must not keep the default German text next to its own English one */
-const REPLACE = new Set(['site.description', 'site.home', 'notify.feeds', 'about.moreInfo', 'about.rows', 'terminal.manUrl']);
+const REPLACE = new Set(['site.description', 'site.home', 'notify.feeds', 'notify.label', 'about.moreInfo', 'about.rows', 'terminal.manUrl']);
 
 /** Deep merge: plain objects recurse, everything else (arrays, null, primitives) replaces. */
 export function deepMerge(base, over, path = '') {
@@ -351,6 +358,9 @@ export function validateConfig(cfg, warn = () => {}) {
 		else warn(`config.iconSets[${i}] must be a .json path inside the installation root ('site/icon-sets/x.json'; letters, digits, . _ - / only), at most ${MAX_SETS}, no duplicates — skipped ${JSON.stringify(p)}`);
 		return ok;
 	});
+	/* Replacing the desktop's glyphs: the shape here, whether key and target exist at boot (src/core/icons.js) */
+	fix('iconReplace', isPlainObject);
+	cfg.iconReplace = cleanIconReplace(cfg.iconReplace, warn);
 
 	fix('wallpaper.default', v => isPlainObject(v) && (
 		(v.type === 'gradient' && HEX.test(v.from) && HEX.test(v.to) && typeof v.dir === 'string')

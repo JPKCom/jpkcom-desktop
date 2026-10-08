@@ -42,6 +42,7 @@
 <li><strong>Links:</strong> relative links to other pages open in the same window; links to other sites open in a new tab; <code>#anchors</code> scroll.</li>
 <li><strong>Allowed:</strong> text, headings, lists, tables, figures and pictures, <code>details</code>, <code>pre</code> and <code>code</code>, audio and video with controls.</li>
 <li><strong>Removed:</strong> scripts, styles and <code>style</code> attributes, forms, iframes, event handlers. The page's own stylesheet only matters when it is opened outside the desktop.</li>
+<li><strong>Code colours:</strong> inside <code>pre</code> and <code>code</code>, inline colours (text colour, background, font style and weight, decoration) are kept, filtered and only where text and background keep a 2:1 contrast. The keys <code>keepStyles</code>, <code>styleScope</code> and <code>styleVars</code> of <code>reader</code> in <code>site/config.js</code> control this.</li>
 <li><strong>Classes</strong> get the prefix <code>c-</code>, so no class of a page can change the desktop. Style them with <code>.reader-page .c-name</code> in a stylesheet of your own.</li>
 </ul>
 

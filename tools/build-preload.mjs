@@ -15,7 +15,9 @@
      <link rel="preload" as="style">   the descriptors' styles: [...] (not windowStyles)
      <link rel="modulepreload">        locales/<lang>/_meta.js of every offered language and the
                                        namespaces (i18n: [...]) of the configured parts for the
-                                       language the desktop will most likely start in
+                                       language the desktop will most likely start in (?lang=,
+                                       the stored choice, then navigator.languages through the
+                                       source of matchLanguage() of src/core/i18n.js, copied in)
      <link rel="preload" as="fetch"    the site icon sets of config.iconSets (JSON, read from the
            crossorigin>                config at run time — changing the list needs no rebuild; the
                                        path rule is SET_PATH of src/core/icon-sets.js, written into
@@ -40,6 +42,7 @@ import { join, relative, dirname, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../src/core/config.js';
 import { SET_PATH, MAX_SETS } from '../src/core/icon-sets.js';
+import { matchLanguage } from '../src/core/i18n.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/boot/preload.js');
@@ -127,6 +130,9 @@ function render(graph) {
 	/* The path rule of the icon sets, generated from its source and never hand-copied into the template
 	   text below (a hand-written regex there would lose its backslashes to the template's escapes) */
 	const setRule = `new RegExp(${JSON.stringify(SET_PATH.source)})`;
+	/* The browser-language match of i18n detect(), copied from its source (two tabs deeper) — the
+	   prediction can never drift from the boot's choice */
+	const matchSource = matchLanguage.toString().replace(/\n/g, '\n\t\t');
 	const parts = kind => Object.entries(graph[kind]).map(([id, p]) => `\t\t\t${json(id)}: ${json(p)}`).join(',\n');
 	return `/* JPKCom Desktop — preload hints for the boot (generated) — © Jean Pierre Kolb — MIT License
 
@@ -229,7 +235,9 @@ ${parts('site')}
 			if (url.href.startsWith(root.href)) hint(p, 'fetch');
 		}
 
-		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain */
+		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain.
+		   matchLanguage is the source of src/core/i18n.js matchLanguage(), copied by the tool */
+		const matchLanguage = ${matchSource};
 		const offer = Array.isArray(cfg.languages) && cfg.languages.length && cfg.languages.every(c => typeof c === 'string' && LANG.test(c))
 			? cfg.languages : G.defaults.languages;
 		const defaultLang = typeof cfg.defaultLang === 'string' && LANG.test(cfg.defaultLang) ? cfg.defaultLang : G.defaults.defaultLang;
@@ -240,8 +248,7 @@ ${parts('site')}
 		const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
 		const base = c => String(c).split('-')[0].toLowerCase();
 		const lang = exact(new URLSearchParams(location.search).get('lang')) ?? exact(stored)
-			?? preferred.map(exact).find(Boolean)
-			?? preferred.map(p => offer.find(x => x.toLowerCase() === base(p)) ?? offer.find(x => base(x) === base(p))).find(Boolean)
+			?? matchLanguage(offer, [...preferred])
 			?? (offer.includes(defaultLang) ? defaultLang : offer[0]);
 		const known = new Set([...offer, 'en']);
 		const chain = [...new Set([lang, base(lang), defaultLang, 'en'])].filter(c => c === lang || known.has(c));

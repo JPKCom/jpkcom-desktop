@@ -309,7 +309,7 @@ export function initSettings() {
 	});
 	/* Rows follow what the other parts offer right now */
 	for (const ev of ['consent:change', 'consent:register', 'trash:change', 'install:change', 'service:provide',
-		'module:loaded', 'module:failed', 'dock:change', 'vault:change']) Desk.on(ev, redraw);
+		'module:loaded', 'module:failed', 'dock:change', 'vault:change', 'storage:groups']) Desk.on(ev, redraw);
 }
 
 /** Adds a section at runtime (site scripts): { id, label, icon, tint, order } → remove() */

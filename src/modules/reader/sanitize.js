@@ -10,6 +10,12 @@
      original: collapsed navigation is no content)
    - attributes: an ALLOWLIST per element. Never style, on*, data-*, target;
      tabindex only on <pre> (scrollable code)
+   - code colours (ctx.styles = { scope, vars }, config.reader.keepStyles): on an
+     HTML element that matches the scope or lies inside a match, the style text
+     goes through styles.js parseStyle() — never applied as it is. What survives
+     is kept in ctx.kept and the element gets the transient marker
+     data-reader-style="<index>" (page data-* are gone by then); extract.js sets
+     the values through CSSOM on the imported node and removes the marker
    - ids get a per-window prefix (no collision with the desktop or a second
      Reader window), idrefs (aria-labelledby, for, headers, …) and local links
      (#x, url(#x) in SVG) follow it; classes get a 'c-' prefix, so no page
@@ -21,6 +27,8 @@
    - lang, dir, abbr and title stay (accessibility as on the original page)
 
    The pure helpers are exported for tests/p04-reader.test.mjs. */
+
+import { parseStyle } from './styles.js';
 
 const HTML_NS = 'http://www.w3.org/1999/xhtml';
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -154,14 +162,36 @@ export function rewriteSrcset(value, { base, resolve }) {
 
 /* ---------- The tree walk (browser) ---------- */
 
+/** The marker of an element whose allowlisted styles wait in ctx.kept (extract.js applies them) */
+export const STYLE_MARK = 'data-reader-style';
+
+/* Inside the configured scope: the element or an ancestor below the sanitised root matches.
+   Tested on the page's own markup: the ancestors are cleaned after their children, and
+   cleanAttributes() asks before it rewrites the element's own class/id (so attribute order
+   does not matter) */
+function inScope(el, ctx) {
+	try {
+		const hit = el.closest(ctx.styles.scope);
+		return !!hit && hit !== ctx.root && ctx.root.contains(hit);
+	} catch {
+		return false;
+	}
+}
+
 function cleanAttributes(el, svg, ctx) {
 	const tag = el.localName.toLowerCase();
 	const own = svg ? null : ELEMENT_ATTRS[tag];
+	/* Decided before any attribute is rewritten: class gets 'c-', id the window prefix */
+	const styleOk = !svg && !!ctx.styles && el.hasAttribute('style') && inScope(el, ctx);
+	let kept = null;
 	for (const attr of [...el.attributes]) {
 		const name = attr.name.toLowerCase();
 		const value = attr.value;
 		const drop = () => el.removeAttributeNode(attr);
-		if (name.startsWith('on') || name === 'style' || name.startsWith('data-') || name === 'target' || name === 'hidden') {
+		if (name === 'style') {
+			if (styleOk) kept = parseStyle(value, ctx.styles);
+			drop();
+		} else if (name.startsWith('on') || name.startsWith('data-') || name === 'target' || name === 'hidden') {
 			drop();
 		} else if (name === 'id') {
 			const v = value.trim();
@@ -201,6 +231,7 @@ function cleanAttributes(el, svg, ctx) {
 			drop();
 		}
 	}
+	if (kept && ctx.kept) el.setAttribute(STYLE_MARK, String(ctx.kept.push(kept) - 1));
 }
 
 /* 'drop' | 'keep' | 'unwrap' for an element */
@@ -258,9 +289,11 @@ function walk(parent, ctx) {
 /**
  * Cleans the children of root in place (root itself is the caller's container).
  * ctx: { base: page URL, prefix: id prefix of the window, origin: location.origin,
- *        resolve(raw, base) → URL | null }
+ *        resolve(raw, base) → URL | null,
+ *        styles: { scope, vars } | null (code colours; null = every style goes),
+ *        kept: [] (collects the allowlisted styles of marked elements) }
  */
 export function sanitizeTree(root, ctx) {
-	walk(root, ctx);
+	walk(root, { ...ctx, root });
 	return root;
 }

@@ -41,6 +41,7 @@ mirror `DEFAULTS` (a test keeps them equal):
 | `wallpaper.images[].src` | precached code (first paint; part of the version, also inside a data folder) |
 | `fortune.dir` (with app `fortune`; same folder rule), `notify.feeds` (with module `notify`) | precached data files (network first, never compared — see *Code and data*); fortunes for the whole language chain (offered languages, their base languages, `defaultLang`, `en`) like the app's own fallback |
 | `iconSets` | precached code (the path rule `SET_PATH` of `src/core/icon-sets.js`, inline copy; a set below `vault.dir` is left out; part of the version, also inside a data folder — the config and the manifest name its ids); a set outside `site/` joins the shell as an exact file |
+| `iconReplace` | not read: the map names no file. The set files its targets come from are the `iconSets` above; the replaced Tabler ids stay in `src/icons/tabler.js` (the fallback when a set does not load), and a change of the map is a change of `site/config.js`, part of the version like every shell file |
 | `pwa.enabled` | `false` → no precache; a still registered worker deletes its caches and unregisters itself |
 | `offline.maxPages` (0–1000), `offline.timeoutMs` (500–60000) | Reader page cache size; network timeout before a cached copy answers |
 | `offline.fastStart` (default `true`) | answer the desktop's files from the shell cache and check for updates in the background; `false` → network first |
@@ -112,7 +113,9 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   only as a whole — **code never mixes; data is always the server's current version.** Older code may
   therefore read current data for one session (until the offered reload): a data file must stay readable by
   the previous code — add fields, do not rename or remove them; an incompatible format gets a new file name.
-  Icon ids named in data must already be in the deployed `src/icons/tabler.js` or site icon set. Run-time data of a module
+  Icon ids named in data must already be in the deployed `src/icons/tabler.js` or site icon set. The same
+  holds for the targets of `config.iconReplace` (§13): ship the set with the config that names them — a target
+  the browser does not know is dropped with a warning and the original glyph stays. Run-time data of a module
   belongs under `site/data/` (e.g. `site/data/<module id>/`) and is fetched (`Desk.net.getJson`), never
   imported. `cleanConfig()` derives two sets (absolute URLs, not part of the cache-name hash):
 
@@ -138,7 +141,11 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   prepared update in place (`applyUpdate`: `<shell>-next` with its marker `sw.js?complete` → copied into the
   shell cache, `-next` deleted; without the marker `-next` is only deleted), then schedules
   `checkForUpdate` (`CHECK_DELAY_MS` 3 s after the start, at most every `CHECK_GAP_MS` 60 s, inside
-  `waitUntil`): every shell file except data files is fetched with `cache: 'no-cache'` (index.html from the navigation
+  `waitUntil` — the exception to ARCHITECTURE §14's rule that no `waitUntil` spans a wait of its own: the
+  browser keeps the worker alive for it. Because a newer worker cannot activate while it runs,
+  `superseded()` — `self.registration.installing` or `.waiting` set — ends it after the delay, before each
+  batch of compares and before the crawl, with nothing kept; the newer worker brings its own copy and the
+  next start checks again. A crawl already running is not interrupted): every shell file except data files is fetched with `cache: 'no-cache'` (index.html from the navigation
   preload answer) in batches of `CHECK_BATCH` and compared byte for byte with the copy (or the prepared
   one). A difference → the install crawl into `-next` (without data files: neither roots nor URLs met on the
   way); a crawl with network failures (not HTTP errors) is
@@ -163,25 +170,40 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   request waits for the network. Pages: re-inserted on refresh, trimmed oldest-first to `maxPages`.
 - **Lifecycle**: `skipWaiting()` after the precache; activation deletes own older caches and the legacy
   caches (`offline.legacyCaches`), enables navigation preload, `clients.claim()`.
-- **Legacy caches** (only with a non-empty `offline.legacyCaches`): besides activation, the first fetch
-  event after activation keeps the worker alive (`waitUntil`) for `LEGACY_FOLLOW_UP_MS` (30 s) and deletes
-  them again. Requests the earlier worker received before the hand-over finish later and re-create its
-  cache. Every top-level start (`shell-nav`) deletes them as well. The worker imports the current
-  `site/config.js` when it installs, so it always has the current list, whereas the page may still run
-  the previous config from the offline copy. The follow-up does not run inside the activate
-  `waitUntil`, because fetch events wait until the worker is `activated` and a delay there would stall
-  every request of the claimed pages. A worker stopped before the follow-up loses it; the next start
-  covers that case.
+- **Legacy caches** (only with a non-empty `offline.legacyCaches`): besides activation, they are deleted
+  once more `LEGACY_FOLLOW_UP_MS` (30 s) after it — requests the earlier worker received before the
+  hand-over finish later and re-create its cache. Activation arms the follow-up (`armLegacyFollowUp()`:
+  the moment `legacyDue` and a plain `setTimeout`); `legacyFollowUp()` runs it once, from whichever comes
+  first: the timer, or the first fetch event at or after `legacyDue` (a sweep of a few milliseconds
+  inside that event's `waitUntil`, before `classify`, so also for requests the worker leaves alone and
+  for a switched-off worker that still controls its pages). **No `waitUntil` spans the 30 s**: an
+  extended event keeps the worker busy, and a following worker that called `skipWaiting()` activates
+  only once the active one has no extended events — in 1.2.0 the follow-up held every update (and a
+  rollback) for 30 s after an activation. A worker that is no longer the active one
+  (`self.serviceWorker.state` is `redundant`: a newer worker replaced it) drops the follow-up; its
+  successor sweeps with its own list. Where `self.serviceWorker` does not exist the sweep runs. Every
+  top-level start (`shell-nav`) deletes them as well (once per event: not again when the follow-up ran in
+  the same event). The worker imports the current `site/config.js` when it installs, so it always has the
+  current list, whereas the page may still run the previous config from the offline copy. The follow-up
+  is not part of the activate `waitUntil` either, because fetch events wait until the worker is
+  `activated`. A worker the browser stops before the timer fires loses the timer; the next request of a
+  restarted worker does not know the moment either, and the next start (and `install.js`, ~30 s after
+  `controllerchange`) covers that case.
 
 ## Server configurations
 
 Complete, standalone header sets (ARCHITECTURE §5) for root and sub-folder installs without edits;
 commented opt-in lines for `connect-src` (Open-Meteo, Bright Sky, the DoH host, JokeAPI, Useless Facts),
-`frame-src`, `'wasm-unsafe-eval'` and `geolocation=(self)`. `https://geocoding-api.open-meteo.com` (named
+`frame-src`, `'wasm-unsafe-eval'` (for Pagefind: its worker and its fallback to the page —
+ARCHITECTURE §5) and `geolocation=(self)`. `https://geocoding-api.open-meteo.com` (named
 in the task list) appears only in a separate comment for a place search by name: the shipped providers
 never call it (the `open-meteo` provider declares `hosts: ['api.open-meteo.com']`), so it is not part of
 the example policies. `no-cache` + ETag for everything except images/fonts/media
-(`public, max-age=86400`), trailing-slash redirect, no listings, dotfiles 404, `X-Robots-Tag` for
+(`public, max-age=86400`), and no expiry inherited from a parent configuration — Apache
+`ExpiresActive Off` (in `<IfModule mod_expires.c><Files "*">`, so it also wins over a parent's
+`<FilesMatch>`), nginx `expires off;` at server level (an `expires` of the `http { }` block would add
+`Expires` and a second `Cache-Control`), static-web-server `cache-control-headers = false`; Caddy and
+Ferron add no expiry of their own and their site/host blocks set `Cache-Control` themselves. Trailing-slash redirect, no listings, dotfiles 404, `X-Robots-Tag` for
 `site/vault/`, `Cross-Origin-Opener-Policy` as in `tools/serve.mjs`, HSTS without `preload`. Apache,
 nginx, Caddy and Ferron keep `/.well-known/` reachable; static-web-server's `ignore-hidden-files` has no
 exception (checked in a 2.44.0 container: `/.well-known/acme-challenge/x` → 404) — documented in the

@@ -5,6 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 class FakeEl {
 	constructor(tag) {
@@ -38,7 +41,7 @@ globalThis.document = {
 const warnings = [];
 const realWarn = console.warn;
 console.warn = (...args) => warnings.push(args.join(' '));
-const { icon, addIcons, addIconSet, hasIcon, symbolHref, glyphOf } = await import('../src/core/icons.js');
+const { icon, addIcons, addIconSet, hasIcon, symbolHref, glyphOf, appGlyph, setIconReplace } = await import('../src/core/icons.js');
 const { cleanIconSet, SET_FORMAT } = await import('../src/core/icon-sets.js');
 console.warn = realWarn;
 
@@ -167,4 +170,53 @@ test('glyphOf: an icon of a site icon set counts as known (appGlyph shows it lik
 	addIconSet(cleanIconSet({ format: SET_FORMAT, icons: { 'acme-cookie': { k: 'f', e: ['M0 0h1'] } } }), 'site/icon-sets/g.json');
 	assert.deepEqual(glyphOf({ icon: 'acme-cookie' }), { icon: 'acme-cookie' });
 	assert.deepEqual(glyphOf({ icon: 'acme-not-in-set' }, 'ti-cookie'), { icon: 'ti-cookie' });
+});
+
+test('iconReplace: icon() and symbolHref() draw the target for a replaced id; has() and glyphOf() keep the id', () => {
+	addIconSet(cleanIconSet({ format: SET_FORMAT, icons: {
+		'acme-cog': { k: 'd', vb: '0 0 512 512', e: ['M0 0h1'], e2: ['M1 1h1'] },
+		'acme-xmark': { k: 'f', e: ['M0 0h2'] }
+	} }), 'site/icon-sets/r.json');
+	try {
+		const problems = setIconReplace({ 'ti-settings': 'acme-cog', 'wc-close': 'acme-xmark', 'ti-cookie': 'ti-settings' });
+		assert.equal(problems.length, 1, 'ti-settings is a key itself: one step, warned');
+		assert.equal(icon('ti-settings').children[0].attrs.href, '#i-acme-cog');
+		assert.equal(icon('wc-close', 'i wc').children[0].attrs.href, '#i-acme-xmark');
+		assert.equal(icon('ti-cookie').children[0].attrs.href, '#i-ti-settings', 'not chained');
+		assert.equal(symbolHref('ti-settings'), '#i-acme-cog');
+		assert.equal(symbol('acme-cog').children[0].attrs.class, 'i-duo', 'the target is built as it is (two-tone)');
+		assert.equal(hasIcon('ti-settings'), true);
+		assert.deepEqual(glyphOf({ icon: 'ti-settings' }), { icon: 'ti-settings' }, 'glyphOf names the id asked for');
+		assert.equal(appGlyph({ icon: 'ti-settings' }).children[0].attrs.href, '#i-acme-cog', 'app glyphs and tiles draw through icon()');
+		assert.equal(icon('ti-x').children[0].attrs.href, '#i-ti-x', 'ids without a replacement are untouched');
+	} finally {
+		setIconReplace({});
+	}
+	assert.equal(icon('ti-settings').children[0].attrs.href, '#i-ti-settings', 'a new map replaces the old one');
+});
+
+test('iconReplace: a pair with an unknown key or target is left out — the original glyph stays', () => {
+	try {
+		const problems = setIconReplace({ 'ti-cookie': 'acme-not-loaded', 'ti-not-built': 'acme-cog', 'ti-x': 'acme-xmark' });
+		assert.equal(problems.length, 2, problems.join('\n'));
+		assert.match(problems[0], /'ti-cookie' → 'acme-not-loaded': 'acme-not-loaded' is not a known icon/);
+		assert.match(problems[1], /'ti-not-built' is not a known icon/);
+		const { value, warned } = quiet(() => icon('ti-cookie'));
+		assert.equal(value.children[0].attrs.href, '#i-ti-cookie', 'the Tabler original is the fallback');
+		assert.deepEqual(warned, []);
+		assert.equal(icon('ti-x').children[0].attrs.href, '#i-acme-xmark');
+		assert.equal(quiet(() => icon('ti-not-built')).value.children.length, 0, 'an unknown key renders empty as before');
+	} finally {
+		setIconReplace({});
+	}
+});
+
+test('iconReplace: the boot applies config.iconReplace after the icon sets and before any module is imported', () => {
+	const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../src/boot/main.js'), 'utf8');
+	const body = src.slice(src.indexOf('async function boot()'));
+	const sets = body.indexOf('loadIconSets()');
+	const apply = body.indexOf('applyIconReplace();');
+	const modulesAt = body.indexOf('modules.loadAll(');
+	assert.ok(sets > 0 && apply > sets && modulesAt > apply, 'loadIconSets → applyIconReplace → modules.loadAll');
+	assert.match(src, /function applyIconReplace\(\) \{\n\ttry \{\n\t\tconst problems = setIconReplace\(config\.iconReplace\);/);
 });

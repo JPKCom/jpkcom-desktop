@@ -106,6 +106,62 @@ export function groupState(keys) {
 	return { kind: stored.every(k => k.backup === false) ? 'stored' : 'custom' };
 }
 
+/* ---------- Hidden reset groups (visible(), ARCHITECTURE §14) ---------- */
+
+/** Two id lists name the same groups in the same order */
+export const sameIds = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((id, i) => id === b[i]);
+
+/** The picks whose group is shown now (a pick of a group that went hidden is dropped) → array */
+export function keptPicks(picked, shownIds) {
+	const shown = new Set(shownIds);
+	return [...picked].filter(id => shown.has(id));
+}
+
+/**
+ * What a confirmed reset does. shownIds: the groups shown now, in order; picked: the
+ * picks (Set or array); allIds: every registered group, hidden ones too; asked: the
+ * shown ids when the question was asked. → null when nothing shown is picked or the
+ * shown groups changed since the question (the user confirmed another set), else
+ * { everything, ids } — everything: every shown group picked, and then ids are allIds
+ * (the hidden groups' onReset runs too); otherwise the picked shown ids.
+ */
+export function resetPlan(shownIds, picked, allIds, asked) {
+	if (!sameIds(asked, shownIds)) return null;
+	const pick = new Set(picked);
+	const ids = shownIds.filter(id => pick.has(id));
+	if (!ids.length) return null;
+	const everything = ids.length === shownIds.length;
+	return { everything, ids: everything ? [...new Set([...allIds, ...shownIds])] : ids };
+}
+
+/**
+ * Rows of what a data set holds (input of summarize()): one per reset group with keys
+ * that have backup: true, keys without a group (or whose group is unknown) on their own.
+ * groups: storage.resetGroups({ all: true }) ([{ id, label, shown }]); keys: storage.listKeys();
+ * data: { name: value }. A group hidden now (shown: false) — and its keys — only when the
+ * data holds one of them. label(): turns a label into text (L).
+ */
+export function backupRows(groups, keys, data, label = x => x) {
+	const backed = keys.filter(k => k.backup);
+	const has = k => isObj(data) && Object.hasOwn(data, k.name) && data[k.name] != null;
+	const row = k => ({ name: k.name, label: label(k.label), count: k.count });
+	const out = [];
+	const hidden = new Set();
+	for (const g of groups) {
+		const own = backed.filter(k => k.reset === g.id);
+		if (g.shown === false && !own.some(has)) {
+			hidden.add(g.id);
+			continue;
+		}
+		if (own.length) out.push({ id: g.id, label: label(g.label), keys: own.map(row) });
+	}
+	for (const k of backed) {
+		if (k.reset && (hidden.has(k.reset) || out.some(g => g.id === k.reset))) continue;
+		out.push({ id: `key-${k.name}`, label: label(k.label), keys: [row(k)] });
+	}
+	return out;
+}
+
 /* ---------- Texts with marked-up parts ---------- */
 
 /**

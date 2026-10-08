@@ -15,12 +15,16 @@
    (icon ids never meet element ids); code that draws its own <use> asks
    symbolHref(id). Every definition — of every pack — is built through the
    allowlist of src/core/icon-sets.js; k: 'd' (two-tone) draws e2 first with
-   the class i-duo (--icon-duo-opacity, --icon-duo-color in base.css). */
+   the class i-duo (--icon-duo-opacity, --icon-duo-color in base.css).
+
+   config.iconReplace (§13): src/boot/main.js calls setIconReplace() once the sets are registered;
+   from then on icon(id) and symbolHref(id) draw the target for a replaced id — the one place
+   where the replacement happens. hasIcon() and glyphOf() keep answering for the id asked for. */
 
 import { config } from './config.js';
 import { SVGNS } from './env.js';
 import { h } from './dom.js';
-import { safeElement, safeAttrs, safeViewBox, DEFAULT_VIEWBOX, SYMBOL_ID_PREFIX } from './icon-sets.js';
+import { safeElement, safeAttrs, safeViewBox, resolveIconReplace, DEFAULT_VIEWBOX, SYMBOL_ID_PREFIX } from './icon-sets.js';
 import tabler from '../icons/tabler.js';
 import { symbols as customSymbols, logos as customLogos } from '../icons/custom.js';
 
@@ -29,6 +33,7 @@ const logos = new Map(Object.entries(customLogos));
 const placed = new Set();       // ids already in the sprite
 const warned = new Set();
 const setOf = new Map();        // id → the site icon set it came from (messages)
+const replaced = new Map();     // project id → the icon drawn in its place (config.iconReplace)
 let sprite = null;
 
 const OUTLINE = { fill: 'none', stroke: 'currentColor', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
@@ -56,6 +61,20 @@ export function addIconSet(cleaned, src) {
 }
 
 export const hasIcon = id => packs.has(id);
+
+/**
+ * Applies config.iconReplace (cleaned by src/core/config.js): pairs whose key and target are known icons
+ * replace the earlier map; the others are left out. → the problems (strings) for the caller to warn about.
+ */
+export function setIconReplace(map) {
+	const { pairs, problems } = resolveIconReplace(map, hasIcon);
+	replaced.clear();
+	for (const [from, to] of pairs) replaced.set(from, to);
+	return problems;
+}
+
+/* The icon drawn for an id: its replacement (config.iconReplace) or itself */
+const drawn = id => replaced.get(id) ?? id;
 
 function ensureSprite() {
 	if (sprite?.isConnected) return sprite;
@@ -111,19 +130,23 @@ function place(id) {
 	return true;
 }
 
-/** '#i-<id>' for a <use> of your own (the symbol is placed on the way), null for an unknown id */
-export const symbolHref = id => (place(id) ? `#${SYMBOL_ID_PREFIX}${id}` : null);
+/** '#i-<id>' for a <use> of your own (the symbol is placed on the way; a replaced id gives its target), null for an unknown id */
+export function symbolHref(id) {
+	const target = drawn(id);
+	return place(target) ? `#${SYMBOL_ID_PREFIX}${target}` : null;
+}
 
 /**
  * <svg class="i"><use href="#i-<id>"></svg>, decorative (aria-hidden). Give the
- * surrounding control an accessible name, never the icon.
+ * surrounding control an accessible name, never the icon. A replaced id (config.iconReplace) draws its target.
  */
 export function icon(id, cls = 'i') {
 	const svg = document.createElementNS(SVGNS, 'svg');
 	svg.setAttribute('class', cls);
 	svg.setAttribute('aria-hidden', 'true');
 	svg.setAttribute('focusable', 'false');
-	if (!place(id)) {
+	const target = drawn(id);
+	if (!place(target)) {
 		if (!warned.has(id)) {
 			warned.add(id);
 			console.warn(/^tif?-/.test(id)
@@ -133,7 +156,7 @@ export function icon(id, cls = 'i') {
 		return svg;
 	}
 	const use = document.createElementNS(SVGNS, 'use');
-	use.setAttribute('href', `#${SYMBOL_ID_PREFIX}${id}`);
+	use.setAttribute('href', `#${SYMBOL_ID_PREFIX}${target}`);
 	svg.append(use);
 	return svg;
 }

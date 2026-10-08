@@ -20,8 +20,9 @@
    - The agreement is bound to the provider: the key 'fortune' records
      agreed: '<id>@<hosts>'; at 'modules:ready' a consent given for another
      provider (or without a record) is withdrawn, so the question comes again.
-   - config.fortune.texts replaces the texts that name the app (appText(),
-     keys: model.js TEXT_KEYS) — e.g. after the site renamed it.
+   - config.fortune.texts replaces the texts that name or describe the app or its
+     source (appText(), keys: model.js TEXT_KEYS, placeholders per key: TEXT_PARAMS)
+     — e.g. after the site renamed it; the storage label follows texts.storageLabel.
    - Category filter (config.fortune.block leaves categories out — locally and
      remotely, like the original's blocked list), a history of 20 with forward
      and back, copy, "learn more" for entries with a link.
@@ -41,7 +42,7 @@
 import Desk from '../../core/api.js';
 import {
 	cleanFortunes, cleanBlock, cleanLangs, fetchCodes, DEFAULT_LANGS, createDeck, cleanState, isCat,
-	cleanLocal, cleanTexts, sourceFor
+	cleanLocal, cleanTexts, sourceFor, fillText, hostWarning
 } from './model.js';
 import { BUILT_IN, createSources, consentTag, staleConsent } from './providers.js';
 
@@ -58,10 +59,13 @@ export const warn = msg => console.warn(`[fortune] ${msg}`);
 export const cfg = () => Desk.modules.config('fortune')
 	?? { remote: null, local: true, dir: DEFAULT_DIR, langs: DEFAULT_LANGS, block: [], texts: {} };
 
-/** An app text: the site's (config.fortune.texts[key]) or fortune.<key> — keys: model.js TEXT_KEYS */
-export const appText = key => {
+/**
+ * An app text: the site's (config.fortune.texts[key]) or fortune.<key> — keys: model.js TEXT_KEYS;
+ * params fill the placeholders of either (TEXT_PARAMS), e.g. appText('error', { host })
+ */
+export const appText = (key, params) => {
 	const v = cfg().texts?.[key];
-	return v != null ? L(v) : t(`fortune.${key}`);
+	return v != null ? fillText(L(v), params) : t(`fortune.${key}`, params);
 };
 
 const sources = createSources({
@@ -212,7 +216,11 @@ export default {
 	},
 
 	storage: {
-		fortune: { type: 'json', backup: true, reset: 'settings', label: '@fortune.storageLabel', validate: cleanState }
+		fortune: {
+			type: 'json', backup: true, reset: 'settings', validate: cleanState,
+			/* read when the key is registered — after validateConfig() (§8 loader order), so the site's text counts */
+			get label() { return cfg().texts?.storageLabel ?? '@fortune.storageLabel'; }
+		}
 	},
 
 	/* help and man are app texts (config.fortune.texts); hidden online only */
@@ -252,6 +260,10 @@ export default {
 		/* every module is set up: report an unknown source once, check the agreement */
 		desk.once('modules:ready', () => {
 			for (const m of sources.ready({ local: cfg().local !== false, offered: Desk.consent.enabled(SERVICE) })) warn(m);
+			/* a site's consent question must still say who receives the request (the provider is known now) */
+			const asked = remoteProvider();
+			const hostless = asked ? hostWarning(cfg().texts?.askText, asked.hosts) : null;
+			if (hostless) warn(`config.fortune.${hostless}`);
 			checkAgreement();
 		});
 		desk.provide('fortune', service);

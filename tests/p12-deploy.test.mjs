@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { createServer as createNetServer } from 'node:net';
 import vm from 'node:vm';
 import { DEFAULTS } from '../src/core/config.js';
+import { createI18n } from '../src/core/i18n.js';
 import { GOOD_PATHS, BAD_PATHS } from './set-paths.mjs';
 
 const PROJECT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,6 +58,9 @@ for (const [file, { comment }] of Object.entries(SERVERS)) {
 		const comments = text.split('\n').filter(l => l.trim().startsWith(comment)).join('\n');
 		for (const host of OPT_IN_HOSTS) assert.ok(comments.includes(host), `opt-in host ${host}`);
 		assert.match(comments, /'wasm-unsafe-eval'/);
+		/* … with its condition: needed whenever Pagefind is used — its worker runs under the policy sent with
+		   pagefind-worker.js, and its fallback to the page (worker error or slow start) under this one */
+		assert.match(comments, /'wasm-unsafe-eval' when the site uses the optional Pagefind search: its\n.*pagefind-worker\.js.*\n.*slow to start, in the page/);
 		assert.match(comments, /frame-src 'self' https:\/\//);
 		assert.match(comments, /geolocation=\(self\)/);
 		/* no shipped provider calls the geocoding host: it stays out of the example policies */
@@ -101,6 +105,38 @@ test('server snippets: directory listings off, dotfiles refused', () => {
 	const htaccess = active(read('docs/server/apache.htaccess'), '#').join('\n');
 	assert.match(htaccess, /^RedirectMatch 404 "\/\\\.\(\?!well-known\/\)"$/m);
 	assert.ok(!/mod_rewrite|RewriteRule/.test(htaccess), 'no dotfile rule that depends on mod_rewrite');
+});
+
+test('server snippets: no expiry inherited from a parent configuration on the code', () => {
+	/* Apache: mod_expires off inside <Files "*"> (wins over a parent's <FilesMatch>), outside the mod_headers block */
+	const htaccess = active(read('docs/server/apache.htaccess'), '#').join('\n');
+	assert.match(htaccess, /<IfModule mod_expires\.c>\n<Files "\*">\n\tExpiresActive Off\n<\/Files>\n<\/IfModule>/);
+	assert.ok(htaccess.indexOf('ExpiresActive Off') < htaccess.indexOf('<IfModule mod_headers.c>'), 'not tied to mod_headers');
+	assert.ok(!/ExpiresActive On|ExpiresByType|ExpiresDefault/.test(htaccess));
+	assert.match(htaccess, /Header unset Expires/);
+	/* nginx: expires off at server level, next to the Cache-Control map (an http-level expires is inherited otherwise) */
+	const nginx = active(read('docs/server/nginx.conf'), '#').join('\n');
+	assert.match(nginx, /^\texpires off;\n\tadd_header Cache-Control \$desk_cache_control;$/m);
+	assert.ok(!/\bexpires (?!off)/.test(nginx), 'no other expires');
+	/* static-web-server: its built-in max-age table stays off */
+	assert.match(read('docs/server/static-web-server.toml'), /^cache-control-headers = false$/m);
+	/* Caddy and Ferron set Cache-Control in their own site/host block and add no expiry */
+	for (const [f, c] of [['Caddyfile', '#'], ['ferron.conf', '#'], ['ferron.kdl', '//']]) {
+		assert.ok(!/\bexpires?\b/i.test(active(read(`docs/server/${f}`), c).join('\n')), `${f}: no expiry`);
+	}
+});
+
+test('README.md and README.de.md carry the server snippets unchanged', () => {
+	for (const readme of ['README.md', 'README.de.md']) {
+		const text = read(readme);
+		for (const file of Object.keys(SERVERS)) {
+			const src = read(file).replace(/\n$/, '');
+			const head = src.split('\n').slice(0, 2).join('\n');
+			const at = text.indexOf(head);
+			assert.ok(at >= 0, `${readme}: ${file} found`);
+			assert.equal(text.slice(at, text.indexOf('\n```', at)), src, `${readme}: copy of ${file}`);
+		}
+	}
 });
 
 test('server snippets: no version in the Server header, charset on text types', () => {
@@ -264,7 +300,7 @@ test('preload: src/boot/preload.js parses and holds no control characters', () =
 });
 
 /** Runs the generated preload.js against a stub document → the <link>s it appends */
-function runPreload(config, { base = 'https://example.org/desk/' } = {}) {
+function runPreload(config, { base = 'https://example.org/desk/', languages = ['en'], search = '', stored = null } = {}) {
 	const links = [];
 	const document = {
 		currentScript: { src: `${base}src/boot/preload.js` },
@@ -272,8 +308,8 @@ function runPreload(config, { base = 'https://example.org/desk/' } = {}) {
 		head: { append: el => links.push({ rel: el.rel, as: el.as, href: el.href, crossOrigin: el.crossOrigin }) }
 	};
 	const sandbox = {
-		document, URL, URLSearchParams, location: { search: '' }, navigator: { languages: ['en'], language: 'en' },
-		localStorage: { getItem: () => null }, window: { DESKTOP_CONFIG: config }
+		document, URL, URLSearchParams, location: { search }, navigator: { languages, language: languages[0] },
+		localStorage: { getItem: () => stored }, window: { DESKTOP_CONFIG: config }
 	};
 	vm.runInNewContext(read('src/boot/preload.js'), sandbox, { filename: 'preload.js' });
 	return links;
@@ -291,4 +327,26 @@ test('preload: src/boot/preload.js hints each configured icon set as rel=preload
 	assert.ok(links.some(l => l.rel === 'modulepreload' && l.href === `${base}src/core/icon-sets.js`), 'the module is part of the boot graph');
 	assert.ok(links.some(l => l.rel === 'preload' && l.as === 'style'), 'style hints still work');
 	assert.deepEqual(runPreload({ iconSets: 'site/icon-sets/x.json' }).filter(l => l.as === 'fetch'), []);
+});
+
+test('preload: the start language it predicts is the one i18n detect() picks (shared matchLanguage)', () => {
+	const config = { languages: ['de', 'en', 'fr', 'pt-BR'], defaultLang: 'en' };
+	const i18n = createI18n({ ...config, load: async () => ({}) });
+	/* the locale codes whose namespace files are hinted (not _meta.js): the start language's chain */
+	const hinted = links => new Set(links.map(l => /\/locales\/([^/]+)\/(?!_meta\.js)[^/]+\.js$/.exec(l.href)?.[1]).filter(Boolean));
+	const chainOf = lang => new Set([lang, lang.split('-')[0], config.defaultLang].filter(c => [...config.languages, 'en'].includes(c) || c === lang));
+	const cases = [
+		[['de-AT', 'en']], [['en-US', 'de']], [['fr-CA', 'de']], [['pt-PT', 'en']], [['ja', 'fr-CH']],
+		[['ja']], [['DE-ch-1996']], [['de-x-private', 'fr']], [['en'], '?lang=fr'], [['en'], '', 'pt-BR']
+	];
+	for (const [languages, search = '', stored = null] of cases) {
+		const expected = i18n.detect({ query: new URLSearchParams(search).get('lang'), stored, preferred: languages });
+		assert.deepEqual(hinted(runPreload(config, { languages, search, stored })), chainOf(expected), `${languages} ${search} ${stored} → ${expected}`);
+	}
+	assert.equal(i18n.detect({ preferred: ['de-AT', 'en'] }), 'de', 'the 1.2.0 case: de-AT, en starts in German');
+	/* the generated copy is the source, line by line (only the indentation differs) */
+	const lines = text => text.split('\n').map(l => l.trim());
+	const source = read('src/core/i18n.js').match(/^export (function matchLanguage\([^]*?\n\})/m)[1];
+	const copy = read('src/boot/preload.js').match(/const matchLanguage = (function matchLanguage\([^]*?\n\t\t\});/)[1];
+	assert.deepEqual(lines(copy), lines(source));
 });

@@ -391,6 +391,118 @@ test('module: logging in again keeps the open Catalog window; lock closes it and
 	assert.equal(reg.get('private'), null);
 });
 
+/* ---------- Settings → Reset: the row only while unlocked or a login is kept ---------- */
+
+/* An IndexedDB stand-in with just what idb() uses: open → db.transaction → objectStore get/put/delete */
+function fakeIndexedDB() {
+	const data = new Map();
+	return {
+		data,
+		open() {
+			const req = {};
+			setTimeout(() => {
+				req.result = {
+					close() {},
+					transaction() {
+						const tx = {};
+						const done = fn => ({ result: fn() });
+						tx.objectStore = () => ({
+							get: k => done(() => data.get(k)),
+							put: (v, k) => done(() => { data.set(k, v); return k; }),
+							delete: k => done(() => { data.delete(k); })
+						});
+						setTimeout(() => tx.oncomplete?.());
+						return tx;
+					}
+				};
+				req.onsuccess();
+			});
+			return req;
+		}
+	};
+}
+
+test('module: the reset group is visible only while unlocked or a login is kept; storage:groups follows', async () => {
+	const { key, file } = await derive('Tester', 'pw', { ...FAST, usages: ['encrypt', 'decrypt'] });
+	const files = new Map([[fileName(file), await seal(key, DATA, FAST)]]);
+	const { desk, events, services } = fakeDesk(files);
+	const idb = fakeIndexedDB();
+	const before = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+	globalThis.indexedDB = idb;
+	const warn = console.warn;
+	console.warn = () => {};
+	try {
+		vault.setup(desk);
+	} finally {
+		console.warn = warn;
+	}
+	try {
+		const V = services.get('vault');
+		await V.lock();   // a clean start whatever earlier tests left
+		const group = vault.resetGroups.find(g => g.id === 'vault');
+		assert.equal(typeof group.visible, 'function');
+		assert.equal(group.visible(), false, 'a visitor who never logged in sees no row');
+		const groupEvents = () => events.filter(e => e[0] === 'storage:groups');
+
+		events.length = 0;
+		assert.equal(await V.unlock('Tester', 'pw'), 'ok');
+		assert.equal(group.visible(), true);
+		assert.deepEqual(events.map(e => e[0]), ['storage:groups', 'vault:change'], 'Settings is told before the vault event');
+		assert.deepEqual(groupEvents()[0][1], { id: 'vault' });
+
+		/* kept: stays visible after a lock-free page reload (resume) and while offline */
+		assert.equal(await V.keep(), true);
+		assert.ok(idb.data.has('login'));
+		const record = idb.data.get('login');
+		await V.lock();
+		assert.equal(idb.data.has('login'), false, 'lock forgets the kept login');
+		assert.equal(group.visible(), false);
+
+		idb.data.set('login', record);   // as after a reload with "stay logged in"
+		const request = desk.net.request;
+		desk.net.request = async () => {
+			const e = new Error('network');
+			e.code = 'network';
+			throw e;
+		};
+		events.length = 0;
+		await V.resume();
+		assert.equal(V.unlocked(), false, 'offline: stays locked');
+		assert.equal(group.visible(), true, 'a kept login can be forgotten from Settings → Reset');
+		assert.equal(groupEvents().length, 1);
+		desk.net.request = request;
+
+		await V.resume();
+		assert.equal(V.unlocked(), true);
+		assert.equal(group.visible(), true);
+
+		/* forget() alone: still unlocked → visible; lock → hidden */
+		await V.forget();
+		assert.equal(group.visible(), true);
+		events.length = 0;
+		await V.lock();
+		assert.equal(group.visible(), false);
+		assert.ok(groupEvents().length >= 1);
+
+		/* a kept login whose file is gone (changed credentials) is forgotten → hidden again */
+		idb.data.set('login', { ...record, file: 'f'.repeat(32) });
+		await V.resume();
+		assert.equal(idb.data.has('login'), false);
+		assert.equal(group.visible(), false);
+
+		/* the reset itself: onReset locks and forgets */
+		assert.equal(await V.unlock('Tester', 'pw'), 'ok');
+		assert.equal(await V.keep(), true);
+		await group.onReset();
+		assert.equal(V.unlocked(), false);
+		assert.equal(idb.data.has('login'), false);
+		assert.equal(group.visible(), false);
+	} finally {
+		if (before) Object.defineProperty(globalThis, 'indexedDB', before);
+		else delete globalThis.indexedDB;
+	}
+});
+
 /* ---------- tools/seal-vault.mjs and the site icon sets ---------- */
 
 test('seal-vault: vault icons from a site icon set are accepted; a missing set icon refuses sealing', async () => {

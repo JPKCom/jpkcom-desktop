@@ -250,7 +250,9 @@ export default {
 
 - **App-Arten**: `page` (eine Seite deiner Website im Reader), `web` (eine Seite in einem iframe-Fenster),
   `link` (eine externe Seite in einem neuen Tab, nur https), `collection` (ein Katalog-Fenster) und
-  `alias: '<id>'` (zeigt und startet eine andere App). `desktop`, `dock`, `hidden`, `size` und `tint`
+  `alias: '<id>'` (zeigt und startet eine andere App — so bleibt eine alte id nach einer Umbenennung
+  gültig; ein Alias bekommt nie ein eigenes Schreibtischsymbol oder einen eigenen Dock-Platz, der
+  Dock-Eintrag eines Besuchers wandert zum Ziel). `desktop`, `dock`, `hidden`, `size` und `tint`
   platzieren und gestalten eine App.
 - **Override-Einträge**: eine `id` ohne `kind`, etwa `{ id: 'notes', dock: true }`. Sie ändern die App
   eines Moduls; die Felder der Website gewinnen.
@@ -332,7 +334,9 @@ erklärt die Einzelheiten.
 
 - **Mitteilungen**: ein [JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/) je Sprache, auf demselben
   Ursprung (`notify.feeds`). Neue Einträge erscheinen als Banner und im Kalender. Einträge brauchen einen
-  `title`, ein vergangenes `date_published` und eine `url` auf demselben Ursprung.
+  `title`, ein vergangenes `date_published` und eine `url` auf demselben Ursprung. Ein Banner zeigt die App,
+  in der sein Artikel öffnet (`notify.app` oder mit `app: null` die, die der Router wählt); `notify.label`
+  stellt einen Namen davor („News · Blog“).
 
 ## Sprachen
 
@@ -492,8 +496,9 @@ Ausgeliefert werden nur die Icons, die tatsächlich benutzt werden. `npm run ico
 (etwa nur in versiegelten Tresor-Daten), kommen als JSON-Liste in `site/icons.json` (`["ti-briefcase"]`).
 `npm run icons:check` prüft, ob die Datei aktuell ist. Eine Site kann eigene Icons mitbringen (etwa ein
 Set, für das sie eine Lizenz hat) — als *Site-Icon-Set*: eine JSON-Datei in `site/icon-sets/`, eingetragen
-in `iconSets` von `site/config.js`, mit Zweiton-Unterstützung — siehe
-[docs/ARCHITECTURE.md §13](docs/ARCHITECTURE.md#13-icons).
+in `iconSets` von `site/config.js`, mit Zweiton-Unterstützung. Mit `iconReplace` zeichnet der Desktop auch
+seine eigenen Glyphen (Menüleiste, Fensterknöpfe, Einstellungen, Wetter …) mit Icons dieses Sets
+(`{ 'ti-settings': 'acme-cog' }`) — siehe [docs/ARCHITECTURE.md §13](docs/ARCHITECTURE.md#13-icons).
 
 Der vollständige Vertrag steht in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Modul-Deskriptor (§8),
 öffentliche API (§9), Services (§10), Ereignisse (§11), i18n (§12), Speicher (§14), CSS (§17),
@@ -573,8 +578,27 @@ der Richtlinie deines Servers. Sonst blockiert der Browser die Anfrage.
 | Glückskeks, Witze online | `services.fortune: true`, `fortune.remote: 'jokeapi'` | `connect-src https://v2.jokeapi.dev` |
 | Glückskeks, Fakten online | `services.fortune: true`, `fortune.remote: 'uselessfacts'` | `connect-src https://uselessfacts.jsph.pl` |
 | Glückskeks, eine Online-Quelle aus deinem eigenen Modul | `services.fortune: true`, `fortune.remote: '<id>'` | `connect-src https://<ihre Hosts>` |
-| Volltextsuche (Pagefind) | `search.pagefind: { path: 'pagefind/pagefind.js' }` | `script-src 'wasm-unsafe-eval'` (WebAssembly; sonst braucht das nichts) |
+| Volltextsuche (Pagefind) | `search.pagefind: { path: 'pagefind/pagefind.js' }` | `script-src 'wasm-unsafe-eval'` (siehe unten; sonst braucht das nichts) |
 | `web`-Apps von einem anderen Ursprung (fremde iframes) | eine App mit `kind: 'web'` und fremder `url` | `frame-src https://apps.example.org` |
+
+**Pagefind und `'wasm-unsafe-eval'`.** Pagefind kompiliert sein WebAssembly in einem Worker, den es aus
+`pagefind-worker.js` neben `pagefind.js` startet; dieser Worker läuft unter der Richtlinie, die dein Server
+mit **dieser Datei** schickt, nicht unter der der Desktop-Seite. Scheitert der Worker oder ist er nach
+5 Sekunden nicht gestartet (Pagefind 1.5 — bei langsamer Verbindung zählt sein Download mit), weicht
+Pagefind auf die Seite aus und kompiliert das WebAssembly unter der Richtlinie des Desktops (Konsole:
+„falling back to main thread“). Ob das passiert, entscheidet der Browser jedes Besuchers, nicht dein
+Deployment. Deshalb:
+
+- **die Richtlinie des Desktops** braucht `'wasm-unsafe-eval'`, sobald `search.pagefind` gesetzt ist — ohne
+  scheitert die Suche bei jedem Besucher, dessen Browser ausweicht;
+- **die Richtlinie, die mit `pagefind-worker.js` kommt**, braucht es ebenfalls. Die Konfigurationen unten
+  schicken die Richtlinie des Desktops mit jeder Datei, die sie ausliefern (Apache: der Ordner des Desktops
+  und darunter; die anderen: der ganze Host); für ein Bundle, das sie ausliefern, ist das also dieselbe
+  Zeile. Ein Bundle, das dein Server ohne Richtlinie ausliefert, braucht für den Worker nichts — das
+  Ausweichen braucht trotzdem die des Desktops.
+
+`'wasm-unsafe-eval'` erlaubt nur das Kompilieren von WebAssembly, kein `eval`. Details:
+[docs/deploy.md §6](docs/deploy.md#6-online-services-opening-the-policy-step-by-step).
 
 **So änderst du die Konfiguration.** Neben ihrer aktiven `Content-Security-Policy`-Zeile hat jede Datei
 unten einen Kommentar, der diese Hosts auflistet, und zwei auskommentierte Beispielzeilen (Wetter +
@@ -610,7 +634,10 @@ Hintergründe.
 1. **Wohin:** Kopiere [`docs/server/apache.htaccess`](docs/server/apache.htaccess) als **`.htaccess`** in
    den Ordner, in dem `index.html` liegt. In der Datei gibt es nichts zu ersetzen.
 2. **Module:** Apache 2.4.10+ mit `mod_headers`, `mod_mime` und `mod_alias`. `mod_dir`, `mod_deflate` und
-   `mod_brotli` werden genutzt, wenn sie da sind. Unter Debian/Ubuntu: `a2enmod headers mime alias`.
+   `mod_brotli` werden genutzt, wenn sie da sind. Unter Debian/Ubuntu: `a2enmod headers mime alias`. Ist
+   `mod_expires` geladen, schaltet die Datei es für den Desktop zusätzlich ab (`ExpiresActive Off`), als
+   Absicherung gegen eine Ablaufregel für den ganzen Host — ihre Header senden ohnehin `no-cache` ohne
+   `Expires`.
 3. **AllowOverride:** Der VirtualHost muss die Direktiven für diesen Ordner erlauben, sonst antwortet
    Apache mit `500`:
    ```apache
@@ -640,7 +667,8 @@ Hintergründe.
 # Copy this file as ".htaccess" into the folder that holds index.html — the web
 # root or a sub-folder such as /desktop/; nothing in it depends on the folder.
 # Apache 2.4.10 or newer with mod_headers, mod_mime and mod_alias (mod_dir,
-# mod_deflate, mod_brotli are used when present). The host must allow it:
+# mod_deflate, mod_brotli are used when present; mod_expires, when present, is
+# switched off for the desktop). The host must allow it:
 #   AllowOverride FileInfo Indexes Options=Indexes
 # (or "AllowOverride All"). Nothing here inherits from a parent .htaccess on
 # purpose: the header set is complete on its own and replaces security headers
@@ -688,6 +716,19 @@ RedirectMatch 404 "/\.(?!well-known/)"
 	AddOutputFilterByType DEFLATE text/html text/css text/javascript application/json application/manifest+json image/svg+xml
 </IfModule>
 
+# ---------- Expiry -----------------------------------------------------------
+
+# mod_expires stays off for the desktop: a parent .htaccess or the server config with
+# "ExpiresActive On" / ExpiresByType adds Expires and Cache-Control max-age, and a browser
+# could keep an old module next to new ones after an update. The caching headers below
+# replace both already; this keeps it so whatever order the modules run in (hardening).
+# Inside <Files> for the same reason as the headers below.
+<IfModule mod_expires.c>
+<Files "*">
+	ExpiresActive Off
+</Files>
+</IfModule>
+
 <IfModule mod_headers.c>
 # Inside <Files>: Apache applies <Files>/<FilesMatch> sections after all directory and .htaccess
 # directives, parents first — so only here do these headers win over a parent's <FilesMatch>.
@@ -715,7 +756,9 @@ RedirectMatch 404 "/\.(?!well-known/)"
 	#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
 	#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
 	#   frame-src    add the origins of 'web' apps whose url lives on another origin
-	#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+	#   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+	#                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+	#                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
 	#
 	# Then replace the line below with your extended copy, e.g. weather + DoH:
 	#   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
@@ -769,7 +812,8 @@ RedirectMatch 404 "/\.(?!well-known/)"
    `listen 443 ssl http2;`).
 3. **Nie `add_header` in einen `location`-Block setzen**, auch nicht in einen eigenen: In nginx schaltet das
    für diese Location alle Header der Server-Ebene ab. Deshalb kommen die pfadabhängigen Werte aus den
-   beiden Maps.
+   beiden Maps. Der Server-Block sagt außerdem `expires off;`, damit ein `expires` aus dem `http { }`-Block
+   dem Code keine lange Ablaufzeit gibt.
 4. **Online-Dienste:** Ändere die Zeile `add_header Content-Security-Policy … always;` und für „Mein
    Standort“ die Zeile `add_header Permissions-Policy`.
 5. **Prüfen und neu laden:** `nginx -t && nginx -s reload` (oder `systemctl reload nginx`).
@@ -866,7 +910,9 @@ server {
 	#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
 	#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
 	#   frame-src    add the origins of 'web' apps whose url lives on another origin
-	#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+	#   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+	#                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+	#                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
 	#
 	# Then replace the line below with your extended copy, e.g. weather + DoH:
 	#   add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests" always;
@@ -886,7 +932,11 @@ server {
 	add_header Cross-Origin-Opener-Policy "same-origin" always;
 	add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-	# Caching and the vault (values from the maps above)
+	# Caching and the vault (values from the maps above). "expires off": an expires directive
+	# of the http block (a distribution default, a copied snippet) would otherwise add Expires
+	# and a second Cache-Control with max-age to the code — after an update a browser could
+	# keep an old module next to new ones
+	expires off;
 	add_header Cache-Control $desk_cache_control;
 	add_header X-Robots-Tag $desk_robots always;
 
@@ -973,7 +1023,9 @@ example.org {
 		#                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
 		#                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
 		#   frame-src    add the origins of 'web' apps whose url lives on another origin
-		#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+		#   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+		#                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+		#                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
 		#
 		# Then replace the line below with your extended copy, e.g. weather + DoH:
 		#   Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
@@ -1137,7 +1189,9 @@ example.org {
     #                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
     #                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
     #   frame-src    add the origins of 'web' apps whose url lives on another origin
-    #   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+    #   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+    #                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+    #                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
     #
     # Then replace the line below with your extended copy, e.g. weather + DoH:
     #   header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
@@ -1218,7 +1272,9 @@ snippet "DESK_HEADERS" {
   //                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
   //                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
   //   frame-src    add the origins of 'web' apps whose url lives on another origin
-  //   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+  //   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+  //                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+  //                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
   //
   // Then replace the line below with your extended copy, e.g. weather + DoH:
   //   header "Content-Security-Policy" "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
@@ -1379,7 +1435,9 @@ source = "**"
 #                  fortune, remote 'jokeapi':       https://v2.jokeapi.dev
 #                  fortune, remote 'uselessfacts':  https://uselessfacts.jsph.pl
 #   frame-src    add the origins of 'web' apps whose url lives on another origin
-#   script-src   add 'wasm-unsafe-eval' only for the optional Pagefind search (WebAssembly)
+#   script-src   add 'wasm-unsafe-eval' when the site uses the optional Pagefind search: its
+#                WebAssembly runs in pagefind-worker.js (under this policy when served from here)
+#                or, when that worker fails or is slow to start, in the page — docs/deploy.md §6
 #
 # Then replace the line below with your extended copy, e.g. weather + DoH:
 #   Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' blob: https://api.open-meteo.com https://dns.google; frame-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"

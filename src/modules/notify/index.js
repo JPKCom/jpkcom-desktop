@@ -10,17 +10,21 @@
      fold into a summary banner ("And 4 more new articles")
    - banners go through the notifications service (Desk.notifyBanner, shell); they
      open the article in config.notify.app (else wherever the router sends the URL)
+     and show that app's tile and name (no app → the shell's bell); the summary
+     banner shows the app when all new articles open in the same one and opens it
+     when it is their home (homeOf), else the newest article
+   - config.notify.label (optional): "<label> · <app name>" in the meta line
    - the calendar lists the latest three (order 20), new ones marked; opening the
      calendar dismisses the banners, as a notification centre does
    - Settings → General: a switch for the banners (stored 'notify': on/off)
 
-   config.notify: { feeds, app, hideMs, maxBanners, pathPrefix } — pathPrefix (relative to
+   config.notify: { feeds, app, hideMs, maxBanners, pathPrefix, label } — pathPrefix (relative to
    the installation root) limits the items to one part of the site.
    Service 'notify': check(banners = true), clear(), enabled(), setEnabled(on), items().
    Emits 'notify:new' { items } when a check finds articles that were not announced yet. */
 
 import Desk from '../../core/api.js';
-import { parseFeed, cleanSeen, newsOf, bannerPlan, daysAgo, feedFor } from './core.js';
+import { parseFeed, cleanSeen, newsOf, bannerPlan, daysAgo, feedFor, routedAppOf, appFor, commonApp, homeFor, cleanLabel, metaFor } from './core.js';
 
 const SEEN = 'feed';
 const ON = 'notify';
@@ -29,7 +33,7 @@ const LANG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 /* A path ('site/data/feed.en.json', '/news/') or an http(s) URL — never another scheme or '//host' */
 const isPath = p => typeof p === 'string' && p.length > 0 && !p.startsWith('//') && (!/^[a-z][a-z0-9+.-]*:/i.test(p) || /^https?:\/\//i.test(p));
 
-let cfg = { feeds: {}, app: null, hideMs: 9000, maxBanners: 3, pathPrefix: null };
+let cfg = { feeds: {}, app: null, hideMs: 9000, maxBanners: 3, pathPrefix: null, label: null };
 const feeds = new Map();    // feed code → items, newest first
 const loading = new Map();  // feed code → Promise
 const fresh = new Map();    // feed code → Set of paths that are new on this visit
@@ -97,11 +101,28 @@ function openItem(path) {
 	if (!(cfg.app && Desk.launch(cfg.app, { url: path }))) Desk.openUrl(path);
 }
 
-/* The summary banner opens the app with the list of articles; without one (app: null
-   or not installed) the newest article, wherever the router sends its URL */
-function openApp(fallback) {
-	if (!(cfg.app && Desk.launch(cfg.app)) && fallback) Desk.openUrl(fallback);
+/* The summary banner opens the app all new articles open in (its start page, the list
+   of articles); without one the newest article, wherever the router sends its URL */
+function openApp(id, fallback) {
+	if (!(id && Desk.launch(id)) && fallback) Desk.openUrl(fallback);
 }
+
+/* The app an article opens in: config.notify.app when it can open now, else the app the
+   router sends the path to, as Desk.openUrl does (routedAppOf) → id | null */
+const available = id => Desk.apps.available(id);
+const appOf = path => appFor(path, { fixed: cfg.app, available, routeOf: p => routedAppOf(p, { router: Desk.router, available }) });
+
+/* What the summary banner may open as the articles' home (homeFor) → id | null */
+const homeOf = (id, news) => homeFor(id, { fixed: cfg.app, app: id ? Desk.apps.get(id) : null, root: Desk.env.root, paths: news.map(it => it.path) });
+
+/* "<label> · <app name>", the label or the app name alone; undefined → the shell's default */
+const bannerMeta = id => metaFor(id, {
+	label: cfg.label, L: Desk.L, nameOf: x => {
+		const app = Desk.apps.get(x);
+		return app ? Desk.apps.name(app) : '';
+	},
+	join: (site, app) => Desk.t('notify.meta', { site, app })
+});
 
 function when(ms) {
 	const days = daysAgo(ms);
@@ -115,8 +136,9 @@ const stamp = ms => Desk.h('time', { datetime: new Date(ms).toISOString(), text:
 
 /* ---------- Banners ---------- */
 
+/* opts.app: the app the banner is about (its tile and name) or null (the bell) */
 function banner(opts) {
-	const handle = Desk.notifyBanner({ app: cfg.app, timeout: cfg.hideMs, ...opts });
+	const handle = Desk.notifyBanner({ timeout: cfg.hideMs, meta: bannerMeta(opts.app), ...opts, app: opts.app ?? null });
 	if (handle) handles.add(handle);
 }
 
@@ -149,14 +171,18 @@ async function check(banners = true) {
 	Desk.emit('notify:new', { items: news.map(x => ({ ...x })) });
 	if (!banners || !enabled()) return;
 	const { shown, more } = bannerPlan(news, cfg.maxBanners);
+	const apps = news.map(it => appOf(it.path));
 	shown.forEach((it, i) => setTimeout(() => banner({
-		title: it.title, body: it.summary || null, url: it.path, date: it.date,
+		title: it.title, body: it.summary || null, url: it.path, date: it.date, app: apps[i],
 		run: () => openItem(it.path)
 	}), i * 300));
 	if (more) {
+		const common = commonApp(apps);
+		const home = homeOf(common, news);
 		setTimeout(() => banner({
 			title: Desk.t(shown.length ? 'notify.more' : 'notify.newCount', { n: more }),
-			run: () => openApp(news[0].path)
+			app: common,
+			run: () => openApp(home, news[0].path)
 		}), shown.length * 300);
 	}
 }
@@ -252,6 +278,13 @@ export default {
 			out.pathPrefix = null;
 		}
 		out.pathPrefix ??= null;
+		const label = cleanLabel(out.label);
+		if (label === null && out.label !== null && out.label !== undefined) {
+			warn('label must be a text or a { lang: text } map of at most 60 characters — no label');
+		} else if (label && typeof label === 'object' && Object.keys(label).length < Object.keys(out.label).length) {
+			warn('label: entries that are not a language code with a text of at most 60 characters skipped');
+		}
+		out.label = label;
 		return out;
 	},
 

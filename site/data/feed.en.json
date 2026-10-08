@@ -6,6 +6,15 @@
 	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
 	"items": [
 		{
+			"id": "jpkcom-desktop-1.3.0",
+			"url": "../content/en/changelog.html?release=1.3.0",
+			"title": "JPKCom Desktop 1.3.0 released",
+			"summary": "Your icon set can replace the desktop's own glyphs, code keeps its colours in the Reader, and banners show the app an article opens in. Plus a start language that follows your browser and dock pins that follow renamed apps.",
+			"content_text": "JPKCom Desktop 1.3.0 brings fine-tuning from moving a real site onto the desktop. See the changelog for the details.",
+			"date_published": "2026-10-08T15:56:00+02:00",
+			"tags": ["release"]
+		},
+		{
 			"id": "jpkcom-desktop-1.2.0",
 			"url": "../content/en/changelog.html?release=1.2.0",
 			"title": "JPKCom Desktop 1.2.0 released",

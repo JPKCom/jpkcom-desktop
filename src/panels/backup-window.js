@@ -4,27 +4,17 @@
    src/panels/index.js). The download itself is download() of backup.js. */
 
 import Desk from '../core/api.js';
-import { summarize, legacyBackup } from './pure-window.js';
+import { summarize, legacyBackup, backupRows } from './pure-window.js';
 import { download } from './backup.js';
 
 const { h, t, L, store, storage } = Desk;
 /* Validated by the core (validateConfig) */
 const MAX = Desk.config.backup.maxBytes;
 
-/* Rows of what a data set holds: one per reset group (keys with backup: true), keys
-   without a group on their own. In a preview, groups the file does not contain stay as they are. */
-function groups() {
-	const keys = storage.listKeys().filter(k => k.backup);
-	const out = [];
-	for (const g of storage.resetGroups()) {
-		const own = keys.filter(k => k.reset === g.id);
-		if (own.length) out.push({ id: g.id, label: L(g.label), keys: own.map(k => ({ name: k.name, label: L(k.label), count: k.count })) });
-	}
-	for (const k of keys.filter(k => !k.reset || !out.some(g => g.id === k.reset))) {
-		out.push({ id: `key-${k.name}`, label: L(k.label), keys: [{ name: k.name, label: L(k.label), count: k.count }] });
-	}
-	return out;
-}
+/* Rows of what a data set holds (backupRows: one per reset group, keys without a group on
+   their own; a group hidden now, §14, only when the data holds one of its keys). In a preview,
+   groups the file does not contain stay as they are. */
+const groups = data => backupRows(storage.resetGroups({ all: true }), storage.listKeys(), data, L);
 
 function current() {
 	const data = {};
@@ -47,7 +37,7 @@ function valueText(row) {
 	}
 }
 
-const list = (data, preview) => h('dl', { class: 'bk-list' }, summarize(groups(), data, preview).map(row =>
+const list = (data, preview) => h('dl', { class: 'bk-list' }, summarize(groups(data), data, preview).map(row =>
 	[h('dt', { text: row.label }), h('dd', { class: row.kept ? 'is-kept' : null, text: valueText(row) })]));
 
 /* Parses a backup file; null when it is not one of this desktop */
