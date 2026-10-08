@@ -93,6 +93,17 @@ Neue Config-Keys → `DEFAULTS` in `src/core/config.js` **und** kommentiert in `
 8. **Version** synchron in `package.json`, `src/core/env.js` (`VERSION`) und `sw.js` (`VERSION`).
 9. **Unsichtbare Zeichen** (Bidi, Zero-Width) nur als `\u`-Escape — `tests/hygiene.test.mjs`.
 
+## npm und Node.js
+
+- **Node.js ≥ 24** (`engines`, `.npmrc` `engine-strict`).
+- **Alle installierenden npm-Befehle über `sfw`** (Socket Firewall Free): `sfw npm ci` (Standard, nie
+  `npm install` für eine Arbeitskopie), `sfw npm install --save-dev <paket>@<version>`, `sfw npm audit`,
+  `sfw npm audit signatures`, `sfw npm outdated`. `npm run …`/`npm test` laden nichts nach.
+- `.npmrc`: `ignore-scripts`, `save-exact`, `engine-strict` — nicht lockern; Versionen in `package.json`
+  exakt (kein `^`/`~`). Kein `npx` (Binaries über `npm run`); Headless-Browser: `npm run browsers`.
+- GitHub Actions nur per Commit-SHA mit Tag-Kommentar (`uses: owner/action@<sha> # vX.Y.Z`).
+- Details: `CONTRIBUTING.md` → Supply chain.
+
 ## Prüfen
 
 ```sh

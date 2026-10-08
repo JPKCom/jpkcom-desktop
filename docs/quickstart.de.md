@@ -8,7 +8,7 @@
 JPKCom Desktop besteht aus statischen Dateien, ohne Build-Schritt. Alles, was du für deine eigene
 Website änderst, liegt in `site/`. Für dein eigenes Erscheinungsbild kommen ein paar feste Zeilen in
 `index.html`, `manifest.webmanifest` und `assets/icons/` dazu. Für die Werkzeuge brauchst du Git und
-Node.js 22 oder neuer. Der Desktop selbst braucht beides nicht.
+Node.js 24 oder neuer. Der Desktop selbst braucht beides nicht.
 
 Live-Demo der unveränderten Beispiel-Website: <https://jpkcom.github.io/jpkcom-desktop/>
 
@@ -104,8 +104,8 @@ aber nicht als dein eigenes Logo verwenden. Für deinen eigenen Auftritt ersetzt
    Browser ohne Fenster:
 
    ```sh
-   npm ci                                                # einmal: die Entwicklungswerkzeuge
-   npx playwright-core install chromium-headless-shell   # einmal: der Browser, der die Icons zeichnet
+   sfw npm ci         # einmal: die Entwicklungswerkzeuge (ein einfaches npm ci geht auch)
+   npm run browsers   # einmal: der Browser, der die Icons zeichnet
    npm run icons:pwa
    ```
 
@@ -196,7 +196,7 @@ Danach die Prüfungen:
 
 ```sh
 npm run validate      # site/apps.js und die App-Verweise in site/config.js
-npm ci                # einmal: die Entwicklungswerkzeuge (Quellen der Tabler-Icons, Browser-Treiber)
+sfw npm ci            # einmal: die Entwicklungswerkzeuge (Quellen der Tabler-Icons, Browser-Treiber)
 npm run icons:check   # die Icon-Auswahl ist aktuell (sonst: npm run icons)
 npm test              # die Unit-Tests des Projekts
 ```

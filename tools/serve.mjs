@@ -24,7 +24,7 @@
    Rules: GET/HEAD only; a directory serves its index.html (a path without the
    trailing slash is redirected first); dotfiles, node_modules, tools and
    tests are never served; everything else that is not a file is a 404.
-   Zero dependencies (Node ≥ 22). */
+   Zero dependencies (Node ≥ 24). */
 
 import { createServer } from 'node:http';
 import { stat, readFile } from 'node:fs/promises';

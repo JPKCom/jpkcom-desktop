@@ -10,6 +10,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ## [Unreleased]
 
+### Changed
+
+- **Supply chain** — Node.js ≥ 24; `.npmrc` with `ignore-scripts`, `save-exact`, `engine-strict`; exact
+  versions of the two development tools (playwright-core 1.64.0); `npm run browsers` instead of `npx`;
+  GitHub Actions pinned to commit SHAs, CI on Node 24 with `npm ci --ignore-scripts` and
+  `npm audit signatures`; Socket Firewall Free (`sfw npm …`) recommended ([`CONTRIBUTING.md`](CONTRIBUTING.md#supply-chain)).
+
 ### Added
 
 - **House theme** — `site/theme.css` in `@layer themes`, loaded before the first paint and kept offline; radius, glass and shadow tokens (families and part tokens) with unchanged defaults; full token reference in `docs/theming.md`. Upgrade note: `index.html` links `site/theme.css` — when updating an existing site, copy it into your `site/` (an empty file is fine) and do not delete it.

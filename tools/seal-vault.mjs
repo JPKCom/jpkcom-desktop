@@ -31,7 +31,7 @@
        "items":  [{ "slug": "wiki", "group": "work", "name": "Wiki", "url": "https://wiki.example/", "desc": "…", "icon": "ti-book" }] }
    (The original desktop's { linkCategories, links: [{ cat }] } is read as well.)
 
-   Zero dependencies (Node ≥ 22: WebCrypto is built in). */
+   Zero dependencies (Node ≥ 24: WebCrypto is built in). */
 
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline';

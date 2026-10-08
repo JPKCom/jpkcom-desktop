@@ -22,7 +22,7 @@
      node tools/build-icons.mjs --check    exit 1 if the file is out of date (CI)
      node tools/build-icons.mjs --list     print the ids found, write nothing
 
-   Zero dependencies (Node ≥ 22). */
+   Zero dependencies (Node ≥ 24). */
 
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, extname, dirname } from 'node:path';

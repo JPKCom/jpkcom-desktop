@@ -113,17 +113,20 @@ banners from a JSON Feed per language; and the **vault**, encrypted private book
 with all files, ready to change and to publish on GitHub Pages. Then clone that repository instead of
 this one. [Your own site in 10 minutes](docs/quickstart.md) walks through the five steps from there.
 
-You need Node.js 22 or newer, but only for the tools. The desktop itself is static files.
+You need Node.js 24 or newer, but only for the tools. The desktop itself is static files.
 
 ```sh
 git clone https://github.com/JPKCom/jpkcom-desktop.git
 cd jpkcom-desktop
-npm install        # development tools only: Tabler icon sources, headless browser checks
+sfw npm ci         # development tools only: Tabler icon sources, headless browser checks
 npm run serve      # http://127.0.0.1:8080/ with the production security headers
 ```
 
 Open <http://127.0.0.1:8080/>. There is no build step: edit a file and reload the page.
-`npm run serve` itself needs no packages (`node tools/serve.mjs` works without `npm install`).
+`npm run serve` itself needs no packages (`node tools/serve.mjs` works without `npm ci`).
+`sfw` is [Socket Firewall Free](https://github.com/SocketDev/sfw-free), which blocks malicious packages
+during the install; plain `npm ci` works too. Install scripts of packages are switched off (`.npmrc`) —
+why, and how to update the tools: [CONTRIBUTING.md → Supply chain](CONTRIBUTING.md#supply-chain).
 
 - `npm run serve -- --base /desktop/` serves the desktop in a sub-folder (<http://127.0.0.1:8080/desktop/>).
 - `npm run serve -- --port 3000 --host 0.0.0.0` uses another port and makes the server reachable from your LAN.
@@ -1478,7 +1481,7 @@ module, switch the language, use a phone viewport, a sub-folder or another site 
 screenshot. Install the browser once:
 
 ```sh
-npx playwright-core install chromium-headless-shell
+npm run browsers
 npm run check:browser -- --lang de-DE --mobile --screenshot /tmp/desk.png
 ```
 

@@ -7,7 +7,7 @@
 
 JPKCom Desktop is a set of static files with no build step. Everything you change for your own site is
 in `site/`, plus a few static lines in `index.html`, `manifest.webmanifest` and `assets/icons/` for your
-own look. You need Git and Node.js 22 or newer for the tools. The desktop itself needs neither.
+own look. You need Git and Node.js 24 or newer for the tools. The desktop itself needs neither.
 
 Live demo of the unchanged example site: <https://jpkcom.github.io/jpkcom-desktop/>
 
@@ -101,8 +101,8 @@ you may not use them as your own logo. For your own identity, replace them every
    Then render the PNG icons (`icon-*.png`, `maskable-*.png`, `apple-touch-icon.png`) in a headless browser:
 
    ```sh
-   npm ci                                                # once: the development tools
-   npx playwright-core install chromium-headless-shell   # once: the browser that renders the icons
+   sfw npm ci         # once: the development tools (plain npm ci works too)
+   npm run browsers   # once: the browser that renders the icons
    npm run icons:pwa
    ```
 
@@ -189,7 +189,7 @@ Then run the checks:
 
 ```sh
 npm run validate      # site/apps.js and the app references in site/config.js
-npm ci                # once: the development tools (Tabler icon sources, browser driver)
+sfw npm ci            # once: the development tools (Tabler icon sources, browser driver)
 npm run icons:check   # the icon subset is up to date (otherwise: npm run icons)
 npm test              # the project's unit tests
 ```

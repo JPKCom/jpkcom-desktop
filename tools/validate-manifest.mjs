@@ -29,7 +29,7 @@
      --json     machine-readable result
 
    Exit code: 0 = fine, 1 = errors (or warnings with --strict), 2 = the manifest or
-   config could not be loaded. Zero dependencies (Node ≥ 22). */
+   config could not be loaded. Zero dependencies (Node ≥ 24). */
 
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';

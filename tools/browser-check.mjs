@@ -2,7 +2,7 @@
 /* JPKCom Desktop — headless browser smoke test under the production headers — © Jean Pierre Kolb — MIT License
 
    Starts tools/serve.mjs on a free port, opens the desktop in headless Chromium
-   (playwright-core, devDependency; browsers: `npx playwright-core install chromium-headless-shell`),
+   (playwright-core, devDependency; browsers: `npm run browsers`),
    collects console errors, page errors, CSP violations and failed requests, optionally runs a
    scenario and takes a screenshot. Exit code 1 when anything went wrong.
 
@@ -74,7 +74,7 @@ let chromium;
 try {
 	({ chromium } = await import('playwright-core'));
 } catch {
-	console.error('playwright-core is missing: npm install (devDependency), then npx playwright-core install chromium-headless-shell');
+	console.error('playwright-core is missing: npm ci (devDependency), then npm run browsers');
 	process.exit(2);
 }
 

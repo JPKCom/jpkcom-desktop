@@ -123,18 +123,22 @@ allen Dateien an, bereit zum Ändern und zum Veröffentlichen auf GitHub Pages. 
 Repository statt des Originals. [Deine eigene Website in 10 Minuten](docs/quickstart.de.md) führt von
 dort in fünf Schritten weiter.
 
-Du brauchst Node.js 22 oder neuer, allerdings nur für die Werkzeuge. Der Desktop selbst besteht aus
+Du brauchst Node.js 24 oder neuer, allerdings nur für die Werkzeuge. Der Desktop selbst besteht aus
 statischen Dateien.
 
 ```sh
 git clone https://github.com/JPKCom/jpkcom-desktop.git
 cd jpkcom-desktop
-npm install        # nur Entwicklungswerkzeuge: Quellen der Tabler-Icons, Browser-Checks ohne Fenster
+sfw npm ci         # nur Entwicklungswerkzeuge: Quellen der Tabler-Icons, Browser-Checks ohne Fenster
 npm run serve      # http://127.0.0.1:8080/ mit den Sicherheits-Headern der Produktion
 ```
 
 Öffne <http://127.0.0.1:8080/>. Einen Build-Schritt gibt es nicht: Datei ändern, Seite neu laden.
-`npm run serve` selbst braucht keine Pakete (`node tools/serve.mjs` läuft auch ohne `npm install`).
+`npm run serve` selbst braucht keine Pakete (`node tools/serve.mjs` läuft auch ohne `npm ci`).
+`sfw` ist [Socket Firewall Free](https://github.com/SocketDev/sfw-free) und blockiert bösartige Pakete
+schon bei der Installation; ein einfaches `npm ci` funktioniert auch. Install-Skripte von Paketen sind
+abgeschaltet (`.npmrc`) — warum und wie man die Werkzeuge aktualisiert:
+[CONTRIBUTING.md → Supply chain](CONTRIBUTING.md#supply-chain).
 
 - `npm run serve -- --base /desktop/` liefert den Desktop in einem Unterordner aus (<http://127.0.0.1:8080/desktop/>).
 - `npm run serve -- --port 3000 --host 0.0.0.0` nimmt einen anderen Port und macht den Server im LAN erreichbar.
@@ -1510,7 +1514,7 @@ Smartphone-Ansicht, einen Unterordner oder eine andere Website-Konfiguration nut
 machen. Den Browser installierst du einmal:
 
 ```sh
-npx playwright-core install chromium-headless-shell
+npm run browsers
 npm run check:browser -- --lang de-DE --mobile --screenshot /tmp/desk.png
 ```
 

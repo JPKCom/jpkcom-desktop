@@ -137,6 +137,14 @@ selector. Manifest URLs are restricted to relative paths and `http(s)` (`link` a
 collection opts in to `http`); `javascript:`, `data:` and protocol-relative URLs are rejected. Links to
 other origins open with `noopener`.
 
+### Supply chain
+
+The desktop ships no third-party code at runtime (the Tabler icon subset is generated into
+`src/icons/tabler.js` and committed). npm brings two development tools only, installed with
+`ignore-scripts`, exact versions from the lockfile (`npm ci`) and Node.js ≥ 24 enforced; we recommend
+Socket Firewall Free (`sfw npm ci`). CI pins every GitHub Action to a commit SHA and verifies registry
+signatures (`npm audit signatures`). Details: [`CONTRIBUTING.md` → Supply chain](CONTRIBUTING.md#supply-chain).
+
 ## Out of scope
 
 - Content a site owner deploys (pages, apps, framed `web` apps, collections) and the configuration of

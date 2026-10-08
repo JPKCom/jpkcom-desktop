@@ -12,7 +12,7 @@
 		"url": "https://github.com/JPKCom/jpkcom-desktop.git"
 	},
 	"engines": {
-		"node": ">=22"
+		"node": ">=24"
 	},
 	"scripts": {
 		"serve": "node tools/serve.mjs",
@@ -21,13 +21,14 @@
 		"i18n:check": "node tools/i18n-check.mjs",
 		"test": "node --test \"tests/*.test.mjs\"",
 		"check:browser": "node tools/browser-check.mjs",
+		"browsers": "playwright-core install chromium-headless-shell",
 		"validate": "node tools/validate-manifest.mjs",
 		"validate:strict": "node tools/validate-manifest.mjs --strict",
 		"seal": "node tools/seal-vault.mjs",
 		"icons:pwa": "node tools/build-pwa-icons.mjs"
 	},
 	"devDependencies": {
-		"@tabler/icons": "^3.49.0",
-		"playwright-core": "^1.63.0"
+		"@tabler/icons": "3.49.0",
+		"playwright-core": "1.64.0"
 	}
 }

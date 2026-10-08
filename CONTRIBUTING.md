@@ -15,12 +15,14 @@ Security issues are not reported here — see [`SECURITY.md`](SECURITY.md).
 
 ## Setup
 
-Node.js 22 or newer (`engines` in `package.json`).
+Node.js 24 or newer (`engines` in `package.json`; `.npmrc` refuses other versions). We recommend
+[Socket Firewall Free](https://github.com/SocketDev/sfw-free) (`sfw`) in front of every npm command —
+see [Supply chain](#supply-chain).
 
 ```sh
 git clone https://github.com/JPKCom/jpkcom-desktop.git
 cd jpkcom-desktop
-npm ci             # development tools only: @tabler/icons, playwright-core
+sfw npm ci         # development tools only: @tabler/icons, playwright-core (exactly as in package-lock.json)
 npm run serve      # http://127.0.0.1:8080/ with the production security headers
 ```
 
@@ -109,6 +111,39 @@ git grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\.write|setHTMLUnsa
 New pure logic gets a unit test in `tests/` (every core module is importable in Node; tests use the
 pure factories such as `createI18n`, `createStore`, `createRegistry`, `createRouter`, `buildConfig`).
 
+## Supply chain
+
+The desktop has no runtime dependencies; npm only brings two development tools. Their install is
+hardened the way most npm supply-chain attacks are stopped:
+
+- **`sfw npm …`** — [Socket Firewall Free](https://github.com/SocketDev/sfw-free) checks every package
+  npm fetches and blocks known malware, typosquats and freshly published bad versions before they reach
+  the disk. Run every npm command that installs or updates through it (`sfw npm ci`, `sfw npm install …`,
+  `sfw npm audit`); `npm run …` and `npm test` fetch nothing and need no wrapper.
+- **`.npmrc`** — `ignore-scripts=true` (no `preinstall`/`postinstall`/`prepare` script of a package ever
+  runs; neither tool needs one — the headless browser comes from `npm run browsers`), `save-exact=true`
+  (exact versions in `package.json`, no `^`/`~`: every update is a reviewed change) and
+  `engine-strict=true` (Node.js as in `engines`).
+- **`npm ci`, not `npm install`**, for a working copy: it installs exactly what `package-lock.json`
+  records and never re-resolves.
+- **No `npx`** in scripts and docs: package binaries run from `node_modules/.bin` through `npm run`
+  (`npx` would fetch a missing or mistyped package on the fly).
+- **`"private": true`** in `package.json` — nothing is ever published to the npm registry by accident.
+- **CI** (`.github/workflows/`) pins every action to a full commit SHA (the tag in a comment), installs
+  with `npm ci --ignore-scripts` and runs `npm audit signatures` (registry signatures and provenance).
+
+Updating a tool:
+
+```sh
+sfw npm outdated                              # what is behind
+sfw npm install --save-dev <package>@<version> # exact version (save-exact), lockfile updated
+sfw npm audit && sfw npm audit signatures     # known advisories, signatures
+npm test                                      # and the checks of this file
+```
+
+A new GitHub Action is pinned the same way: `uses: owner/action@<40-hex commit> # vX.Y.Z` (resolve the
+tag with `git ls-remote https://github.com/owner/action.git refs/tags/vX.Y.Z`).
+
 ## Browser checks
 
 `tools/browser-check.mjs` starts `tools/serve.mjs` on a free port, opens the desktop in headless
@@ -116,7 +151,7 @@ Chromium and fails on console errors, page errors, CSP violations and failed req
 browser once:
 
 ```sh
-npx playwright-core install chromium-headless-shell
+npm run browsers   # = playwright-core install chromium-headless-shell, from node_modules
 ```
 
 Then:

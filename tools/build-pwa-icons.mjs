@@ -3,7 +3,7 @@
 
    Makes the committed PNG icons of the web app manifest reproducible: renders
    the SVG sources in headless Chromium (playwright-core, devDependency;
-   browsers: `npx playwright-core install chromium-headless-shell`) and writes
+   browsers: `npm run browsers`) and writes
 
      favicon.svg   → icon-192.png, icon-512.png            (purpose "any")
      maskable.svg  → maskable-192.png, maskable-512.png    (purpose "maskable")
@@ -32,7 +32,7 @@ let chromium;
 try {
 	({ chromium } = await import('playwright-core'));
 } catch {
-	console.error('playwright-core is missing: npm install (devDependency), then npx playwright-core install chromium-headless-shell');
+	console.error('playwright-core is missing: npm ci (devDependency), then npm run browsers');
 	process.exit(2);
 }
 

@@ -1,6 +1,8 @@
 # JPKCom Desktop — continuous integration: tests and checks — © Jean Pierre Kolb — MIT License
 #
 # Runs the same checks as CONTRIBUTING.md asks for before a pull request. No secrets, read-only token.
+# Supply chain: actions pinned to a commit SHA (the tag in the comment), npm ci from the lockfile with
+# install scripts off (.npmrc ignore-scripts), registry signatures and attestations verified.
 # The headless browser check (tools/browser-check.mjs) is not part of CI; run it locally.
 
 name: CI
@@ -20,23 +22,26 @@ concurrency:
 
 jobs:
   check:
-    name: Tests and checks (Node 22)
+    name: Tests and checks (Node 24)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install development tools
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify package signatures
+        run: npm audit signatures
 
       - name: Unit tests
         run: npm test
