@@ -9,6 +9,7 @@
      node tools/serve.mjs [--port 8080] [--host 127.0.0.1] [--base /] [--root .]
                           [--connect https://api.open-meteo.com,https://dns.google]
                           [--frame https://games.example.org] [--wasm] [--geolocation]
+                          [--extra <url-path>=<file>[,<url-path>=<file>…]]
 
      --port      port (default 8080)
      --host      interface (default 127.0.0.1; 0.0.0.0 for the LAN)
@@ -20,6 +21,13 @@
                  optional Pagefind search provider; nothing else needs it)
      --geolocation  allows geolocation=(self) in Permissions-Policy (only when site/config.js
                  sets services.geolocation: true — production blocks it otherwise)
+     --extra     serves single files from outside the project tree at <base><url-path>, with the
+                 same headers and MIME rules as any file — for tests and trials, production servers
+                 have no such thing. <url-path>: letters, digits, . _ - / (no '..', no dot segment);
+                 <file>: absolute or relative to the current folder, a regular file (checked at the
+                 start, else exit 1). It may shadow a project file, e.g. a trial config that the page
+                 and the service worker (importScripts) both read:
+                 --extra site/config.js=/tmp/cfg.js,site/icon-sets/t.json=/tmp/t.json
 
    Rules: GET/HEAD only; a directory serves its index.html (a path without the
    trailing slash is redirected first); dotfiles, node_modules, tools and
@@ -28,7 +36,7 @@
 
 import { createServer } from 'node:http';
 import { stat, readFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, statSync } from 'node:fs';
 import { join, resolve, extname, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +59,24 @@ const origins = name => opt(name, '').split(',').map(s => s.trim()).filter(Boole
 });
 const CONNECT = origins('connect');
 const FRAME = origins('frame');
+/* --extra url-path=file pairs → Map rel path → absolute file */
+const EXTRA = new Map();
+for (const pair of opt('extra', '').split(',').map(s => s.trim()).filter(Boolean)) {
+	const at = pair.indexOf('=');
+	const path = at > 0 ? pair.slice(0, at).replace(/^\/+/, '') : '';
+	const file = at > 0 ? resolve(pair.slice(at + 1)) : '';
+	if (!/^[A-Za-z0-9._/-]+$/.test(path) || path.split('/').some(seg => !seg || seg.startsWith('.'))) {
+		console.error(`--extra: '${pair}' needs <url-path>=<file>; the path takes letters, digits, . _ - / only, no '..' or dot segments`);
+		process.exit(1);
+	}
+	let ok = false;
+	try { ok = statSync(file).isFile(); } catch { /* reported below */ }
+	if (!ok) {
+		console.error(`--extra: ${file} is not a file`);
+		process.exit(1);
+	}
+	EXTRA.set(path, file);
+}
 const WASM = args.includes('--wasm');
 const GEO = args.includes('--geolocation');
 
@@ -148,14 +174,17 @@ async function handle(req, res) {
 		return;
 	}
 	const rel = pathname.slice(BASE.length);
-	if (BLOCKED.test(rel)) {
-		send(res, 404, 'Not Found\n');
-		return;
-	}
-	let file = resolve(ROOT, `.${sep}${rel}`);
-	if (file !== ROOT && !file.startsWith(ROOT + sep)) {
-		send(res, 404, 'Not Found\n');
-		return;
+	let file = EXTRA.get(rel) ?? null;
+	if (!file) {
+		if (BLOCKED.test(rel)) {
+			send(res, 404, 'Not Found\n');
+			return;
+		}
+		file = resolve(ROOT, `.${sep}${rel}`);
+		if (file !== ROOT && !file.startsWith(ROOT + sep)) {
+			send(res, 404, 'Not Found\n');
+			return;
+		}
 	}
 	let info;
 	try {
@@ -201,4 +230,5 @@ server.listen(PORT, HOST, async () => {
 	if (FRAME.length) console.log(`frame-src adds: ${FRAME.join(' ')}`);
 	if (WASM) console.log("script-src adds: 'wasm-unsafe-eval'");
 	if (GEO) console.log('Permissions-Policy allows: geolocation=(self)');
+	for (const [path, file] of EXTRA) console.log(`extra: ${BASE}${path} → ${file}`);
 });

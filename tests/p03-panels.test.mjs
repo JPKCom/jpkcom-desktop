@@ -10,7 +10,7 @@ import {
 import { copyrightYears, legacyBackup, summarize, groupState, splitAt, nameParts, rowParts } from '../src/panels/pure-window.js';
 import { BUILTIN_MOTIFS, checkMotif } from '../src/wallpapers/index.js';
 import { DEFAULTS } from '../src/core/config.js';
-import { ownCaches } from '../src/panels/install.js';
+import { ownCaches, cachesToForget, sweepLegacy, scheduleSweep } from '../src/panels/install.js';
 import { rowText } from '../src/panels/help.js';
 import enHelp from '../locales/en/help.js';
 import deHelp from '../locales/de/help.js';
@@ -316,6 +316,99 @@ test('install: ownCaches matches the service worker\'s cache names of this folde
 	assert.ok(!root.test('jpkdesk-x'));
 	assert.ok(ownCaches('https://example.com/a.b+c/').test('ns:/a.b+c/:pages'), 'special characters are escaped');
 	assert.ok(!ownCaches('https://example.com/a.b/').test('ns:/axb/:pages'));
+});
+
+test('install: cachesToForget takes this root\'s own caches and the legacy ones', () => {
+	const keys = ['jpkdesk:/desk/:1.0.0-0123abcd', 'jpkdesk:/desk/:pages', 'jpkdesk:/:pages', 'oldsite-pages',
+		'oldsite-shell-v4', 'oldsite-next:/staging/:pages', 'someone-else'];
+	assert.deepEqual(cachesToForget(keys, 'https://example.com/desk/', ['oldsite-*']),
+		['jpkdesk:/desk/:1.0.0-0123abcd', 'jpkdesk:/desk/:pages', 'oldsite-pages', 'oldsite-shell-v4']);
+	assert.deepEqual(cachesToForget(keys, 'https://example.com/desk/', []), ['jpkdesk:/desk/:1.0.0-0123abcd', 'jpkdesk:/desk/:pages'],
+		'without a list: exactly the own caches, as before');
+});
+
+/** A Cache Storage stand-in that records its calls */
+function fakeStore(names) {
+	const calls = { keys: 0, deleted: [] };
+	const left = new Set(names);
+	return {
+		calls, left,
+		async keys() { calls.keys++; return [...left]; },
+		async delete(name) { calls.deleted.push(name); return left.delete(name); }
+	};
+}
+
+test('install: sweepLegacy deletes only listed caches and does nothing without a list or store', async () => {
+	const store = fakeStore(['oldsite-pages', 'oldsite-pages-2', 'jpkdesk:/desk/:pages', 'someone-else']);
+	assert.deepEqual(await sweepLegacy(['oldsite-pages'], store), ['oldsite-pages']);
+	assert.deepEqual(store.calls.deleted, ['oldsite-pages']);
+	assert.deepEqual([...store.left], ['oldsite-pages-2', 'jpkdesk:/desk/:pages', 'someone-else']);
+	const idle = fakeStore(['oldsite-pages']);
+	assert.deepEqual(await sweepLegacy([], idle), []);
+	assert.equal(idle.calls.keys, 0, 'no look at the cache list without a list');
+	assert.deepEqual(await sweepLegacy(['oldsite-pages'], null), [], 'no Cache API');
+});
+
+test('install: scheduleSweep — triggers, delays and the foreign-worker check', async () => {
+	const OWN = 'https://example.com/desk/sw.js';
+	const setup = ({ readyState = 'complete', controller = null } = {}) => {
+		const listeners = { win: {}, container: {} };
+		const timers = [];
+		const win = { document: { readyState }, addEventListener: (type, fn) => { listeners.win[type] = fn; } };
+		const container = { controller, addEventListener: (type, fn) => { listeners.container[type] = fn; } };
+		const store = fakeStore(['oldsite-pages']);
+		const timer = (fn, ms) => { timers.push(ms); fn(); };
+		return { listeners, timers, win, container, store, timer, opts: { win, container, store, timer, ownUrl: OWN } };
+	};
+	const tick = () => new Promise(ok => setTimeout(ok, 0));
+
+	/* an empty list: nothing at all */
+	let t = setup();
+	assert.equal(scheduleSweep([], { ...t.opts, registers: false }), false);
+	assert.deepEqual(t.listeners, { win: {}, container: {} });
+	assert.deepEqual(t.timers, []);
+	assert.equal(scheduleSweep(['oldsite-pages'], { ...t.opts, store: null }), false, 'no Cache API');
+
+	/* this page registers the worker: only the hand-over sweep */
+	t = setup({ readyState: 'loading' });
+	assert.equal(scheduleSweep(['oldsite-pages'], { ...t.opts, registers: true }), true);
+	assert.equal(t.listeners.win.load, undefined);
+	assert.deepEqual(t.timers, []);
+	t.listeners.container.controllerchange();
+	await tick();
+	assert.deepEqual(t.timers, [30000]);
+	assert.equal(t.store.calls.keys, 1);
+	assert.deepEqual(t.store.calls.deleted, ['oldsite-pages']);
+
+	/* it does not: a sweep 3 s after 'load', or at once when the page has loaded */
+	t = setup({ readyState: 'loading' });
+	scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	assert.equal(typeof t.listeners.win.load, 'function');
+	assert.deepEqual(t.timers, []);
+	t.listeners.win.load();
+	await tick();
+	assert.deepEqual(t.timers, [3000]);
+	assert.equal(t.store.calls.keys, 1);
+	t = setup({ readyState: 'complete' });
+	scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	await tick();
+	assert.equal(t.listeners.win.load, undefined);
+	assert.deepEqual(t.timers, [3000]);
+	assert.equal(t.store.calls.keys, 1);
+
+	/* a worker at another script URL controls the page: the timers run, the caches stay */
+	t = setup({ controller: { scriptURL: 'https://example.com/old-sw.js' } });
+	scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	t.listeners.container.controllerchange();
+	await tick();
+	assert.deepEqual(t.timers, [3000, 30000]);
+	assert.equal(t.store.calls.keys, 0);
+	for (const controller of [{ scriptURL: OWN }, null]) {
+		t = setup({ controller });
+		scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+		await tick();
+		assert.equal(t.store.calls.keys, 1, JSON.stringify(controller));
+	}
 });
 
 test('help: the search row names its shortcut, or says nothing about keys without one', () => {

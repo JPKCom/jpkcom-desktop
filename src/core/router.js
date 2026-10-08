@@ -9,6 +9,8 @@
                                 (never the desktop itself — its root, index.html — nor a
                                 reserved folder such as config.vault.dir: pageAllowed())
 
+   Web windows keep their in-frame location inside their folder: acceptPath().
+
    Absolute links to one of config.site.hosts count as same origin, so a site
    that links to its own live domain stays inside the desktop while testing.
    Nothing here knows any concrete site: every rule comes from the config and
@@ -19,6 +21,7 @@ import { ROOT } from './env.js';
 import { registry } from './registry.js';
 import { get as service } from './services.js';
 import { h } from './dom.js';
+import { UNSAFE_URL_CHARS, DOT_SEGMENT, isSafeScope } from './url.js';
 
 const PATH_SEGMENT = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -176,39 +179,119 @@ export function createRouter({ registry: reg, site, origin, root, reserved = [],
 		return true;
 	}
 
-	const rel = p => (typeof p === 'string' && p.startsWith(rootPath) ? p.slice(rootPath.length) : null);
+	/* ---------- Locations of web windows (acceptPath) ---------- */
+
+	const lower = x => x.toLowerCase();
+	const lowRoot = lower(rootPath);
+	/* Percent escapes of unreserved characters (ALPHA DIGIT - . _ ~): servers decode them, the URL parser keeps them */
+	const UNRESERVED_ESCAPE = /%(?:2[de]|3[0-9]|[46][1-9a-f]|[57][0-9a]|5f|7e)/gi;
+	/**
+	 * How a server may read a path (best effort, ARCHITECTURE §5): escapes of unreserved characters decoded
+	 * once ('%61' → 'a', '%2e' → '.'), %2f/%5c → '/', runs of '/' → one
+	 */
+	const serverView = p => p.replace(UNRESERVED_ESCAPE, m => String.fromCharCode(parseInt(m.slice(1), 16)))
+		.replace(/%2f|%5c/gi, '/').replace(/\/{2,}/g, '/');
+	/**
+	 * What other servers may make of a segment (best effort, only to keep the desktop and reserved folders
+	 * closed): path parameters dropped ('vault;x' → 'vault', Tomcat/Jetty), a Windows stream suffix
+	 * ('vault::$INDEX_ALLOCATION') and trailing dots and spaces ('vault.', 'vault%20', IIS/Windows) removed
+	 */
+	const segmentView = p => p.split('/').map(seg => seg.replace(/;.*$/, '').replace(/:.*$/, '').replace(/(?:\.|%20)+$/i, ''))
+		.join('/').replace(/\/{2,}/g, '/');
+	/** Is folder ('/a/b/') the installation root or one of its parents? (any case) */
+	const holdsRoot = folder => lowRoot.startsWith(lower(folder));
+	/** Inside the installation root when letter case is ignored */
+	const inRootAnyCase = p => lower(p).startsWith(lowRoot) || `${lower(p)}/` === lowRoot;
 
 	/**
-	 * May a stored or linked same-origin path open in a window whose start page is
-	 * start (absolute URL)? It must lie inside the app's folder, relative to the
-	 * installation root: scope (a root-relative folder such as 'demos/clock/'),
-	 * by default the start page's first folder below the root. The desktop
-	 * itself (the root, index.html) never qualifies. Returns the normalised path
-	 * (+ query and hash) or null. Used by the 'web' window kind (session, deep links).
+	 * Never a location of a web window: the desktop itself, a case variant of its folder, a reserved folder
+	 * — judged on the server view and on its segment view (segmentView)
+	 */
+	const deskPath = view => deskView(view) || deskView(segmentView(view));
+	function deskView(view) {
+		const lv = lower(view);
+		if (inRootAnyCase(view) && !view.startsWith(rootPath)) return true;   // '/DESK/…', '/desk' for root /desk/
+		if (lv.startsWith(lowRoot) && /^(?:index\.html?)?$/.test(lv.slice(lowRoot.length))) return true;
+		return reservedDirs.some(d => lv.startsWith(lower(d)) || `${lv}/` === lower(d));
+	}
+
+	const warnedScopes = new Set();
+	const warnScope = (scope, why) => {
+		const k = String(scope).slice(0, 80);
+		if (warnedScopes.has(k)) return;
+		warnedScopes.add(k);
+		console.warn(`[router] app scope ${JSON.stringify(k)} ${why} — ignored, the default folder applies`);
+	};
+
+	/** app.scope → absolute folder '/…/' | null (null → the default folder applies) */
+	function scopeFolder(scope) {
+		if (scope == null || scope === '') return null;
+		if (!isSafeScope(scope)) return warnScope(scope, 'is not a safe folder path'), null;
+		const absolute = scope.startsWith('/');
+		let folder;
+		try {
+			/* against the root: a root-absolute value ('/wiki/') lands on the origin's root all the same */
+			folder = new URL(scope.endsWith('/') ? scope : `${scope}/`, root).pathname;
+		} catch {
+			return warnScope(scope, 'is not a safe folder path'), null;
+		}
+		if (holdsRoot(folder)) return warnScope(scope, 'contains the installation root'), null;
+		if (absolute && inRootAnyCase(folder)) return warnScope(scope, 'lies inside the installation root — write it root-relative'), null;
+		return folder;
+	}
+
+	/** The default folder of a start page path: { folder } | { file } | null */
+	function homeOf(startPath) {
+		if (startPath.startsWith(rootPath)) {                      // inside the root: first folder below it (1.x rule)
+			const rest = startPath.slice(rootPath.length);
+			const i = rest.indexOf('/');
+			return i > 0 ? { folder: rootPath + rest.slice(0, i + 1) } : i === 0 ? null : { file: startPath };
+		}
+		const folder = startPath.slice(0, startPath.lastIndexOf('/') + 1);   // outside: its own folder
+		return holdsRoot(folder) ? { file: startPath } : { folder };
+	}
+
+	/**
+	 * May a stored or linked same-origin path open in a window whose start page is start
+	 * (an absolute URL, or one per language as an array — any of them qualifies)?
+	 * Boundary, judged on the path and on the way a server may read it (serverView):
+	 * never the installation root, its index.html, a case variant of its folder or a
+	 * reserved folder; the path must lie in the app's folder — scope (root-relative
+	 * 'demos/clock/' or root-absolute '/wiki/' outside the root), by default the start
+	 * page's first folder below the root (start page inside it) or its own folder
+	 * (start page outside it). Dot segments in the raw path or its server view are
+	 * refused (best effort). Returns the path + query + hash or null. Used by the
+	 * 'web' window kind (session, deep links, launch with a url).
 	 */
 	function acceptPath(start, path, scope = null) {
-		if (typeof path !== 'string' || path.length > 500 || !/^\/(?!\/)/.test(path)) return null;
-		let s;
+		if (typeof path !== 'string' || path.length > 500 || !/^\/(?!\/)/.test(path) || UNSAFE_URL_CHARS.test(path)) return null;
+		/* raw dot segments first: the URL parser would resolve them (refused, never normalised) */
+		if (DOT_SEGMENT.test(serverView(path.split(/[?#]/)[0]))) return null;
 		let u;
 		try {
-			s = new URL(start, root);
-			u = new URL(path, origin);
+			u = new URL(path, root);   // a root-absolute path: the same as against the origin
 		} catch {
 			return null;
 		}
-		if (s.origin !== origin || u.origin !== origin) return null;
-		const target = rel(u.pathname);
-		if (target == null || target === '' || /^index\.html?$/i.test(target)) return null;
-		let folder;
-		if (typeof scope === 'string' && scope && !/^[a-z][a-z0-9+.-]*:|^\/|^\\/i.test(scope)) {
-			folder = rel(new URL(scope.endsWith('/') ? scope : `${scope}/`, root).pathname);
-		} else {
-			const top = rel(s.pathname)?.split('/')[0];
-			folder = top && !/^index\.html?$/i.test(top) ? (rel(s.pathname).includes('/') ? `${top}/` : top) : null;
+		if (u.origin !== origin) return null;
+		const p = u.pathname;
+		const view = serverView(p);
+		if (DOT_SEGMENT.test(view) || deskPath(view)) return null;
+		const within = (x, folder) => x.startsWith(folder) || `${x}/` === folder;
+		const inside = home => !!home && (home.folder ? within(p, home.folder) && within(view, serverView(home.folder)) : p === home.file);
+		const done = p + u.search + u.hash;
+		const fixed = scopeFolder(scope);
+		if (fixed) return inside({ folder: fixed }) ? done : null;
+		for (const one of (Array.isArray(start) ? start : [start]).slice(0, 16)) {
+			let s;
+			try {
+				s = new URL(one, root);
+			} catch {
+				continue;
+			}
+			if (s.origin === origin && inside(homeOf(s.pathname))) return done;
 		}
-		if (!folder) return null;
-		const inside = folder.endsWith('/') ? target.startsWith(folder) || `${target}/` === folder : target === folder;
-		return inside ? u.pathname + u.search + u.hash : null;
+		return null;
 	}
 
 	return Object.freeze({ resolveUrl, isExternal, relPath, route, pageApp, pageAllowed, openUrl, acceptPath });

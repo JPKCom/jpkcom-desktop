@@ -22,7 +22,7 @@ appearance preferences (theme, accent), the wallpaper layer with its motif gener
 | `src/panels/trash-window.js` | *window* — the list of deleted items |
 | `src/panels/about.js` | *window* — About this desktop |
 | `src/panels/help.js` | *window* — How it works (generated) |
-| `src/panels/install.js` | service worker registration, install offer, offline reset |
+| `src/panels/install.js` | service worker registration, install offer, offline reset, legacy cache sweep |
 | `src/panels/pure.js` | pure helpers the boot needs (contrast, wallpaper values, trash items, file dates, row order) — unit-tested |
 | `src/panels/pure-window.js` | *window* — pure helpers only the windows use (backup and reset summaries, About name and row parts) — unit-tested |
 | `src/panels/settings.css`, `wallpaper.css`, `panels.css` | `@layer panels` + `@layer compact` — `windowStyles`: every rule is inside a panel window |
@@ -163,7 +163,14 @@ Reset group `offline` (95, no keys; registered only when service workers exist):
 worker whose scope is exactly this installation's root (a desktop at `/` leaves the one in `/desk/` alone)
 and deletes the caches of `sw.js`'s naming scheme for this root, whatever the namespace
 (`install.js` `ownCaches(root)`: `<namespace>:<base>:<version>-<hash>` and `<namespace>:<base>:pages`, the
-pattern `sw.js` uses on activation; ARCHITECTURE §14).
+pattern `sw.js` uses on activation; ARCHITECTURE §14), plus the caches named in
+`config.offline.legacyCaches` (`legacyMatcher(list)` from `src/core/config.js`, never a name of the scheme
+above, any folder).
+With a non-empty list `install.js` also sweeps those legacy caches (`scheduleSweep()`): 30 s after
+`controllerchange` (the hand-over to a new worker), and 3 s after `load` on each start when this page does
+not register the worker (`pwa.enabled: false`, no manifest link, insecure context). It skips the sweep
+while a worker at another script URL than this installation's `sw.js` controls the page, because that
+worker would re-create the caches at once.
 `docksize`, `magnify`, `icons`, `seconds` belong to the shell (P2); the rows here go through its services.
 
 ## i18n namespaces

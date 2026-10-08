@@ -74,15 +74,17 @@ manifest.webmanifest, sw.js (P12, at the root for the scope)
 site/                       EVERYTHING a site owner customises
   config.js                 window.DESKTOP_CONFIG (classic script, all keys optional)
   apps.js                   export default { apps, collections, menus, files }
-  content/<lang>/*.html     Reader pages            (P11)
-  data/fortunes/<lang>.json, data/feed.<lang>.json  (P11)
+  content/<lang>/*.html     Reader pages            (P11; pages cache, §14)
+  content/…                 images, Markdown, demos (data files, network first, §14)
+  data/fortunes/<lang>.json, data/feed.<lang>.json  (P11; data files, network first, §14)
   vault/                    sealed .bin files (none shipped, .gitignored)
   wallpapers/               image wallpapers
+  icon-sets/<name>.json     site icon sets (optional, config.iconSets; §13) — none shipped, git-ignored
 locales/<lang>/_meta.js     { name, intl, dir, yes }
 locales/<lang>/<ns>.js      export default { key: 'text' | { one, other, … } }
 src/boot/theme.js           classic pre-paint script
 src/boot/main.js            ES module entry
-src/core/                   config env store bus i18n dom icons a11y registry router net consent
+src/core/                   config env store bus i18n dom icons icon-sets a11y registry router net consent
                             storage-registry modules services api
 src/wm/index.js             core part 'wm':    wm.js (core + kinds web/app/native) wm.css; P1 adds snap.js tilemenu.js
                                                 overview.js session.js
@@ -100,6 +102,7 @@ assets/icons/               favicon (JPK monogram); PWA icons (P12) — brand as
 tools/                      build-icons.mjs serve.mjs i18n-check.mjs browser-check.mjs
                             validate-manifest.mjs (P11: checks site/apps.js against the config)
                             seal-vault.mjs (P7: seals private bookmarks for the vault)
+                            icon-set-files.mjs (reads config.iconSets for validate and seal; not a CLI)
                             build-pwa-icons.mjs (P12: renders the PNG app icons from the SVGs)
 docs/ARCHITECTURE.md        this contract
 docs/packages/*.md          the detailed documentation of each package (P1–P12)
@@ -123,7 +126,8 @@ so the desktop booted cleanly at every stage. All of them are replaced now; the 
   <script src="src/boot/preload.js">   GENERATED (tools/build-preload.mjs): <link rel=modulepreload> for the static
                                         import graph of main.js, the core parts and the configured modules/apps,
                                         <link rel=preload as=style> for their styles, the locale files of the likely
-                                        start language — all requested at once instead of one import level at a time
+                                        start language, <link rel=preload as=fetch crossorigin> for config.iconSets
+                                        — all requested at once instead of one import level at a time
   <script src="src/boot/theme.js">     data-theme, data-wc, --accent/--on-accent, config accents/tints,
                                         --wallpaper-from/to + data-wp-dir (glow|down|diag|radial), --anim,
                                         data-boot="pending" (boot cover), meta theme-color — before the first paint
@@ -134,7 +138,9 @@ main.js
   2. initI18n()          start language (?lang → stored → navigator → default); _meta of all languages and
                          the 'core' namespace for the whole fallback chain side by side → <html lang dir>
   3. site data           import(config.site.data) → registry.load(); registry.authorLinks(config.author.links)
-                         (2 and 3 run at the same time)
+     icon sets           fetch every config.iconSets file (JSON) → cleanIconSet() → icons.addIconSet();
+                         a set that fails in any way is warned about and left out — never fails the boot
+                         (2 and 3 run at the same time; nothing of 5 is imported before they are done)
   4. expose()            window.JPKDesk = the frozen Desk API
   5. modules.loadAll()   [core: wm, shell, panels] → config.modules → config.apps
                          imported in parallel; ordered by `requires`; all i18n namespaces + styles loaded;
@@ -148,6 +154,9 @@ main.js
 
 Rules:
 
+- **Icon sets are complete before the first module is imported**: a module may call `hasIcon()` /
+  `icon()` at import time or in `setup()` and sees every set icon. Icons added later with
+  `Desk.icons.add()` are not (§13).
 - A core part must not rely on another core part's `setup()` having run unless it declares
   `requires: ['wm']`. Late work ("after everything is loaded") listens to `'desk:ready'`.
 - **`'desk:ready'` listeners run in module setup order**: wm → shell → panels → config.modules →
@@ -215,6 +224,11 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
   `onclick` (event names are lower-cased unless they contain `:` or `-`).
 - **No inline styles as attributes.** `style=""` is blocked by the CSP; set styles through CSSOM:
   `h('span', { style: { '--tint': v } })` → `style.setProperty`. No `<style>` elements.
+- **Icon data is data.** Site icon sets are JSON (no code runs from them). Every icon definition — of a set,
+  of the shipped subsets or added with `Desk.icons.add()` — is built into its `<symbol>` through one
+  allowlist (§13): element tags, element attributes, the symbol's own attributes (`a`) and the viewBox.
+  Anything else is dropped with a warning. No `url()`, `var()`, CSS escape, `href`, `style`, `id` or `on*`
+  reaches the sprite.
 - **Foreign HTML** (Reader) is fetched, parsed inert with `DOMParser`, sanitised with an **allowlist**
   of elements/attributes (no `style`, no `on*`, no `<base>`, no SVG animation), URLs re-resolved and
   checked, then imported node by node. Browsers apply the page CSP to inert documents too: a fetched
@@ -247,10 +261,19 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
     retypes a Blob `application/octet-stream`, and the viewer saves a device picture from its `File`.
 
   Text files (editor) are read as text and never get a URL.
+- **Framed pages of this origin** (`web` apps without `sandbox`, or with `allow-same-origin`) run with the
+  desktop's origin *and* inside its window: they can reach `parent.JPKDesk` and in-memory state (e.g. the
+  apps of an unlocked vault), more than the same page opened in a tab. Give web apps that show content you do
+  not control a `sandbox` without `allow-same-origin` (`app.sandbox`, `config.wm.iframe.sandbox`; their
+  location is then not restored), and keep `linkPaths` off for them: a deep link must not choose which page
+  of such a folder loads in the frame.
 - **Stored values are untrusted.** Read with `store.getJson(name, validate, fallback)` and the `V`
   validators. Ids from storage are re-validated (`V.id`) before they reach selectors.
 - **URLs from data**: only relative paths or absolute `http(s)`; `link` apps only `https`
   (`allowHttp` per collection or per item is opt-in). The registry rejects `javascript:`, `data:`, `//host`.
+  A `web` app's `scope` is a folder path, never the installation root or a parent of it; the folder rule
+  (`router.acceptPath`, §15) is the boundary for locations of web windows — its filter for dot segments and
+  encoded slashes is best effort (servers differ: double encoding, path parameters, PATH_INFO).
 - **External requests** only through `net.getJson/getText` with a `service` id when they go to a
   third party: no cookies, no referrer, timeout, consent checked (§16).
 - **Links to other origins** open with `noopener`.
@@ -261,7 +284,8 @@ Core panel app ids (registered by P3): `about-desktop`, `settings`, `wallpaper`,
 and validates. `Desk.config` is the merged, deep-frozen result.
 
 Merge: plain objects merge recursively; arrays and scalars replace; language maps at
-`site.description`, `site.home`, `notify.feeds`, `about.moreInfo`, `about.rows` replace as a whole;
+`site.description`, `site.home`, `notify.feeds`, `about.moreInfo`, `about.rows`, `terminal.manUrl`
+replace as a whole;
 in `theme.accents`, `theme.tints`, `services` a `null` removes a default (a removed service counts as
 not offered). Invalid values → `console.warn` + default.
 
@@ -277,6 +301,7 @@ not offered). Invalid values → `console.warn` + default.
 | `site` | `{ data: 'site/apps.js', origin: null, hosts: [], home: null, legal: [], description: {…}, routes: [], defaultPageApp: 'about' }` | manifest path, own hosts, routing rules |
 | `about` | `{ rows: null, moreInfo: null, copyright: { holder, since: 2026 } }` | About panel |
 | `theme` | `{ default: 'dark', accent: 'blue', allowCustomAccent: true, accents: {7}, tints: {10}, windowControls: { side: 'left', style: 'classic' } }` | appearance |
+| `iconSets` | `[]` | site icon sets (§13): paths of JSON files relative to the installation root (`'site/icon-sets/duotone.json'`; letters, digits, `. _ - /` only, no segment starting with `.`), at most 8, loaded before the modules; entries that are not such a path, duplicates and a set below `vault.dir` are warned about and dropped |
 | `wallpaper` | `{ default: { type: 'gradient', from: '#3c4955', to: '#0c1925', dir: 'glow' }, motifs: [9], colors: [8], gradients: [7], images: [], reducedEffects: 'auto' }` | wallpaper panel data |
 | `ui` | `{ animMs: 240, compactQuery: '(max-width: 760px), (max-height: 520px) and (pointer: coarse)' }` | motion, phone breakpoint |
 | `wm` | `{ gap: 6, minSize: [280,180], defaultSize: [1040,720], cascade: 26, snap: true, snapEdge: [8,18], tileMenu: { delay: 450, hideDelay: 250 }, doubleTapMs: 350, iframe: { allow, sandbox: null } }` | window manager; `tileMenu: false` switches the tile menu off |
@@ -294,15 +319,29 @@ not offered). Invalid values → `console.warn` + default.
 | `holidays` | `{ region: null }` | region id, e.g. `'de-by'` |
 | `calendar` | `{ firstDay: 'auto', weekNumbers: true }` | |
 | `weather` | `{ provider: 'open-meteo', units: 'metric', defaultPlace: 'berlin', places: [5], freshMs: 900000, maxAgeMs: 10800000, everyMs: 1800000 }` | `provider`: `'open-meteo'` \| `'brightsky'` \| one added with `Desk.weather.addProvider()`; `units` `metric` \| `imperial`; `everyMs`: refresh interval |
-| `fortune` | `{ remote: null, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [] }` | `remote`: an online source — `'jokeapi'`, `'uselessfacts'` or one added with `Desk.fortune.addProvider()` (needs `services.fortune` and its host in `connect-src`); `dir`: folder of the local `<lang>.json` files (relative to the root); `langs`: the languages that have such a file — only these are fetched (`null`: try every language of the chain); `block`: category ids never shown (local and remote) |
+| `fortune` | `{ remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} }` | `remote`: an online source — `'jokeapi'`, `'uselessfacts'` or one a module adds (contribution `fortuneProviders`, §8, or `Desk.fortune.addProvider()` in its `setup()`); it needs `services.fortune` and its hosts in `connect-src`; an id no module provides is reported once at `'modules:ready'`; `local`: `false` = no built-in sayings (online only: nothing is fetched from `dir`, the service worker precaches nothing for it, the terminal command `fortune` is hidden; needs `remote`, else a warning and `true`); `dir`: folder of the local `<lang>.json` files (relative to the root); `langs`: the languages that have such a file — only these are fetched (`null`: try every language of the chain); `block`: category ids never shown (local and remote); `texts`: `{ <key>: text }` replaces texts of the app that name it (keys in P11 "App texts"), e.g. after renaming it with an override record |
 | `media` | `{ maxItems: 200, seekStep: 5 }` | audio/video players: longest playlist (1–1000), seconds for ←/→ (1–60) |
 | `editor` | `{ maxTabs: 20, maxFileBytes: 5242880, wrap: false, invisibles: true }` | tabs at most (1–100), largest file that opens, word wrap / invisible characters before the user chose |
 | `calc` | `{ historySize: 50 }` | calculations kept (0–500) |
-| `terminal` | `{ user: 'guest', doh: null, eggs: true, historySize: 100, manUrl: null }` | `doh`: `null` or `{ url: 'https://…/resolve', name: 'dns.google' }` — a DNS-over-HTTPS JSON resolver (`Accept: application/dns-json`, https only, needs `services.dns`; its host must be in `connect-src`) |
+| `terminal` | `{ user: 'guest', doh: null, eggs: true, historySize: 100, manUrl: null }` | `doh`: `null` or `{ url: 'https://…/resolve', name: 'dns.google' }` — a DNS-over-HTTPS JSON resolver (`Accept: application/dns-json`, https only, needs `services.dns`; its host must be in `connect-src`); `manUrl`: the site-wide fallback of `man` for items of the site's own collections without a `man` of their own or of their collection (§7 "Manual pages") — `null`, a path template or a `{ lang: template }` map, every value with `{slug}` or `{id}` |
 | `trash` | `{ days: 30, max: 200 }` | |
 | `backup` | `{ format: 'jpkcom-desktop-backup', filePrefix: 'jpkcom-desktop', maxBytes: 5242880 }` | |
 | `vault` | `{ salt: '', iterations: 600000, dir: 'site/vault/', collection: 'bookmarks', maxBytes: 1048576 }` | `collection`: the collection (`site/apps.js`) unlocked bookmarks join; `maxBytes`: largest sealed file accepted |
-| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000, fastStart: true }` — `fastStart`: the service worker answers the desktop's own files from the offline copy and looks for a new version in the background (the open pages get `{ type: 'desk:update' }`, the `install` service offers a reload); `false` = network first | P12 |
+| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000, fastStart: true, legacyCaches: [] }` — `fastStart`: the service worker answers the desktop's code (§14) from the offline copy and looks for a new version in the background (the open pages get `{ type: 'desk:update' }`, the `install` service offers a reload); data files (feeds, fortunes, `site/data/`, `site/content/`, §14) are always network first and never count as a new version; `false` = network first for everything. `legacyCaches`: cache names of a service worker the site used **before** this desktop — exact names, or a prefix ending in `*` (at least 4 characters before it), at most 32; deleted on activation, again shortly after the hand-over, at every start and by the `offline` reset group (§14). A name of this project's cache scheme (any folder, any namespace) is never deleted this way | P12 |
+
+The Fortune descriptor's `validateConfig()` cleans `fortune.local` and `fortune.texts` like its other keys
+(except `dir`); warnings are prefixed by the loader with `[desktop] config.fortune: `:
+
+| Input | Result | Warning |
+|---|---|---|
+| `local` missing | `true` | — |
+| `local` `true` / `false` | as given | — |
+| `local` anything else | `true` | `local must be true or false — built-in sayings used` |
+| `local: false` while `remote` is `null` after cleaning (missing, `null`, or not a valid id) | `true` | `local: false needs an online source (remote) — built-in sayings used` |
+| `texts` missing / `null` | `{}` | — |
+| `texts` not a plain object | `{}` | `texts must be an object { key: text } — ignored` |
+| `texts.<key>` with a key not in `TEXT_KEYS` | skipped | `texts.<key> cannot be replaced (keys: <list>) — skipped` |
+| `texts.<key>` not a text (non-empty string, `'@ns.key'` or a non-empty `{ lang: text }` map of non-empty strings) | skipped | `texts.<key> must be a text, '@ns.key' or { lang: text } — skipped` |
 
 `DEFAULTS` is the single source of defaults and holds **every key any shipped part reads** (so
 `Desk.config` shows the full shape and `sw.js`/the tools see the same defaults). Modules still clean their
@@ -332,12 +371,14 @@ export default {
 | `kind` | string | `page` (Reader), `web` (iframe), `link` (new tab, https), `app` (module impl), `native` (panel impl), `launcher`, `collection` (Catalog, + `collection: id`), `image` (viewer, from collections/drops), `viewer`; further kinds via `wm.defineKind()` |
 | `name` | text | string, `'@ns.key'` or `{ lang: text }` — required |
 | `desc` | text | tooltip/search/Catalog |
-| `icon` | icon id | `'ti-…'`, `'tif-…'` or a custom glyph |
+| `icon` | icon id | `'ti-…'`, `'tif-…'`, a custom glyph or an icon of a site icon set (`'<prefix>-<name>'`, §13) |
 | `iconFull` | icon id | optional: the icon while the app holds something (the trash; the dock reads it) |
 | `tint` | `'name'` or `['#top', '#bottom']` | tile gradient |
 | `logo` | `true` or logo id | tile shows the logo instead of the icon |
 | `mark` | ≤ 4 chars | text tile instead of the icon |
 | `url` | path/URL or `{ lang: url }` | for `page`, `web`, `link`, `image` |
+| `scope` | folder path | `web`: where a stored or linked location of the window may lie (session restore, deep links, `launch(id, { url })`) — root-relative (`'demos/clock/'`) or, for a folder **outside** the installation root, root-absolute (`'/wiki/'`). Default: inside the root the start page's first folder below it, outside the root the start page's own folder (§15 `acceptPath`). Never the root or a parent of it, never root-absolute inside the root; no `..`, `?`, `#`, `;`, `%2f`/`%5c`/`%2e`, scheme or `//host` — an invalid value is warned about and ignored |
+| `linkPaths` | boolean | `web`: a deep link may open the window at a location of its own (`#app=<id>&path=/…`, §15). Default `false`: such a link opens the start page. Leave it off for apps that show content you do not control (uploads, user pages) and sandbox those (§5) |
 | `size` | `[w, h]` | default window size |
 | `fixed`, `desktop`, `dock`, `hidden`, `nodock`, `transient`, `download` | boolean | as in the original (`desktop`/`dock`: default placement; `hidden`: not in "All apps"; `nodock`: never pinnable; `transient`: never in session/deep links) |
 | `alias` | app id | shows and launches the target |
@@ -362,26 +403,75 @@ Registry adds: `source` (`site`/`module`/`author`/…), `module`, and for collec
   basePath: 'demos/',          // routing: <base> → collection app, <base><slug>/ → item app (relative to the root)
   urlTemplate: 'demos/{slug}/', // item url when an item has none
   size, defaultIcon, initials: false, allowHttp: false, search: true, appSize,
+  webApp: 'tools-web',                                          // the app the Catalog's web button launches (wins over webUrl)
   webUrl: 'tools/' | { en: 'en/tools/', de: 'tools/' },       // the collection on the classic website (Catalog button)
   allLabel: { en: 'All tools', de: 'Alle Werkzeuge' },        // Catalog wording for "All" …
   webLabel: { en: 'Tools on the website', de: 'Werkzeuge auf der Website' },   // … and "Overview on the web"
+  man: 'manuals/{lang}/{slug}.md' | { en: 'help/en/tools/{slug}.md', de: 'help/tools/{slug}.md' } | false,
+                                                              // terminal `man` for every item (template, see below)
   groups: [{ id, name, desc, icon, tint }],
   items: [{ slug, group, name, desc, url | app, icon, tint, mark, kind, size,
-            docs, guide,            // URL or { lang: url }: Catalog status-bar actions, terminal `man`
+            docs, guide,            // URL or { lang: url }: Catalog status-bar actions ("Documentation" should be a page)
+            man,                    // path or { lang: path } or false: terminal `man` (text manual; wins over docs)
             fileName, download,     // download name / offer a download (image items always do)
             nodock, hidden,         // never pinnable / not in lists (as on an AppEntry)
-            allowHttp }] }          // this item may be an http:// link (an intranet bookmark)
+            allowHttp,              // this item may be an http:// link (an intranet bookmark)
+            scope, linkPaths }] }   // web items: as on an AppEntry
 ```
 
-`webUrl` is a path/URL or a `{ lang: url }` map; `allLabel`/`webLabel` are text, `'@ns.key'` or
-`{ lang: text }` and may also sit on the collection's Catalog app. Unknown group, missing slug/name/url,
-bad protocol → warned and skipped. Item icon/tint fall back item → group → collection
-(`defaultIcon` → `icon`).
+**The web button** ("Overview on the web", `webLabel`) appears when the collection or its Catalog app
+has a `webApp` that is registered and openable (`Desk.apps.available`) or a `webUrl`.
+
+`webApp` is an app id; the button launches that app (`Desk.launch`). Use it for an overview page that
+lives at the collection's `basePath` and should open in a window: a hidden **`web`** app
+(`{ id: 'tools-web', kind: 'web', hidden: true, url: 'tools/' }`). A `page` app is not suited for a
+page at `basePath`: its deep link would be that path, which opens the Catalog. For a Reader overview
+no `webApp` is needed — set `webUrl: 'tools/index.html'` and, unless the site's `defaultPageApp`
+shows it, a hidden page app with that URL (`<basePath>index.html` is not routed to the Catalog).
+A `webApp` that is a Catalog of the same collection (directly or through an alias) is ignored. When
+the app is missing or not openable (its module is not loaded), `webUrl` is used instead.
+
+`webUrl` is a path/URL or a `{ lang: url }` map opened through `Desk.openUrl`; a `webUrl` that routes
+back to a Catalog of this collection (it equals `basePath`, and no `config.site.routes` rule sends it
+elsewhere) opens in a new tab. `webApp`, `webUrl`, `allLabel` and `webLabel` may also sit on the
+collection's Catalog app (an override record `{ id: 'tools', webApp: 'tools-web' }`); the
+collection's value is tried first. `allLabel`/`webLabel` are text, `'@ns.key'` or `{ lang: text }`.
+
+Items: unknown group, missing slug/name/url, bad protocol → warned and skipped; icon/tint fall back
+item → group → collection (`defaultIcon` → `icon`).
+
+No AppEntry row: `man` is a field of collection items and collections only. (Do not confuse it with the
+`man` text of a terminal **command** definition, p09 "Command registry" — a different object.)
+
+**Manual pages (`man`)** — the terminal's `man <entry>` prints a text manual: a `.md`, `.markdown` or
+`.txt` file **on this site** (relative to the root or `/…`, no whitespace, ≤ 500 characters; no other
+origin). Sources for a collection item, most specific first: the item's own `man`, else the collection's
+`man`, else `config.terminal.manUrl` (§6). The first level that is set decides; `false` there means "no
+manual page" and stops the search. The collection's `man` applies only to items of the collection's own
+source, `manUrl` only to items of the site's own collections (source `'site'`) — the vault's bookmarks
+(in a site collection or in the collection the vault creates) never use a template and carry no `man`,
+so they have no manual page and their slugs never reach the server. An alias item uses
+its own `man`, never its target's. An item's `docs` that is a text file is still printed when the item
+has no `man` of its own (as before); otherwise `docs` is the "Full documentation" link after the
+manual. Each value is a path or a `{ lang: path }` map. Placeholders: `{slug}` `{id}` `{collection}`
+`{lang}` (URL-encoded); a collection's `man` and `manUrl` must contain `{slug}` or `{id}`; any other
+`{name}` makes the value invalid. Languages: a plain string with `{lang}` is tried for each language of
+the fallback chain (§12); a map in the order of the chain (exact tag, then the same base language), then
+its first value — so `{ de: 'help/tools/{slug}.md', en: 'help/en/tools/{slug}.md' }` expresses layouts
+`{lang}` cannot. At most six files are tried per entry; a missing file (404/410, or an HTML answer) is
+no error: the terminal says the entry has no manual page and offers its documentation or the entry
+itself. Invalid values → `console.warn`, the value is ignored (the item stays). `~/apps` entries have
+no `man` field; their `docs` works as before. The rules live in one pure file, `src/core/man.js`
+(`cleanMan`, `MAN_VARS`, `isTextPath`), used by the registry, the terminal and
+`tools/validate-manifest.mjs`; the path predicate is `isSitePath` in `src/core/url.js`.
 
 Registry API for collections: `addCollection(def, { source })`, `extendCollection(id, { groups, items,
 prepend }, { source })`, `removeSource(source)`, **`removeCollection(id)`** (a collection another source
 added — the vault's own one after a lock — with its items and its registry-made Catalog app; the site's
 collections cannot be removed → `false`), `collection(id)`, `collections()`, `items(id)`.
+Item records carry `man` (`false`, a path or a map, as given; absent when not set or invalid — an alias
+view carries only the alias's own `man`, never its target's); `collection(id).man` is `null` (not set or
+invalid), `false`, a template or a `{ lang: template }` map.
 
 ## 8. Module descriptor
 
@@ -429,6 +519,7 @@ export default {
 	calendar: [{ id: 'weather', order: 10, render(ctx) { return node | null; } }],                         // P6
 	contextMenu: [{ selector: '.notes-item', label(el) { return text; }, select(el) {},
 	                items(el, ctx) { return menuItems; } }],                                               // P2
+	fortuneProviders: [{ id: 'example', name: 'Example', hosts: ['api.example.org'], url(q) {}, parse(json, ctx) {} }], // P11
 
 	configKey: 'notes',                // optional: its config section (§6) …
 	validateConfig(section, warn) { return section },   // … cleaned once before setup() → Desk.modules.config(id)
@@ -447,8 +538,10 @@ export default {
 	serialize(win) { return state },   // JSON-safe state for session restore / deep links
 	restore(win, state) {},            // apply serialized state after mount (validate it!)
 	locationOf(win) { return url },    // current same-origin location (address bar / "copy link")
-	acceptUrl(app, path) { return path | null },   // the ONLY hook that gets the app, not a window: may a
-	                                   //   stored/linked path open this app? (session restore, deep links)
+	acceptUrl(app, path, from) { return path | null },   // the ONLY hook that gets the app, not a window: may a
+	                                   //   stored/linked path open this app? from: 'session' (restore: written by
+	                                   //   the visitor's own navigation), 'launch' (code: launch(id, { url })),
+	                                   //   'link' (a deep link: anyone can write it — be strict)
 	reload(win) {},                    // title-bar/menu "Reload"
 	popOut(win) {},                    // "Open in new tab" (default: locationOf → new tab)
 	canPopOut(win) { return true },    // false: no "Open in new tab" for this window now (a file from the device, §5)
@@ -470,7 +563,7 @@ to the implementation (`registry.impl(app)`, `win.impl`), every other field is m
   taken; without `mount()` or `render()` the window shows "not available". The import must be a literal
   `import('./…')` (the service worker and `tools/build-preload.mjs` read the source).
 - **Hooks given directly in the definition are there from the start** and win over a loaded hook of the
-  same name. `acceptUrl(app, path)` belongs here when the app has one: the WM asks it before any window
+  same name. `acceptUrl(app, path, from)` belongs here when the app has one: the WM asks it before any window
   exists (session restore, deep links).
 - The first `wm.open()` of the app loads it (`registry.loadImpl(app)`, once; a failed load is tried again on
   the next open) together with the descriptor's `windowStyles`. `wm.open()` still returns the window at
@@ -526,11 +619,22 @@ The extension points in detail (the owning package's doc in `docs/packages/` has
   `link`, `markdown`, `progress(text) → done()`, `readLine(label, { secret }?) → Promise<string | null>`
   (`null` once `io.signal` aborted: Ctrl+C or the window closed), `clear()`, `cols()`, `win`, `signal`.
   The full `io`/`ctx` reference is `docs/packages/p09-terminal.md`. Runtime: `Desk.terminal.register()`.
+- **`fortuneProviders`** (P11) — `[def]` or `{ <id>: def }`: online sources for the Fortune app. `def` is
+  the provider definition of `src/apps/fortune/providers.js` (`id`, `name`, `hosts` — 1 to 8 host names,
+  `home`, `langs`, `categories`, `emptyStatus`, `url()`, `parse()`; reference in
+  `docs/packages/p11-fortune-site.md`). Write
+  it as a plain object literal: the loader copies own properties only, so `url`/`parse` on a class
+  prototype are lost and the provider is rejected. The app adopts the contributions of every module set
+  up before it and listens to `'module:loaded'` for later ones, so the contributing module needs no
+  `requires: ['fortune']` and loads fine without the app. A provider is used only when
+  `config.fortune.remote` names its id; an id that exists already (built in or adopted first) is reported
+  and skipped. The check for an unknown `remote` runs at `'modules:ready'`.
 
 Loader behaviour:
 
 - Field keys not in the reserved list that hold an array or object are **contributions**:
-  `Desk.modules.contributions(point)` → `[{ module, ...item }]` (keyed objects get `id` = key).
+  `Desk.modules.contributions(point)` → `[{ module, ...item }]` — a frozen shallow copy of each item's own
+  enumerable properties (keyed objects get `id` = key unless the item has its own `id`, which wins).
   A consumer reads the list in its `setup()` (it runs after modules it `requires`) and listens to
   `'module:loaded'` for modules that come later.
 - `storage`, `resetGroups`, `trash`, `consent` are registered by the core (§14, §16).
@@ -554,7 +658,7 @@ Loader behaviour:
 `import Desk from 'src/core/api.js'` (frozen) — also `window.JPKDesk`.
 
 ```ts
-Desk.version: string                          // '1.1.0'
+Desk.version: string                          // '1.2.0'
 Desk.project: { name, author, url, repo, license }
 Desk.config                                   // deep-frozen effective config
 
@@ -587,7 +691,12 @@ Desk.dialog: {                                 // question sheets (src/core/dial
     // container queue; closing the window answers null. kit.js (P8) re-exports these.
 Desk.icon(id, cls = 'i') → SVGSVGElement
 Desk.tile(app, cls?) → HTMLSpanElement
-Desk.icons: { icon, has(id), add(pack, { override }), logo(id?) → SVG|null, addLogo(id, build), brandGlyph(cls?), tile, tintValue(tint) }
+Desk.icons: { icon, has(id), add(pack, { override }), symbolHref(id) → '#i-<id>'|null, logo(id?) → SVG|null, addLogo(id, build),
+              brandGlyph(cls?), tile, appGlyph(app, { cls = 'i', fallback = 'ti-app-window' }?) → SVGElement | HTMLSpanElement,
+              tintValue(tint) }
+            // has()/icon() include the site icon sets (§13) from the start
+            // appGlyph: an app's glyph without the tile, same precedence as tile(): app.logo (true → brand logo)
+            // → app.mark (text, <span aria-hidden>) → app.icon (when known) → fallback; cls goes on the element
 Desk.announce(text, { assertive = false })
 
 // Storage (§14)
@@ -648,7 +757,7 @@ each service offers; arguments, return values and behaviour in detail are in the
 | `shortcuts` | P2 | `add(def \| fn) → remove()`, `list() → [{ id, keys, combos, display, label, scope, module }]`, `watch(frame)`, `parse(spec)`, `matches(parsed, event)` |
 | `contextmenu` | P2 | `add(selector, items(el, ctx), { label, select }?) → remove()`, `resolve(el)`, `open(el, x, y, keyboard)`, building blocks `appItems(app, extra)`, `windowItems(win)`, `pinItems(app)`, `linkItems(app)`, `group(...lists)`, `addressOf(app)` |
 | `notifications` | P2 | `show({ title, body, icon, tint, app, url, meta, date, timeout, run }) → { close() } \| null`, `clear()`, `when(ms)`, `stamp(ms)` |
-| `deeplinks` | P2 | `linkFor(win)`, `hashFor(win)`, `open(hash)`, `parse(hash)`, `start()` |
+| `deeplinks` | P2 | `linkFor(win)`, `hashFor(win)`, `hashOf(info)`, `open(hash)`, `parse(hash)`, `start()` |
 | `drop` | P2 | `handlers() → [{ id, module, label }]`, `handle(id, def) → remove()`, `open(files, target?)`, `kindOf(file)` |
 | `power` | P2 | `boot()`, `restart()`, `shutdown()`, `isOff()` (true from the moment restart/shut down darkens the screen: no shortcut and no other keydown/keyup listener reaches the desktop any more) |
 | `clock` | P2 | `tick()`, `seconds()`, `setSeconds(on)`, `button` |
@@ -669,7 +778,7 @@ each service offers; arguments, return values and behaviour in detail are in the
 | `vault` | P7 | `available()`, `unlock(user, pass) → 'ok' \| 'denied' \| 'offline' \| 'unsupported'`, `keep()`, `lock()`, `forget()`, `resume()`, `user()`, `unlocked()`, `summary() → [{ id, name, count }]` |
 | `terminal` | P9 | `register(name, def) → remove() \| null`, `list() → [{ name, hidden, source }]`, `has(name)` — the built-in commands (and eggs) join `list()`/`has()` with the terminal's window code, i.e. once the first terminal window opened (their names are reserved from the start) |
 | `media` | P10 | `open(files) → Promise<number>`, `add('audio' \| 'video', files) → Promise<number>` (the players' window code loads on demand; 0 when nothing was added), `kindOf(file)`, `types()` |
-| `fortune` | P11 | `random({ cat }?) → Promise<{ text, lang, cat, by, url } \| null>`, `addProvider(def) → boolean` (`{ id, name, hosts, langs, categories (each with optional own langs), emptyStatus, url(), parse() }` — `parse()` may throw an error with `code: 'empty'` for "nothing found"), `providers()`, `source() → 'local' \| 'remote'` |
+| `fortune` | P11 | `random({ cat }?) → Promise<{ text, lang, cat, by, url } \| null>` (a built-in saying; `null` with `fortune.local: false`), `addProvider(def, { module }?) → boolean` (the provider definition as in §8 `fortuneProviders`; `module`: the adding module's own id — the provider is dropped on its `'module:failed'`; add during `setup()`), `providers() → ids`, `source() → 'local' \| 'remote' \| null` (`null`: online only and no usable online source) |
 
 Popovers/overlays (menus, calendar, launcher, search, overview, tile menu) close each other via the
 bus: before opening, emit `'popovers:close'` with `{ except: '<own name>' }`; listen to it and close
@@ -774,22 +883,100 @@ switching UI: toggle for 2 languages, menu for 3+ (P2), names from `displayName(
 ## 13. Icons
 
 - Ids: `'ti-<name>'` (Tabler outline), `'tif-<name>'` (Tabler filled), custom: `jpk`, `wc-close`,
-  `wc-min`, `wc-max`, `tile-left`, `tile-right`, `tile-max`, `tile-both`. **Verify a Tabler name exists**
+  `wc-min`, `wc-max`, `tile-left`, `tile-right`, `tile-max`, `tile-both`, and the icons of the **site icon
+  sets** (`'<prefix>-<name>'`, below). **Verify a Tabler name exists**
   (`node_modules/@tabler/icons/icons/{outline,filled}/<name>.svg`) and always write ids out in full
-  (the scanner only sees quoted literals).
+  (the scanner only sees quoted literals). The project's own icon ids use only the namespaces `ti-`, `tif-`,
+  `wc-`, `tile-`, `jpk` and `jpk-` — now and in later releases; every other prefix belongs to sites.
 - `npm run icons` (`tools/build-icons.mjs`) scans `src/`, `site/`, `index.html` and writes
-  `src/icons/tabler.js` with only the used icons; unknown names fail. `npm run icons:check` for CI.
-  **`site/icons.json`** (optional, committed): a JSON array of extra ids (`["ti-brand-github", "tif-star"]`)
+  `src/icons/tabler.js` with only the used Tabler icons; unknown names fail. `npm run icons:check` for CI.
+  **`site/icons.json`** (optional, committed): a JSON array of extra Tabler ids (`["ti-brand-github", "tif-star"]`)
   for icons no source names — above all those used only inside sealed vault data; `tools/seal-vault.mjs`
   (P7) warns about vault icon ids missing from `src/icons/tabler.js` and suggests adding them there.
-  Data format `{ k: 'o'|'f', e: ['d…' | [tag, attrs]] }`, viewBox `0 0 24 24`.
-- Runtime: `icon(id)` adds the `<symbol>` to the inline sprite on first use and returns
-  `<svg class="i" aria-hidden="true"><use href="#id"></svg>`. Outline symbols carry
-  `fill="none" stroke="currentColor"` (round caps/joins); stroke width = `--icon-stroke`.
+  The tool builds Tabler only; it never reads or writes a site icon set and skips `site/icon-sets/`.
+- **Definition format** (one per id — the same in `tabler.js`, `custom.js`, site icon sets and
+  `icons.add()`):
+
+  ```
+  { k?: 'o' | 'f' | 'd', vb?: '0 0 24 24', a?: { attr: value }, e: [element], e2?: [element] }
+  ```
+
+  `k`: `'o'` outline (default; `fill="none" stroke="currentColor"`, round caps/joins; the stroke width is
+  `--icon-stroke` **in viewBox units** — right for the 24-unit grid of Tabler, a hairline on a 512-unit
+  grid), `'f'` filled (`fill="currentColor"`), `'d'` two-tone: filled, and `e2` is the **secondary layer** —
+  drawn first, below `e`, every element with the class `i-duo` (one of `e`/`e2` may be empty, not both).
+  `vb`: the viewBox, default `0 0 24 24`; four numbers, width and height > 0 — a glyph that is not square is
+  centred in the 1em box. `a`: the `<symbol>` attributes **instead of** the ones `k` implies (custom
+  glyphs; an outline icon on another grid gives its own `stroke-width` here, together with `fill`,
+  `stroke`, caps and joins). An element is a string (`<path d>`) or `[tag, attrs]` (no children).
+- **Allowlist** (applied when the symbol is built, to every pack): tags `path circle ellipse rect line
+  polyline polygon`; attributes of elements and of `a`: `d cx cy r rx ry x y x1 y1 x2 y2 width height
+  points fill stroke stroke-width stroke-linecap stroke-linejoin stroke-miterlimit stroke-dasharray
+  stroke-dashoffset opacity fill-opacity stroke-opacity fill-rule clip-rule transform vector-effect
+  paint-order class` — values strings (≤ 64 KiB) or finite numbers. A string never contains a backslash
+  (the CSS tokenizer resolves escapes before it reads a name: `u\72l(` is `url(`) and calls no CSS function
+  but the transform functions `matrix translate scale rotate skewX skewY` and the colour functions `rgb rgba
+  hsl hsla hwb lab lch oklab oklch color` — so no `url(`, `src(`, `var(` or `env(` (presentation attributes
+  resolve `var()`, and a custom property may hold a `url()`). `class` only as space-separated
+  `[a-z][a-z0-9-]*` tokens. A `vb` that is not four numbers with a positive width and height makes a site
+  icon set's icon invalid (skipped with a warning; `npm run validate` reports an error); in a runtime pack
+  (`Desk.icons.add`) it falls back to `0 0 24 24`. Anything else is dropped (one `console.warn` per icon).
+- Runtime: `icon(id)` adds the `<symbol id="i-<id>">` to the inline sprite on first use and returns
+  `<svg class="i" aria-hidden="true"><use href="#i-<id>"></svg>`. The DOM id prefix `i-` belongs to the
+  sprite: no part, module or app gives an element an id starting with `i-`. Code that needs the reference
+  itself (a `<use>` in a drawing) asks `Desk.icons.symbolHref(id)` (`'#i-<id>'` or `null`; core code imports
+  `symbolHref` of `src/core/icons.js`).
   Unknown ids warn once and render empty.
+- **Two-tone rendering**: `base.css` styles `.i-duo { opacity: var(--icon-duo-opacity); fill:
+  var(--icon-duo-color) }` (tokens: `0.4`, `currentColor`). Every `<use>` copy takes the rule, and the tokens
+  resolve where the icon is shown — so a theme or a part sets them on a container
+  (`.tile { --icon-duo-opacity: 0.5 }` in `site/theme.css`). Selectors are matched inside the copy: a rule
+  with an ancestor (`.tile .i-duo`, `.sprite .i-duo`) never reaches it — set the tokens instead.
+- **Site icon sets** (`config.iconSets`, at most 8): JSON files below the installation root, by convention
+  in `site/icon-sets/` (git-ignored in the public repository):
+
+  ```json
+  { "format": "jpkcom-desktop-icons/1",
+    "name": "Acme duotone",
+    "license": "Acme Icons 2.1 — commercial licence of Example Ltd.",
+    "icons": {
+      "acme-rocket": { "k": "d", "vb": "0 0 512 512", "e": ["M…"], "e2": ["M…"] },
+      "acme-logo":   { "k": "f", "vb": "0 0 448 512", "e": ["M…"] } } }
+  ```
+
+  - `format` must be `"jpkcom-desktop-icons/1"` (else the whole file is refused); `name` and `license` are
+    free texts (≤ 200 characters) for people and the tools — keep the set's licence notice in `license`.
+  - Ids: `<prefix>-<name>`, `^[a-z][a-z0-9]{1,11}-[a-z0-9]+(?:-[a-z0-9]+)*$`, at most 64 characters. The
+    prefix must not be one of the project's icon namespaces `ti tif wc tile jpk`. Invalid ids and
+    definitions are skipped with a warning; the rest of the set loads.
+  - `k: 'o'` in a set assumes the 24-unit grid; on another grid give `a` with your own `stroke-width`
+    (`npm run validate` warns otherwise). Two-tone (`k: 'd'`) and filled icons work on any grid.
+  - The browser checks every definition when the set loads (the allowlist above); an icon left without a
+    single element is dropped, so `has()` stays truthful and the usual fallbacks apply.
+  - A file larger than 2 MiB or with more than 5000 icons, invalid JSON, a wrong `format`, a failed request
+    (8 s timeout), a path below `vault.dir` → the set is left out with `console.warn`; the desktop starts
+    without it (its icons then fall back like unknown ids: tiles `ti-app-window`, menus without glyph, the
+    vault `ti-bookmark`).
+  - Several sets: loaded in parallel, registered in config order; an id a set before it already brought is
+    skipped (warned).
+  - Loading: `main.js` loads the sets next to i18n and the site data (§3); `preload.js` hints them from
+    `<head>`; the service worker keeps them offline like every file under `site/` (P12). Ship only the
+    icons the site uses — the set's converter should write that subset, as `npm run icons` does for Tabler
+    (about 0.7 KB per two-tone icon; `npm run validate` warns above 256 KiB).
+  - The tools know the sets: `npm run validate` (manifest, `brand.glyph`, the files themselves), `npm run seal`
+    (vault icons). Icons of a set used only inside sealed vault data must be in the set too — the set file
+    is public, so it shows which icons the vault uses; prefer generic icons for entries that must not hint
+    at a service.
+  - **Licence**: a set is the site's own business. The project ships none and no vendor's data; check that
+    the licence allows self-hosting the glyphs in a web page, keep its notice in `license`, and never commit
+    a commercially licensed set to a public repository (the public `.gitignore` ignores `site/icon-sets/*`;
+    a private site repository that tracks its set removes that line).
 - Logos: `icons.logo(id)` builds a fresh `<svg>` with unique gradient ids (`logos.jpkcom`);
-  `icons.addLogo(id, build)` for site logos. `config.brand.logo`/`glyph` choose the brand.
-- Packs: `icons.add(pack)` with the same data format (e.g. a site icon set).
+  `icons.addLogo(id, build)` for site logos. `config.brand.logo`/`glyph` choose the brand (`glyph` may be
+  a set icon).
+- Packs at runtime: `icons.add(pack, { override })` with the same definition format and allowlist (ids
+  `[a-z][a-z0-9-]*`, `override` replaces existing ids). Icons added after the boot are unknown to everything
+  that checked before (modules, the vault at unlock, the tools) — prefer a site icon set.
 - Accessibility: icons are decorative; the control carries the accessible name.
 
 ## 14. Storage
@@ -839,13 +1026,13 @@ and reset follow them without a hand-kept list — the original's key names are 
 | weather (P6) | `weather-data` (last result) | json | no | `session` |
 | notes / todo / editor / calc (P8) | `notes` / `todos` / `editor` / `calc` | json | yes | `notes` / `todos` / `editor` / `calc` |
 | terminal (P9) | `term` (history) | json | yes | `terminal` |
-| fortune (P11) | `fortune` (source choice) | json | yes | `settings` |
+| fortune (P11) | `fortune` (source choice; the provider the user agreed to) | json | yes | `settings` |
 
 **Reset groups** (Settings → Reset, by `order`): `settings` 10 (core; also revokes every consent),
 `wallpaper` 20, `dock` 30 ("Dock layout"), `notes` 40, `todos` 45, `editor` 50, `calc` 55, `terminal` 58,
 `trash` 80, `vault` 85 (no keys; `onReset` locks and forgets a kept login), `session` 90 (core),
 `offline` 95 (panels; no keys, registered only where service workers exist: unregisters this
-installation's worker and deletes its caches).
+installation's worker and deletes its caches and the caches named in `config.offline.legacyCaches`).
 
 Other storage:
 
@@ -853,12 +1040,46 @@ Other storage:
 - **IndexedDB** `<namespace>-vault` (`store.key('vault')`), object store `login`, one record
   `{ key: CryptoKey (non-extractable), file, user }` — only after "stay logged in" (P7).
 - **Cache Storage** (`sw.js`, P12): `<namespace>:<base>:<version>-<hash>` (the shell; `<base>` = the
-  installation path, `<hash>` over the precache-relevant config), `<namespace>:<base>:<version>-<hash>-next`
+  installation path, `<hash>` over the precache-relevant config and `offline.fastStart`), `<namespace>:<base>:<version>-<hash>-next`
   (a prepared update, `config.offline.fastStart`: complete only with its marker entry `sw.js?complete`; the
   next start of the desktop moves it into the shell cache) and `<namespace>:<base>:pages` (Reader
   pages). Activation and the `offline` reset delete **every cache of this naming scheme for their own
   base**, whatever the namespace; other installations and other apps of the origin keep theirs. Answers
   with `Cache-Control: no-store` or `private` are never stored; `config.vault.dir` is never cached.
+  **Code and data.** The shell cache holds the desktop's **code** — `index.html`, the manifest,
+  `assets/icons/`, `src/`, `locales/`, `site/config.js`, `site.data` (`site/apps.js`), `site/theme.css`, the
+  files and folders of `{ id, src }` modules and apps, `wallpaper.images`, the site icon sets
+  (`iconSets`, §13 — JSON, but part of the version: the config and the manifest name their ids) — and its
+  **data files**: every `notify.feeds` value (also outside the installation folder), the `fortune.dir`
+  files `<lang>.json` of the language chain, and everything under `site/data/` and `site/content/` (Reader pages excepted — they use the
+  pages cache). Precedence, first match wins: the vault (never cached), Reader pages, an exact code file, an
+  exact data file (feed, fortune file), the deepest folder that holds the file — a module or app folder,
+  `site/data/`, `site/content/`; a module or app folder wins a tie, so a module directly in `site/data/` makes
+  it code, while a module file directly in `site/` leaves `site/data/` and `site/content/` data — the rest of
+  the shell (code). Data files are fetched network first (offline or after `offline.timeoutMs`: the last
+  copy), also with `offline.fastStart`; the update check never compares them and a prepared update never
+  contains them, so changing one never offers a new version. Code is answered from the copy (fast start) and
+  changes only as a whole — **code never mixes; data is always the server's current version.** Older code
+  may therefore read current data for one session (until the offered reload): a data file must stay
+  readable by the previous code — add fields, do not rename or remove them; an incompatible format gets a new
+  file name. Icon ids named in data must already be in the deployed `src/icons/tabler.js` or site icon set. Run-time data of
+  a module belongs under `site/data/` (e.g. `site/data/<module id>/`) and is fetched (`Desk.net.getJson`),
+  never imported; code never lives under `site/data/` or `site/content/` except inside a module's or app's
+  own folder (a generated bundle such as Pagefind's is code as well — keep it outside `site/`).
+  **Legacy caches**: the names in `config.offline.legacyCaches` (exact, or `prefix*`) belong to a
+  service worker the site used before. `sw.js` deletes them on activation, once more about 30 s later
+  (the earlier worker may still finish requests and write again) and at every start of the desktop.
+  `install.js` deletes them about 30 s after `controllerchange`, at every start when this page does not
+  register the worker (`pwa.enabled: false`), and in the `offline` reset. A name of this project's
+  scheme (`<namespace>:<any folder>:<version>-<hash>`, `-next`, `:pages`) is never matched, so no
+  installation of this project loses a cache through this list.
+  A file of the shell that the crawl did not fetch but the desktop read at runtime and that is no data
+  file (a manual or `cat` file outside `site/data/` and `site/content/`, an image — not a script, style or
+  worker, nor an exact code file such as `site.data`, a wallpaper or a site icon set: code stays on the
+  crawl's compare path) is stored with the response header
+  `X-Desk-Copy: runtime`. The fast-start update check refreshes such copies in place (deleted on 404/410 or
+  when the server forbids keeping them) and never prepares or announces an update because of them; a copy
+  from a later crawl replaces the marked one.
 
 ## 15. URLs, routing, launching
 
@@ -877,12 +1098,41 @@ router.pageAllowed(path) → boolean
    // app route) are ignored silently; the Reader's acceptUrl refuses them (session values); openUrl() sends a link there to a new tab
 router.openUrl(raw, base?) → boolean       // external → tab; app → launch; page → launch(pageApp, { url }); else tab
    // a route or page app whose launch() fails (module missing) falls back to a new tab — a link never goes nowhere
-router.acceptPath(start, path, scope?) → path | null
-   // may a same-origin path open in a window whose start page is start? Judged RELATIVE TO THE ROOT: inside
-   // scope (a root-relative folder) or the start page's first folder below the root; the root itself and
-   // index.html never qualify (a sub-folder install /desk/ must not accept /desk/ or /desk/site/vault/…).
-   // The 'web' kind's acceptUrl uses it (app.scope optional).
+router.acceptPath(start | start[], path, scope?) → path | null
+   // may a same-origin path open in a window whose start page is start (an absolute URL; an array = one per
+   // language, the path qualifies when it qualifies for any of them)? Used by the 'web' kind's acceptUrl.
+   // path: root-absolute ('/…'), ≤ 500 characters, no control character or backslash.
+   // Boundary (judged on the path and on its "server view": escapes of unreserved characters decoded once
+   //   ('%61' → 'a', '%2e' → '.'), %2f/%5c → '/', '//' → '/'):
+   //   never the installation root, its index.html/.htm, a case variant of the root's own path, or a
+   //   reserved folder (createRouter({ reserved }): config.vault.dir) — compared case-insensitively, for
+   //   these two also with every segment's path parameters (';x', Tomcat/Jetty), stream suffix (':…',
+   //   '::$INDEX_ALLOCATION') and trailing dots and spaces ('.', '%20', IIS/Windows) removed;
+   //   the path must lie in the app's folder in both forms:
+   //   scope   root-relative ('demos/clock/', against the installation root) or root-absolute ('/wiki/',
+   //           against the origin, only outside the root). Ignored (→ default, one console warning per value)
+   //           when it is not a safe folder (url.js isSafeScope), the root or a parent of it, or a
+   //           root-absolute folder inside the root.
+   //   default inside the root: the start page's first folder below it   /desk/demos/clock/ → /desk/demos/
+   //           outside the root: the start page's own folder              /wiki/start/       → /wiki/start/
+   //           a start page directly in the root, or whose own folder holds the root: only that page
+   //           (any query): /desk/game.html, /status.html. A start page on another origin accepts nothing.
+   // Best effort on top: dot segments ('.', '..', '%2e', '..;x') in the raw path or its server view → null.
+   // Returns the parsed path + query + hash (as the URL parser writes them: dot segments are refused, never
+   // resolved), or null.
 launch(id, opts?) → boolean                // alias → target; launcher → toggle; link → tab; else wm.open(app, opts)
+
+// Deep links (shell, P2 — src/shell/deeplinks.js; hash data is untrusted, §5)
+//   #/<path>                   a same-origin page the desktop way (openUrl)
+//   #app=<id>                  an app
+//   #app=<id>&path=/<path>     an app at a location of its own: the kind's acceptUrl(app, path, 'link')
+//                              decides (web: only with app.linkPaths); refused → the app opens as with
+//                              #app=<id>. Written for windows whose location is not their start page and
+//                              leads back to them only this way ('%' written as '%25': one decoding
+//                              gives the exact path). path= comes last.
+//   #app=<id>&<name>=<value>…  unknown parameters (before path=) are ignored (since 1.2) — future
+//                              parameters degrade to opening the app
+//   #search=<text>             the search
 ```
 
 **Availability**: `registry.available(app)` is true only when the app can open now — its kind passes the
@@ -894,7 +1144,8 @@ them); `'wm:kind'` and a new launcher re-announce `'apps:change'`. Tests and oth
 with `registry.setKindCheck(fn)` (`createRegistry({ kindCheck })`).
 
 Paths in the manifest/config are relative to the installation root (works in a sub-folder);
-absolute `/…` paths are allowed for same-origin content outside it.
+absolute `/…` paths are allowed for same-origin content outside it — including a `web` app's `scope`, so a
+web app at `/wiki/start/` keeps its in-frame location on restore (`acceptPath` above).
 
 ## 16. Network and online services
 
@@ -925,11 +1176,16 @@ switches one on (`docs/deploy.md`, the commented lines in `docs/server/*`):
 |---|---|---|---|
 | `weather` | weather (P6) | `https://api.open-meteo.com` (provider `open-meteo`) or `https://api.brightsky.dev` (`brightsky`) — the configured provider's hosts | — |
 | `geolocation` | weather (P6) | none (the browser's location) | `Permissions-Policy: geolocation=(self)` for "Use my location" |
-| `fortune` | fortune (P11) | `https://v2.jokeapi.dev` (`jokeapi`) or `https://uselessfacts.jsph.pl` (`uselessfacts`) — registered only when `config.fortune.remote` names a known provider | — |
+| `fortune` | fortune (P11) | the hosts of the provider `config.fortune.remote` names: built in `https://v2.jokeapi.dev` (`jokeapi`) or `https://uselessfacts.jsph.pl` (`uselessfacts`), or those of a provider a module adds — registered when that provider is adopted, withdrawn when its module fails; the agreement is bound to that provider (below) | — |
 | `dns` | terminal (P9) | the host of `config.terminal.doh.url` — declared **only when `config.terminal.doh` is valid** | — |
 
-A provider added at runtime (`Desk.weather.addProvider()`, `Desk.fortune.addProvider()`) brings its own
-hosts; the consent registration follows it.
+A provider added by a module (`Desk.weather.addProvider()`, the `fortuneProviders` contribution or
+`Desk.fortune.addProvider()`) brings its own hosts; the consent registration follows it. The core stores
+the agreement per service id only. The Fortune app therefore binds it to the provider: when the user
+agrees, it records `<provider id>@<sorted hosts>` in its storage key `fortune` (`agreed`). At
+`'modules:ready'`, an agreement recorded for another provider or other hosts, or one without a record, is
+withdrawn (`Desk.consent.set('fortune', false)`), so the question comes again. The label and hint of the
+`fortune` row follow `config.fortune.texts.service` / `serviceHint` when the site sets them.
 
 ## 17. CSS conventions and tokens
 
@@ -951,7 +1207,8 @@ hosts; the consent registration follows it.
   `-danger`), `.seg`, `.swatches` (colour via `--c`), `.switch`, `.check`, `.field` + `.field-input`,
   `.sheet` `.sheet-box` `.sheet-btns` (+ `.sheet-global` over the page; built by `Desk.dialog`), `.panel`, `.notice`, `.set-row` `.set-label` `.set-value`
   `.set-intro` `.set-actions` `.set-confirm`, `kbd`. Utilities: `.visually-hidden`, `[hidden]`,
-  `svg.i`, `.sprite`.
+  `svg.i`, `.i-duo` (the secondary layer of a two-tone icon, §13), `.sprite` (its symbols have the DOM ids
+  `i-<icon id>`; no other element id starts with `i-`).
 - **Dark islands**: `data-island="dark"` on an element keeps it dark in the light theme
   (menu bar, desktop icons, terminal, calculator, code blocks, boot screen).
 - **Colours**: never literals in module CSS — use tokens. Surfaces/lines `rgb(var(--ink) / a)`,
@@ -970,7 +1227,7 @@ Tokens (`src/css/tokens.css`):
 | Theme (dark/light) | `--ink --shade --glass --glass-strong --win-bg --win-bar --win-bar-inactive --frame-bg --line --line-strong --overlay --dock-bg --snap-bg --check-a --check-b --warn --done --gutter-bg --gutter-current --calc-fn --calc-num --text --text-2 --text-3 --focus --scroll-thumb --scroll-thumb-hover --cal-weekend --cal-week --reader-text --reader-link --highlight` |
 | Fixed surfaces | `--menubar-bg --calc-bg --calc-op --media-stage --boot-bg --boot-fg --reader-code-bg --scroll-code-thumb --term-user --term-error` |
 | Details | `--switch-knob --swatch-edge --icon-label-outline --match --match-current --mark-on-accent --fortune-mark` |
-| Type | `--font --font-mono --icon-stroke` |
+| Type | `--font --font-mono --icon-stroke --icon-duo-opacity --icon-duo-color` |
 | Layout | `--mb-h --mb-total --bar-h --radius-win --radius-menu`, window controls `--wc-box-w --wc-box-h --wc-dot --wc-glyph-size` (compact: larger `--mb-h --bar-h --tile --radius-win --wc-*`, `--bounce`, `--dock-space` — the height the Dock takes at the bottom, for sheets that must end above it); per window `--title-side` (title fitting) |
 | Stacking | `--z-overview 790 --z-launcher 800 --z-dock 900 --z-menubar 1000 --z-notification 1050 --z-tilemenu 1060 --z-menu 1100 --z-popover 1150 --z-boot 5000` (windows stack inside `#workspace`, an isolated context below all of them) |
 | Motion | `--ease`, `--anim` (= `config.ui.animMs`, set by `theme.js` before the first paint), `--dur: var(--anim)` (window transitions — JS timers and CSS use the same duration) |
@@ -1058,7 +1315,8 @@ wm.canLink(win) → boolean                         // does a link (#app=<id> / 
                                                   //   the kind's canLink(win) says false (or throws); "Copy link" follows it
 wm.locationOf(win) → '/path?query' | null          // same-origin location of the content (kind locationOf), normalised
 wm.serialize(win) → JSON | null                    // the kind's serialize(win), checked to be JSON-safe
-wm.acceptUrl(app, '/path') → '/path' | null        // may this stored/linked path open in this app? (kind acceptUrl)
+wm.acceptUrl(app, '/path', from = 'launch') → '/path' | null   // may this stored/linked path open in this app? (kind
+                                                  //   acceptUrl; from: 'session' | 'launch' | 'link' — an unknown value counts as 'link')
 wm.list() → Win[]                                 // OPEN order (oldest first)
 wm.stack() → Win[]                                // STACKING order, bottom → top (z-index); minimised ones included
 wm.zOf(win) → number                              // a window's stacking position (higher = in front)
@@ -1119,7 +1377,7 @@ def = {
   reopen?(win, opts),                  // open() of an already open window with new opts
   serialize?(win) → JSON,  restore?(win, state),       // state round trip (restore runs right after mount when opts.state is set)
   locationOf?(win) → href | path | null,                 // current same-origin location
-  acceptUrl?(app, path) → path | null,                   // validate a stored/linked path for this app
+  acceptUrl?(app, path, from) → path | null,             // validate a stored/linked path for this app (from: §8)
   reload?(win),  popOut?(win),                           // title-bar / menu actions
   canPopOut?(win) → boolean,                              // per window: false hides "Open in new tab" (device files, §5);
                                                           //   wm.canPopOut(win) asks it, menus and title bars follow
@@ -1136,12 +1394,20 @@ Built-in kinds (`src/wm/wm.js`):
   until `load`; then `shortcuts.watch(frame)` (if a shortcuts service exists), the title follows the page
   (`"Title | Site"` → `"Title"`, the app name on the start page), `win.url` is set. Buttons Reload and
   Open in new tab. Language switch: an app with a `{ lang: url }` map moves to the new language while it
-  still shows its start page. `acceptUrl`: `router.acceptPath()` — paths inside the start page's first
-  folder **below the installation root** (or `app.scope`); never the root or `index.html`. A shield
-  (`.has-frame::after`) lets the first click into an inactive iframe focus the window.
+  still shows its start page. `acceptUrl(app, path, from)`: `'link'` only with `app.linkPaths`; then
+  `router.acceptPath(starts, path, app.scope)` with the start page of every language — inside `app.scope`
+  (root-relative, or root-absolute outside the root) or, by default, the start page's first folder below the
+  root (start page inside it) or its own folder (start page outside it). Never the root, `index.html` or a
+  reserved folder (§15). `reopen(win, { url })` (a deep link or `launch(id, { url })` for an open window)
+  loads an accepted location only while the frame still shows what the desktop loaded or is loading into it
+  (its start page or the last location it was asked for, after redirects; a load the desktop started that has
+  not finished — a window the session just restored — counts as untouched, so a link in the address wins);
+  after the visitor navigated in the frame the window is only shown (unsaved input stays). Restored windows
+  (`opts.restore`) are left alone. A shield (`.has-frame::after`) lets the first click into an inactive
+  iframe focus the window.
 - **`app`** — every hook goes to the module implementation (`impl.mount/focus/relabel/unmount/reopen/menu/
   serialize/restore/locationOf/acceptUrl/reload/popOut/canPopOut/canLink/beforeClose`); `relabel` resets the title first, then
-  calls `impl.relabel`; `acceptUrl(app, path)` → `registry.impl(app)?.acceptUrl?.(app, path) ?? null` (no
+  calls `impl.relabel`; `acceptUrl(app, path, from)` → `registry.impl(app)?.acceptUrl?.(app, path, from) ?? null` (no
   window yet); `popOut` without `impl.popOut` opens `locationOf(win)` in a new tab.
 - **`native`** — panels: `impl.render(win) → Node` is appended on open and rebuilt on a language switch;
   a panel with `mount()` instead behaves like `app`. All other hooks as `app` (`reopen` → e.g. the settings
@@ -1205,7 +1471,7 @@ How P1/P2/P3 attach:
 - **session** (P1, service `session`): listens to `window:open/close/focus/change/minimize`, saves
   `{ id, rect, layout, min, url: locationOf, state: serialize }` **in `wm.stack()` order** (bottom → top; not
   for `app.transient`); restores bottom-up, synchronously on `'desk:ready'` (§3), with
-  `open(app, { url: acceptUrl(app, url), state, restore: true })`, `rect()`, `setLayout(…, { quiet: true })`,
+  `open(app, { url: acceptUrl(app, url, 'session'), state, restore: true })`, `rect()`, `setLayout(…, { quiet: true })`,
   `minimize(win, { animate: false })`, `relayout()`, `show()`/`focusTop()`; `config.session`.
 - **dock** (P2): `tileFor(appId)` (minimise target), running indicators from `window:open/close/minimize`,
   bounce on `window:open` without `restore`, `show()`/`minimize()` on click.
@@ -1316,6 +1582,13 @@ its texts next to its code (`locales: 'locales/'`, files `locales/<lang>/<ns>.js
 folder (`styles`). The shipped example is `site/modules/hello/` (window, texts with placeholder and plural,
 CSS, stored value with validation, backup and reset, a terminal command); the comment at the top of its
 `index.js` explains how to turn a copy into your own app. `npm run i18n:check` checks its `locales/`.
+Data the module reads at run time (JSON, Markdown) goes under `site/data/<id>/` and is fetched with
+`Desk.net.getJson`/`getText`: the service worker treats it as data (always fresh, kept offline, never a
+"new version", §14). Files in the module's own folder are code. Data may be newer than the code reading it
+(one session after a deploy): change its format compatibly — add fields, do not rename or remove them, a
+new file name for an incompatible format. Icon ids belong into the descriptor or `site/apps.js` (code);
+an icon id named in data must already be in the deployed `src/icons/tabler.js` or a site icon set
+(`config.iconSets`).
 
 **A language** — see `locales/README.md` (copy `locales/en`, edit `_meta.js`, translate, add the code
 to `languages`, `npm run i18n:check -- <code>`).
@@ -1329,28 +1602,48 @@ stored choice is kept).
 
 **A collection** — an entry in `collections` of `site/apps.js` (§7); it gets a Catalog window, search
 group, menu entry (`{ collection: id }` in a menu) and routes from `basePath` without code.
+Text manuals for the terminal: `man` on the collection (a template) or on its items (§7).
+A web overview page at the collection's `basePath` that should open in a window of its own is a
+hidden `web` app named in `webApp` (§7); a Reader overview only needs `webUrl: '<basePath>index.html'`.
 
 **An accent or tint** — `theme.accents.<id>: '#rrggbb'` / `theme.tints.<id>: ['#top', '#bottom']` in
 `site/config.js`; label `settings` locale key `accent.<id>` (falls back to the id).
+
+**A site icon set** — a JSON file in `site/icon-sets/` in the format of §13 (made by your own converter
+from the set you hold a licence for; only the icons you use), its path in `iconSets` of `site/config.js`,
+its ids (`'<prefix>-<name>'`) in `site/apps.js` like Tabler ids. `npm run validate` checks ids and file;
+`npm run seal` accepts the set's icons in vault data. Tune the secondary layer with `--icon-duo-opacity` /
+`--icon-duo-color` in `site/theme.css`. `npm run icons` is still needed for the Tabler icons of the
+desktop itself. The public repository ignores `site/icon-sets/*`; in a private site repository remove that
+line if the set should be tracked there.
 
 **An online service** — declare `consent: [{ id, hosts, label, hint }]`, fetch with
 `Desk.net.getJson(url, { service: id })`, add `services.<id>: false` to the config docs, list the host
 for the CSP in §16, the README, `docs/deploy.md` and the server snippets (`docs/server/*`, commented out).
 
+**An online source for the Fortune app** — a site module (`site/modules/<id>/index.js`, listed in
+`modules` or `apps` as `{ id, src }`) with `fortuneProviders: [def]` in its descriptor (P11 has the
+definition). The site sets `fortune.remote: '<provider id>'` and `services.fortune: true`, and adds the
+provider's hosts to its CSP `connect-src` (locally: `node tools/serve.mjs --connect https://<host>`). Run
+`npm run preload` after adding or changing the module (`tools/build-preload.mjs`). `fortune.local: false`
+drops the built-in sayings (online only). A site that renames the app (`{ id: 'fortune', name, icon }` in
+`site/apps.js`) sets `fortune.texts` for the texts that name it; the window's card follows the app's
+logo, mark or icon.
+
 ## 22. Tools and tests
 
 | Command | Does |
 |---|---|
-| `npm run serve` (`node tools/serve.mjs --port 8080 --base / --connect https://… --frame https://… --wasm`) | static server with the production headers; directory → `index.html`; dotfiles, `node_modules`, `tools`, `tests` are 404; `--connect`/`--frame` add https origins to `connect-src`/`frame-src`, `--wasm` adds `'wasm-unsafe-eval'` (Pagefind) — §5 |
-| `npm run icons` / `npm run icons:check` | build / verify `src/icons/tabler.js` (sources + `site/icons.json`) |
-| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed) |
+| `npm run serve` (`node tools/serve.mjs --port 8080 --base / --connect https://… --frame https://… --wasm`) | static server with the production headers; directory → `index.html`; dotfiles, `node_modules`, `tools`, `tests` are 404; `--connect`/`--frame` add https origins to `connect-src`/`frame-src`, `--wasm` adds `'wasm-unsafe-eval'` (Pagefind) — §5; `--extra <url-path>=<file>[,…]` serves single files from outside the project tree (test fixtures, a trial config — never in production) |
+| `npm run icons` / `npm run icons:check` | build / verify `src/icons/tabler.js` (sources + `site/icons.json`; Tabler only — site icon sets are not built here) |
+| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed); the generated script also hints the files of `config.iconSets` (it reads the list from the config at run time, so changing the list needs no rebuild; the path rule is generated from `src/core/icon-sets.js` `SET_PATH`) |
 | `npm run browsers` | downloads the headless Chromium that `playwright-core` drives (`check:browser`, `icons:pwa`) — install scripts are off (`.npmrc`), so this is a separate step |
 | `npm run icons:pwa` (`node tools/build-pwa-icons.mjs`) | renders the PNG app icons (`assets/icons/icon-*.png`, `maskable-*.png`, `apple-touch-icon.png`) from `favicon.svg` / `maskable.svg` in headless Chromium; run after changing either SVG and commit the PNGs |
 | `npm run i18n:check [-- <lang>…]` | compare locales with `en`; warns about plural categories a language lacks |
-| `npm run validate` / `npm run validate:strict` (`node tools/validate-manifest.mjs [--manifest …] [--config …] [--strict] [--quiet] [--json]`) | checks `site/apps.js` against the config before it goes online: ids, kinds and the modules they need, references (aliases, overrides, menus, `site.legal`, `notify.app`, `vault.collection`, …), collections, urls (local files exist), icons, tints, language maps for every configured language, the fortunes and feeds; exit 0 / 1 (errors, or warnings with `--strict`) / 2 (not loadable) |
-| `npm run seal` (`node tools/seal-vault.mjs --in <json> [--out <dir>] [--keep \| --prune]`, `--list`, `--new-salt`) | seals private bookmarks for the vault (P7). **The plain-text JSON must lie outside the project and the web root** (the tool refuses it below `site/`, in the output folder and below the web root that folder belongs to); see `site/vault/README.md` |
-| `npm run check:browser` (`node tools/browser-check.mjs [--path p] [--lang de-DE] [--base /desk/] [--mobile] [--scenario f.mjs] [--site-config c.js [--keep-sw]] [--no-sw] [--screenshot s.png] [--size WxH] [--wait ms] [--serve-args=value]`) | headless Chromium (playwright-core, devDependency) against `tools/serve.mjs` with the production headers: fails on console errors, page errors, CSP violations and failed requests; a scenario module (`export default async ({ page, desk, log, assert }) => …`; `desk(fn, …args)` runs `fn(window.JPKDesk, …args)` in the page) drives the desktop and declares the failures it provokes on purpose with **`export const expect = { http: [RegExp \| { status, url: RegExp }], console: [RegExp] }`** — matching events are listed as expected instead of failing the run. `--site-config` swaps `site/config.js` through `page.route()`, which a service worker bypasses, so it blocks service workers (`--keep-sw` keeps them and warns when one controls the page; `--no-sw` blocks them without a config). Every option also takes `--name=value`; `--serve-args` passes options to `serve.mjs` even when they start with `--` (`--serve-args="--connect https://… --wasm"`). Run checks one at a time on small machines (`flock <lock> node tools/browser-check.mjs …`) |
-| `npm test` | `node --test "tests/*.test.mjs"` (Node ≥ 24, `engines`): i18n (chain, plurals, placeholders, number grouping, keys, L, detection, formatters), store (prefix, failure modes, validators), registry + router (overrides, kind check, tab fallback, acceptPath in a sub-folder), config merge/validation, module loader (hooks, withdrawal after a failed setup), dom guards, version sync (package.json = `VERSION`), token sync, the source hygiene test (`tests/hygiene.test.mjs`: no bidirectional-control or zero-width characters in `src/`, `locales/`, `tests/`, `site/`, `tools/`, `index.html`, `sw.js` — write them as `\u` escapes), and one test file per package (`tests/p<NN>-*.test.mjs`: pure functions, the service worker in `node:vm`, the server snippets against §5) |
+| `npm run validate` / `npm run validate:strict` (`node tools/validate-manifest.mjs [--manifest …] [--config …] [--strict] [--quiet] [--json]`) | checks `site/apps.js` against the config before it goes online: ids, kinds and the modules they need, references (aliases, overrides, menus, `site.legal`, `notify.app`, `vault.collection`, …), collections, urls (local files exist), icons (Tabler subset, custom glyphs, the site icon sets of `config.iconSets` — the set files themselves are checked too: format, ids, reserved prefixes, definitions against the allowlist, size, location), tints, language maps for every configured language, the fortunes and feeds; exit 0 / 1 (errors, or warnings with `--strict`) / 2 (not loadable) |
+| `npm run seal` (`node tools/seal-vault.mjs --in <json> [--out <dir>] [--keep \| --prune]`, `--list`, `--new-salt`) | seals private bookmarks for the vault (P7). **The plain-text JSON must lie outside the project and the web root** (the tool refuses it below `site/`, in the output folder and below the web root that folder belongs to); see `site/vault/README.md`. Vault icons may come from a site icon set (`config.iconSets`, read below the web root of the output folder — the project by default). |
+| `npm run check:browser` (`node tools/browser-check.mjs [--path p] [--lang de-DE] [--base /desk/] [--mobile] [--scenario f.mjs] [--site-config c.js [--keep-sw]] [--route path=file …] [--no-sw] [--screenshot s.png] [--size WxH] [--wait ms] [--serve-args=value]`) | headless Chromium (playwright-core, devDependency) against `tools/serve.mjs` with the production headers: fails on console errors, page errors, CSP violations and failed requests; a scenario module (`export default async ({ page, desk, log, assert }) => …`; `desk(fn, …args)` runs `fn(window.JPKDesk, …args)` in the page) drives the desktop and declares the failures it provokes on purpose with **`export const expect = { http: [RegExp \| { status, url: RegExp }], console: [RegExp] }`** — matching events are listed as expected instead of failing the run. `--site-config` swaps `site/config.js` through `page.route()`, which a service worker bypasses, so it blocks service workers (`--keep-sw` keeps them and warns when one controls the page; `--no-sw` blocks them without a config). Every option also takes `--name=value`; `--serve-args` passes options to `serve.mjs` even when they start with `--` (`--serve-args="--connect https://… --wasm"`). `--route path=file` (repeatable) serves a local file at `<base><path>` through `page.route()` before the first navigation — e.g. a site module that is not in the tree; like `--site-config` it blocks service workers unless `--keep-sw`. Run checks one at a time on small machines (`flock <lock> node tools/browser-check.mjs …`) |
+| `npm test` | `node --test "tests/*.test.mjs"` (Node ≥ 24, `engines`): i18n (chain, plurals, placeholders, number grouping, keys, L, detection, formatters), store (prefix, failure modes, validators), registry + router (overrides, kind check, tab fallback, acceptPath (sub-folder install, start pages outside the root, absolute scopes, reserved folders, case variants, dot/encoded segments)), config merge/validation, module loader (hooks, withdrawal after a failed setup), dom guards, version sync (package.json = `VERSION`), token sync, the source hygiene test (`tests/hygiene.test.mjs`: no bidirectional-control or zero-width characters in `src/`, `locales/`, `tests/`, `site/`, `tools/`, `index.html`, `sw.js` — write them as `\u` escapes), and one test file per package (`tests/p<NN>-*.test.mjs`: pure functions, the service worker in `node:vm`, the server snippets against §5) |
 
 Tests import the pure factories (`createI18n`, `createStore`, `createRegistry`, `createRouter`,
 `buildConfig`, `orderByRequires`); every core module is importable in Node (browser access guarded).
@@ -1413,3 +1706,16 @@ The version lives in `package.json` and `src/core/env.js` (`VERSION`); `tests/ve
   `canLink(win)` / `wm.canLink(win)` (no "Copy link" that would only reopen an empty viewer or player).
 - **`DEFAULTS` holds every key a shipped part reads** (§6) — the planned "modules add nothing to
   `DEFAULTS`" rule gave way to one complete shape; modules still clean their own section.
+- **Site icon sets are JSON data, not modules** (§13). Considered and rejected: an ES-module set
+  (`export default { … }`, imported in boot step 3 like `site/apps.js`), which would reuse modulepreload and
+  the existing code path. Against it: a set is a distributable artifact made from third-party files, and
+  sites may take one from elsewhere — as JSON it can never run code, whereas `site/config.js` and
+  `site/apps.js` are the operator's own code; the 2 MiB / 5000-icon limits are enforced *before* parsing
+  (`request(…, { maxBytes })`), which `import()` cannot do; a module stays in the page's module map for good;
+  the tools read JSON without executing it; `JSON.parse` is faster than a script literal of the same size
+  (about 1.6 ms against 2.9 ms for 200 KB in Node). The price is one new hint type,
+  `<link rel=preload as=fetch crossorigin>`, whose reuse is checked in the browser scenario (one request).
+- **Two-tone icons use a class and tokens**, not baked-in `opacity` attributes: the secondary layer of
+  every copy follows `--icon-duo-opacity` / `--icon-duo-color` (themes, parts).
+- **Sprite symbols have the DOM id `i-<icon id>`**, not the icon id: icon ids are a namespace of their own
+  and can never shadow or be shadowed by an element id of the shell, a dialog, the Reader or a module.

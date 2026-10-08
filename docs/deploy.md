@@ -76,6 +76,12 @@ Do **not** upload `node_modules/`, `tools/`, `tests/`, `docs/`, `.git/`, `packag
 for you (only dotfiles are refused everywhere). `site/vault/` holds sealed bookmark files only when you
 use the vault module (they are created with `tools/seal-vault.mjs`; never upload its source JSON).
 
+A site icon set (`site/icon-sets/`, §13 of the architecture) is uploaded like the rest of `site/`. Its
+licence is yours to check: the project ships no third-party icon data, and a commercially licensed set must
+never end up in a public repository or fork. The public `.gitignore` ignores `site/icon-sets/*` for that
+reason; in your **private** site repository delete that line (or add `!site/icon-sets/<name>.json`) if the
+set is to be tracked there.
+
 ## 3. At the web root or in a sub-folder
 
 Both work without changes to the files: every path inside the desktop is relative to the folder that
@@ -107,7 +113,8 @@ or the app gets `sandbox: 'allow-scripts'` in `site/apps.js` (per app, or for ev
 the framed page lift its own sandbox. The sandbox route has a cost: the framed page gets an opaque
 origin, so its own storage does not persist, the desktop can no longer read its address and title (the
 address bar and window title keep the app's defaults), and the desktop's keyboard shortcuts do not reach
-into it.
+into it. Web apps of this site with untrusted content: set `sandbox` (without `allow-same-origin`) and
+leave `linkPaths` off (`docs/ARCHITECTURE.md` §5).
 
 ## 4. HTTPS
 
@@ -171,6 +178,7 @@ replace the active one.
 | `dig`, `host`, `nslookup` in the terminal | `services.dns: true`, `terminal.doh: { url: 'https://dns.google/resolve', name: 'dns.google' }` | `connect-src https://dns.google` (the host of `terminal.doh.url`) |
 | Fortune app, remote `jokeapi` | `services.fortune: true`, `fortune.remote: 'jokeapi'` | `connect-src https://v2.jokeapi.dev` |
 | Fortune app, remote `uselessfacts` | `services.fortune: true`, `fortune.remote: 'uselessfacts'` | `connect-src https://uselessfacts.jsph.pl` |
+| Fortune app, an online source from your own module | `services.fortune: true`, `fortune.remote: '<id>'` | `connect-src https://<its hosts>` |
 | Full-text search with Pagefind | `search.pagefind: { path: … }` | `script-src 'wasm-unsafe-eval'` (WebAssembly; nothing else needs it) |
 | `web` apps from another origin | an app with `kind: 'web'` and a foreign `url` | `frame-src https://apps.example.org` |
 
@@ -208,9 +216,11 @@ everything except images, fonts and media: browsers keep their copies but revali
 (`ETag` / `Last-Modified` → `304 Not Modified`, a few hundred bytes). Without a service worker an update is
 therefore visible on the next reload. With it (fast start, the default) visitors start from their offline
 copy; the worker notices the update in the background and offers a reload — see
-[the service worker](#11-pwa-icons-and-the-service-worker) below. Images, fonts and media get
+[the service worker](#11-offline-use-and-installation-pwa) below. Images, fonts and media get
 `public, max-age=86400` (one day) — after replacing a wallpaper or icon under the same name, visitors may
-see the old one for up to a day.
+see the old one for up to a day. Feeds, fortunes and everything under `site/data/` and `site/content/` are
+data: the worker always asks your server first, so a changed feed shows at once and never counts as a new
+version.
 
 Do not put long `Expires`/`max-age` values on `.js`, `.css`, `.json`, `.html`, `manifest.webmanifest` or
 `sw.js`: the ES modules import each other by name, so a stale copy of one file next to fresh copies of
@@ -225,7 +235,18 @@ the others can break the desktop. The Apache snippet removes an `Expires` header
   `Options -Indexes`; Ferron: `directory_listing` off).
 - **`site/vault/`**: always revalidated (a re-sealed file must not come from a cache) and
   `X-Robots-Tag: noindex, nofollow, noarchive`. The service worker never caches these files.
-- **`site/data/`**: feeds and fortunes, served like the rest (no listing, revalidated).
+- **`site/data/`**: feeds, fortunes and the data your own modules fetch at run time — served like the
+  rest (no listing, revalidated). The service worker fetches these files network first (offline: the last
+  copy) and a change never offers visitors a new version; the same holds for `site/content/` and for feeds
+  outside the desktop's folder (`notify.feeds: { de: '/news/feed.json' }`). A visitor may run the previous
+  code against your new data for one session: change a data format compatibly (add fields; a new file
+  name for an incompatible format), and deploy code that knows a new icon before data that names it.
+  Keep code (scripts your modules import) and theme images out of `site/data/` and `site/content/` (for
+  theme images e.g. `site/theme/`); a site module's own folder may lie there and stays code.
+- **Pagefind**: keep the bundle outside `site/` (e.g. `pagefind/` at the root — the worker leaves it
+  alone). It is code (the search imports `pagefind.js`), so it does not belong under `site/data/` or
+  `site/content/` either; anywhere in `site/` every rebuild of the index counts as a new version of the
+  desktop.
 - **Dotfiles** (`.git`, `.env`, `.htaccess`, …) are answered with 404 everywhere. Apache, nginx, Caddy
   and Ferron keep `/.well-known/` reachable (certificate challenges and similar); static-web-server has
   no such exception — `ignore-hidden-files` refuses `/.well-known/` as well (see its section in [§10](#10-server-configurations)).
@@ -419,18 +440,21 @@ Some mobile browsers take the home-screen icon not from the manifest but from
 
 **The service worker** (`sw.js`, a classic script at the installation root):
 
-- *Fast start* (`offline.fastStart`, default `true`). The desktop's own files are answered from the offline
-  copy, so a repeat visit starts without waiting for the network. A few seconds after each start (at most
-  once a minute) the worker compares every copy with your server — conditional requests, mostly
-  `304 Not Modified`. When something changed it fetches a complete new copy in the background and the
-  open desktop offers "reload"; the next start uses the new copy as a whole, never a mix of old and new
-  files. A visitor therefore sees an update one reload later than without a worker.
-- *Network first* (`offline.fastStart: false`, and always for Reader pages). Online you get the deployed
-  files; offline — or when the network takes longer than `offline.timeoutMs` (default 4000 ms) while a copy
-  exists — the last good copy answers. A late network answer still refreshes the copy.
+- *Fast start* (`offline.fastStart`, default `true`). The desktop's code is answered from the offline
+  copy, so a repeat visit starts without waiting for the network. Data files — the feeds, the fortune
+  files, `site/data/` and `site/content/` — are not part of this copy's version: they always come from your
+  server first (the copy only offline), so a new feed item shows at once and never triggers "reload". A
+  few seconds after each start (at most once a minute) the worker compares every copy of the desktop's code
+  with your server — conditional requests, mostly `304 Not Modified`. When something changed it fetches a
+  complete new copy in the background and the open desktop offers "reload"; the next start uses the new
+  copy as a whole, never a mix of old and new code (data is always current). A visitor therefore sees an update one reload later than without a worker.
+- *Network first* (`offline.fastStart: false`, and always for data files and Reader pages). Online you get
+  the deployed files; offline — or when the network takes longer than `offline.timeoutMs` (default 4000 ms)
+  while a copy exists — the last good copy answers. A late network answer still refreshes the copy.
 - *What it keeps:* the desktop itself (one copy of `index.html` whatever the query string, the manifest,
   `assets/icons/`, `src/`, `locales/`, `site/` without the vault folder) and up to `offline.maxPages`
-  (default 80) pages the Reader opened; the oldest go first.
+  (default 80) pages the Reader opened; the oldest go first; data files (see *Fast start*) are kept the
+  same way but always refreshed first.
 - *What it never touches:* requests to other origins (online services), anything but `GET`, range
   requests (media seeking), answers sent with `Cache-Control: no-store` or `private` (mark personal or
   logged-in pages of your site that way — at a root install the worker sees every page), vault files, and navigations other than the desktop's own index — pages of
@@ -449,9 +473,39 @@ Some mobile browsers take the home-screen icon not from the manifest but from
 - *Switching it off:* set `pwa: { enabled: false }`. The desktop stops registering the worker, and a
   worker that visitors still have from before deletes its caches and unregisters itself on their next
   visit. Visitors can also remove the offline copies themselves: Settings → Reset → "Offline copies".
+  This works only while `sw.js` stays uploaded: the browser finds the change by downloading it again.
+- *Replacing another service worker:* when your site had a service worker before this desktop, the
+  browser replaces it only in one of two ways. **(a)** This desktop registers `sw.js` for the **same
+  scope** (only while `pwa.enabled` is `true`; the old worker's script URL may differ). **(b)** When the
+  **old worker's script URL lies in the installation folder** (next to `index.html`, for example
+  `/sw.js` for a desktop in the web root), `sw.js` is served there; this also works with
+  `pwa.enabled: false`, and the new worker installs, cleans up and unregisters itself. `sw.js` finds the
+  installation and `site/config.js` next to its own URL: a copy in another folder (`/js/worker.js`, or
+  `/sw.js` for a desktop in `/desk/`) cannot read your config, runs on the defaults and deletes none of
+  the listed caches. For an old URL outside the folder, serve a small worker there that unregisters
+  itself, and rely on (a) for the cleanup. With `pwa.enabled: false` keep `sw.js` uploaded until your
+  visitors have come back once, or serve a self-unregistering worker at the old URL. A worker with
+  **another scope** is never replaced: ship a worker at its old URL that unregisters itself. Same URL and
+  scope is best, because installed home-screen apps then keep working.
+  The old worker's caches are not this desktop's, so they are left alone unless you name them:
+  `offline: { legacyCaches: ['oldsite-shell-*', 'oldsite-pages'] }` (exact names, or a prefix ending in
+  `*`). They are deleted when the new worker takes over, again about 30 s later (the old worker may still
+  finish requests and write to them), at every start of the desktop, and by Settings → Reset → "Offline
+  copies". As long as an old worker at another script URL still controls the page, the desktop does
+  not delete them, because that worker would only write them again. List only names your old code
+  created: a prefix matches every cache of the origin that starts with it, other apps' caches included.
+  Caches of this desktop (any folder, any namespace) are never touched this way. The old worker may
+  hold copies of files this desktop never caches, such as the sealed vault file; listing its caches
+  removes those as well.
+  Adding or removing the key is an edit of `site/config.js` like any other: every visitor's browser
+  installs the new worker, which checks every file once (mostly `304 Not Modified`), and the open
+  desktop may offer a reload. The offline copy itself is kept. While the list is not empty, each start
+  costs one look at the cache list; drop the entries once visitors of the old version no longer come
+  back.
 
-`offline: { maxPages, timeoutMs }` in `site/config.js` tunes the page cache (0 switches it off) and the
-network timeout (500–60000 ms).
+`offline: { maxPages, timeoutMs, fastStart, legacyCaches }` in `site/config.js` tunes the page cache (0
+switches it off), the network timeout (500–60000 ms), the start strategy and the caches of an earlier
+service worker to remove.
 
 ## 12. Checking a deployment
 
@@ -495,3 +549,5 @@ icons; *Application → Service workers* the worker and its scope; *Application 
 | An update does not show up | a long `Cache-Control`/`Expires` on `.js`/`.css` somewhere in front of the desktop (host defaults, a CDN): send `no-cache` ([§8](#8-caching)) |
 | Apache answers 500 | `AllowOverride` does not allow the directives of the `.htaccess`, or `mod_headers` / `mod_alias` is not loaded ([§10](#apache-apachehtaccess)) |
 | nginx: headers missing on some files | an `add_header` inside a `location` hides the server-level ones ([§10](#nginx-nginxconf)) |
+| "A new version is ready" after changing a data file | the file is outside the data folders: keep run-time data under `site/data/` (or `site/content/`); a file inside a module's folder, `site/apps.js`, `site/theme.css` or a wallpaper is code and is announced as a new version on purpose |
+| "A new version is ready" after every rebuild of the search index | the Pagefind bundle lies in `site/`: move it outside `site/` (e.g. `pagefind/`) |

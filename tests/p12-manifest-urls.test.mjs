@@ -7,7 +7,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateManifest } from '../tools/validate-manifest.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const ctx = file => ({
 	languages: ['en'],
@@ -54,4 +61,49 @@ test('validator: the file check uses the normalised path', () => {
 	assert.deepEqual(seen, ['site/x.html']);
 	const missing = run('site/nope.html', 'web', () => false);
 	assert.ok(missing.errors.some(e => /no such file/.test(e.msg)));
+});
+
+/* ---------- scope and linkPaths (web windows) ---------- */
+
+const SCOPE_MANIFEST = {
+	apps: [
+		{ id: 'ok', kind: 'web', name: 'OK', url: '/wiki/start/', scope: '/wiki/', linkPaths: true },
+		{ id: 'up', kind: 'web', name: 'Up', url: '/wiki/start/', scope: '../x/' },
+		{ id: 'all', kind: 'web', name: 'All', url: '/wiki/start/', scope: '/' },
+		{ id: 'pg', kind: 'page', name: 'Page', url: '/docs/a.html', scope: 'docs/' },
+		{ id: 'pl', kind: 'page', name: 'Page links', url: '/docs/b.html', linkPaths: true },
+		{ id: 'out', kind: 'web', name: 'Outside', url: '/forum/x/', scope: '/wiki/' },
+		{ id: 'notes', scope: '/a/../b/' }
+	],
+	collections: [{ id: 'wk', name: 'Wiki', itemKind: 'auto', app: null, items: [{ slug: 'x', name: 'X', url: '/wiki/x/', scope: '/wiki/' }] }]
+};
+const scopeProblems = list => list.filter(p => /scope|linkPaths/.test(p.msg)).map(p => `${p.where}: ${p.msg}`);
+const EXPECTED = {
+	errors: [/^apps\[1\] 'up': scope "\.\.\/x\/" must be a folder path/, /^apps\[2\] 'all': scope '\/' covers the whole site/, /^apps\[6\] 'notes': scope "\/a\/\.\.\/b\/" must be a folder path/],
+	warnings: [/^apps\[3\] 'pg': scope is only used by kind 'web'/, /^apps\[4\] 'pl': linkPaths is only used by kind 'web'/, /^apps\[5\] 'out': the start page '\/forum\/x\/' lies outside scope '\/wiki\/'/]
+};
+const matchAll = (got, want, what) => {
+	assert.equal(got.length, want.length, `${what}: ${JSON.stringify(got, null, 1)}`);
+	want.forEach((re, i) => assert.match(got[i], re, what));
+};
+
+test('validator: scope and linkPaths', () => {
+	const r = validateManifest(SCOPE_MANIFEST, { languages: ['en'], modules: new Set(['wm', 'reader', 'catalog']), icon: () => 'ok', moduleApps: new Map([['notes', 'notes']]) });
+	matchAll(scopeProblems(r.errors), EXPECTED.errors, 'errors');
+	matchAll(scopeProblems(r.warnings), EXPECTED.warnings, 'warnings');
+});
+
+test('validator CLI: --json lists the scope and linkPaths problems', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'p12-scope-'));
+	try {
+		const file = join(dir, 'apps.mjs');
+		writeFileSync(file, `export default ${JSON.stringify(SCOPE_MANIFEST)};\n`);
+		const run = spawnSync(process.execPath, [join(ROOT, 'tools/validate-manifest.mjs'), '--json', '--manifest', file], { cwd: ROOT, encoding: 'utf8' });
+		const out = JSON.parse(run.stdout);
+		matchAll(scopeProblems(out.errors), EXPECTED.errors, 'errors');
+		matchAll(scopeProblems(out.warnings), EXPECTED.warnings, 'warnings');
+		assert.equal(run.status, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

@@ -42,6 +42,8 @@ export default {
 
 	whichManual: 'What manual page do you want? For example: man ls',
 	noManual: 'No manual entry for {name}',
+	noManualPage: '{name} has no manual page.',
+	manOpen: 'Open it:',
 	manHead: '{name} Manual',
 	manShell: 'jsh Manual',
 	manName: 'NAME',

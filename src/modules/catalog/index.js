@@ -16,10 +16,12 @@
    actions: "Documentation" (item.docs), "Guide" (item.guide), "Download"
    (image items, item.download) and "Open in new tab" (link items). The
    toolbar offers "Overview on the web" when the collection (or its Catalog
-   app) has a webUrl. Optional allLabel / webLabel (text, '@ns.key' or
-   { lang: text }) on the collection or its Catalog app name the "All" entry
-   and that button per collection ("All tools", "Arcade hall"). The context
-   menu of an item (contribution 'contextMenu') is the shell's app menu (open,
+   app) names an available webApp (launched) or has a webUrl (opened; one
+   that routes back to this Catalog opens in a new tab). Optional allLabel /
+   webLabel (text, '@ns.key' or { lang: text }) on the collection or its
+   Catalog app name the "All" entry and that button per collection ("All
+   tools", "Arcade hall"). The context menu of an item (contribution
+   'contextMenu') is the shell's app menu (open,
    open in new tab, copy link, Dock) plus these actions; the app menu lists
    them after "Open" ("Open in new tab" for links).
 

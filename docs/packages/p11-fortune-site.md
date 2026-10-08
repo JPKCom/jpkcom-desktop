@@ -18,7 +18,7 @@ and **`tools/validate-manifest.mjs`**, a zero-dependency check of `site/apps.js`
 ## Fortune (`fortune`, EN "Fortune", DE "Glückskeks")
 
 App `fortune` (`ti-cookie`, tint orange, 540 × 460), i18n namespace `fortune`, CSS `fortune.css`
-(`@layer apps` + `@layer compact`).
+(`@layer apps` + `@layer compact`). The card's glyph is the app's (`Desk.icons.appGlyph(win.app, { fallback: 'ti-cookie' })`: logo, mark or icon after site overrides).
 
 ### Sources
 
@@ -27,10 +27,12 @@ App `fortune` (`ti-cookie`, tint orange, 540 × 460), i18n namespace `fortune`, 
   file. Only codes listed in `config.fortune.langs` (default `['de', 'en']`, the shipped files; `null` = try
   every code) are requested, so a language added without a file falls back without an HTTP 404 and its
   console error (`model.js` `cleanLangs()`, `fetchCodes()`). Fetched once per language through `Desk.net.getJson` (8 s timeout) and cached; a failed load is
-  retried on the next draw.
-- **An online source** (optional): only when the site names one (`config.fortune.remote`), offers the
-  service (`config.services.fortune: true`) and the user agrees (consent `fortune`, key
-  `consent-fortune`). Then a **Source** select (built-in / provider) appears; without a stored choice the
+  retried on the next draw. With `config.fortune.local: false` there are no built-in sayings: nothing is
+  fetched from `dir`, the service worker precaches nothing for it, the source select and the terminal
+  command `fortune` are gone (see "Online only").
+- **An online source** (optional): only when the site names one (`config.fortune.remote`: built in, or
+  added by a module — see "Providers from modules"), offers the service (`config.services.fortune: true`)
+  and the user agrees (consent `fortune`, key `consent-fortune`, bound to the provider — see "Consent"). Then a **Source** select (built-in / provider) appears; without a stored choice the
   online source comes first (as in the original, which had nothing else). Before anything is fetched the
   window shows the question (title, who receives what, where to take it back, a language note when the
   texts come in another language, "Agree and load", "No, use the built-in sayings", "Open settings").
@@ -49,6 +51,112 @@ Built-in providers (`providers.js`) — **the host must be added to the CSP `con
 
 The language asked for is the first of the fallback chain the provider serves (`pickLang`), else its
 first language; the quote carries the answer's `lang`.
+
+### Providers from modules
+
+A module adds an online source declaratively:
+
+    export default {
+      id: 'my-source', kind: 'module',
+      fortuneProviders: [{
+        id: 'example', name: 'Example facts', hosts: ['api.example.org'], home: 'https://example.org/',
+        langs: ['en'], categories: [{ id: 'science', label: { en: 'Science', de: 'Wissenschaft' } }],
+        url: ({ cat }) => `https://api.example.org/random${cat ? `?category=${encodeURIComponent(cat)}` : ''}`,
+        parse: (j, { plain }) => {
+          if (typeof j?.text !== 'string') throw new Error('example: no text');
+          return { text: plain(j.text), lang: 'en' };
+        }
+      }]
+    };
+
+- `parse()` returns `null` only for a text that must not be shown (blocked: the app asks again, up to 5
+  times per click); on an unusable answer it throws (one request, the window shows an error), and with
+  an error with `code: 'empty'` when nothing was found for the request (an empty category).
+- `hosts`: 1 to 8 host names (duplicates count once). They make up the consent and the agreement
+  (`<id>@<sorted hosts>`, see "Consent"); a provider with more is rejected with a warning.
+- Write the definition as a **plain object literal**. The loader copies the item's own enumerable
+  properties, so `url`/`parse` on a class prototype are lost (the provider is then rejected with
+  "needs url() and parse()"). In the keyed form `{ example: { … } }` the key is the id unless the item
+  has its own `id`, which wins.
+- The app adopts `Desk.modules.contributions('fortuneProviders')` in its `setup()` (modules set up before
+  it) and on `'module:loaded'` (modules after it). No `requires: ['fortune']`: without the app the module
+  loads and its contribution is unused. A module whose `setup()` throws contributes nothing.
+- Imperative alternative: `Desk.fortune.addProvider(def, { module: '<own id>' })` in `setup()`; then the
+  module needs `requires: ['fortune']`. With `module` the provider goes again on that module's
+  `'module:failed'` (as with `Desk.wallpaper.register(motif, { module })`); pass your own id.
+  Providers cannot be removed otherwise.
+- Duplicate ids: the first one stays, the next is reported (`provider '<id>' exists already — kept the
+  first`) and skipped. The same contribution seen twice is adopted once, silently.
+- `config.fortune.remote` naming an id nobody provides is reported **once, at `'modules:ready'`**
+  (`[fortune] unknown online source '<id>' …`), never at setup. Add providers during `setup()`; one added
+  later is not used for the consent and the check.
+- After adding or changing a site module run `npm run preload`; for local tests start the server with
+  `node tools/serve.mjs --connect https://<provider host>`.
+- The lifecycle is the pure factory `createSources()` in `providers.js` (built-ins, adoption, a failed
+  module's providers, the consent registration of the configured provider, the deferred check);
+  `index.js` only wires the bus events to it.
+
+### Consent
+
+- The service `fortune` is registered when the provider `config.fortune.remote` names is adopted
+  (built in: at `setup()`), with its hosts and with `texts.service` / `texts.serviceHint` (else
+  `@fortune.service` / `@fortune.serviceHint`) as label and hint; it is withdrawn when the providing
+  module fails.
+- The agreement is bound to the provider: on `'consent:change'` to granted (the question in the window
+  or Settings → Online services) the app stores `agreed: '<id>@<sorted hosts>'` in its key `fortune`.
+  At `'modules:ready'` a granted consent whose `agreed` differs from the configured provider (another
+  id, other hosts, or no record — e.g. an agreement from before this version) is withdrawn, so the
+  question comes again. Without a configured provider nothing is checked (nothing can be requested).
+
+### Online only (`config.fortune.local: false`)
+
+- Needs `remote` (else a config warning and `local: true`).
+- No source select, no "Built-in sayings"; the stored `source` is ignored and not written.
+- The question's "no" button is `fortune.denyOnline` ("No, thanks"): it closes the window; the question
+  comes again the next time the app opens.
+- No usable online source (the provider is unknown, or `services.fortune` is not `true`): the window shows
+  the empty card with `fortune.noSource`; Next is `aria-disabled`; Previous, Copy and Learn more are
+  disabled. Reported once at `'modules:ready'`.
+- Offline: the existing `fortune.offline` status, Next says "Try again".
+- `Desk.fortune.random()` returns `null` without a request; the terminal command `fortune` is hidden
+  (`when()`), so `help` does not list it.
+
+### App texts and glyph of a renamed app
+
+- A site override `{ id: 'fortune', name: { de: '…', en: '…' }, icon: 'ti-…' }` (or `mark`, `logo`) in
+  `site/apps.js` changes the dock, the title, the question tile **and** the card (same precedence as
+  `Desk.tile()`: logo, mark, icon; `ti-cookie` when the icon is not built). Colour: `--fortune-mark`.
+- `config.fortune.texts` replaces the texts that name the app (keys in `model.js` `TEXT_KEYS`: next,
+  prev, copy, copied, loading, empty, localError, noSource, sourceLocal, askTitle, allow, deny,
+  denyOnline, service, serviceHint, cmd, cmdMan), for every source. Give a `{ lang: text }` map for
+  every configured language (`npm run validate` checks it; `i18n:check` cannot see config texts). Not
+  replaceable: texts with placeholders, and the storage label "Fortune source" in Backup/Reset.
+
+| Key | Shipped en | Used |
+|---|---|---|
+| `next` | Next fortune | Next button, app menu |
+| `prev` | Previous fortune | Previous title-bar button, app menu |
+| `copy` | Copy fortune | Copy title-bar button (also after the copy feedback), app menu |
+| `copied` | Copied | copy feedback (button title) |
+| `loading` | Cracking the cookie … | status while fetching |
+| `empty` | Nothing in this category yet. | status for "nothing found" |
+| `localError` | The sayings could not be loaded. | status when the built-in sayings fail; terminal error |
+| `noSource` | No source is available for this app right now. | status in online-only mode without a usable source |
+| `sourceLocal` | Built-in sayings | source select option |
+| `askTitle` | Before anything is fetched | question title |
+| `allow` | Agree and load | question, agree button |
+| `deny` | No, use the built-in sayings | question, "no" button with `local: true` (switches to the built-in sayings) |
+| `denyOnline` | No, thanks | question, "no" button with `local: false` (closes the window) |
+| `service` | Fortune: jokes and facts from the web | consent label (Settings → Online services) |
+| `serviceHint` | The app asks by itself before the first request | consent hint |
+| `cmd` | a saying from the fortune cookie | terminal `help` line |
+| `cmdMan` | Prints one of the built-in sayings … | terminal `man fortune` |
+
+Values are manifest texts (ARCHITECTURE §12): `'@ns.key'` (a namespace some loaded module brings, e.g. a
+site module's `locales/`), `{ lang: text }` or a plain string, resolved with `Desk.L()` at the moment of
+use (so a language switch applies). A key with placeholders (`error`, `askText`, `askLang`, `keys`, `by`)
+cannot be replaced. The keys that have an action (`deny`, `denyOnline`) keep it: the text never changes
+what the button does.
 
 ### Data format (`site/data/fortunes/<lang>.json`)
 
@@ -99,19 +207,22 @@ first language; the quote carries the answer's `lang`.
 | Item | Value |
 |---|---|
 | Descriptor | `kind: 'app'`, `i18n: ['fortune']`, `windowStyles: ['fortune.css']`, `app.load: () => import('./window.js')` — the window hooks `mount focus relabel menu unmount` (and the online requests) come with the first window (ARCHITECTURE §8 `load`); `win.state.fortune` is the open window's handle |
-| Service `fortune` | `random({ cat }) → Promise<{ text, lang, cat, by, url } \| null>` (a built-in saying), `addProvider(def) → boolean` (a site module adds an online source; definition in `providers.js`: `id`, `name`, `hosts`, `langs`, `categories` with optional per-category `langs`, `emptyStatus` — HTTP statuses that mean "nothing found", `url()`, `parse()`, which may throw an error with `code: 'empty'`), `providers() → ids`, `source() → 'local' \| 'remote'` |
-| Terminal | contribution `terminal: { fortune }` — `fortune` prints a built-in saying (`service.random()`) and, when it has one, its signature (`@fortune.by`, dimmed); never the online source (the terminal asks no consent). Strings `fortune.cmd` (help line), `fortune.cmdMan` (`man fortune`), error `fortune.localError`. The command exists only while the module is loaded |
-| Consent | `{ id: 'fortune', hosts: <provider hosts>, label: '@fortune.service', hint: '@fortune.serviceHint' }` — registered in `setup()` (module `fortune`) only when `config.fortune.remote` names a known provider (or later through `addProvider`) |
-| Storage | `fortune` (json, backup, reset group `settings`): `{ source: 'local' \| 'remote' }`, validated by `cleanState` |
-| Config | `configKey: 'fortune'`, `validateConfig` → `{ remote: id \| null, dir, langs: [codes] \| null, block: [ids] }` — `langs`: the languages with a `<dir><lang>.json` (only these are fetched); — `block` is new: category ids left out locally **and** remotely (the original's `BLOCKED` list) |
-| Events consumed | `consent:change`, `store:change` (`fortune`, external), `storage:restore` |
+| Service `fortune` | `random({ cat }) → Promise<{ text, lang, cat, by, url } \| null>` (a built-in saying; `null` with `local: false`), `addProvider(def, { module }?) → boolean` (a module adds an online source; definition in `providers.js`: `id`, `name`, `hosts` (1 to 8), `home`, `langs`, `categories` with optional per-category `langs`, `emptyStatus`, `url()`, `parse()`, which may throw an error with `code: 'empty'`; `module`: own id, dropped on its `'module:failed'`), `providers() → ids`, `source() → 'local' \| 'remote' \| null` |
+| Contribution point | `fortuneProviders: [def] \| { id: def }` — adopted in `setup()` and on `'module:loaded'` (ARCHITECTURE §8) |
+| Terminal | contribution `terminal: { fortune }` — `fortune` prints a built-in saying (`service.random()`) and, when it has one, its signature (`@fortune.by`, dimmed); never the online source (the terminal asks no consent); hidden (`when()`) with `fortune.local: false`. Help and man page are app texts (`cmd`, `cmdMan`), error `localError`. The command exists only while the module is loaded |
+| Consent | `{ id: 'fortune', hosts: <provider hosts>, label: texts.service \| '@fortune.service', hint: texts.serviceHint \| '@fortune.serviceHint' }` — registered when the provider `config.fortune.remote` names is adopted (built in at `setup()`, a module's `fortuneProviders` or `addProvider`), unregistered when its module fails; agreement bound to `<id>@<hosts>` (storage `agreed`), withdrawn at `'modules:ready'` on mismatch |
+| Storage | `fortune` (json, backup, reset group `settings`): `{ source?: 'local' \| 'remote', agreed?: '<id>@<hosts>' }`, validated by `cleanState` |
+| Config | `configKey: 'fortune'`, `validateConfig` → `{ remote: id \| null, local: boolean, dir, langs: [codes] \| null, block: [ids], texts: { key: text } }` — `local: false`: online only (needs `remote`); `langs`: the languages with a `<dir><lang>.json` (only these are fetched); `block`: category ids left out locally **and** remotely (the original's `BLOCKED` list); `texts`: keys of `TEXT_KEYS` |
+| Events consumed | `consent:change`, `store:change` (`fortune`, external), `storage:restore`, `module:loaded`, `module:failed`, `modules:ready` |
 | CSS | `.fortune`, `.fortune-ask`, `.fortune-tile`, `.fortune-btns`, `.fortune-textbtn`, `.fortune-main`, `.fortune-top`, `.fortune-field`, `.fortune-label`, `.fortune-select`, `.fortune-card`, `.fortune-mark` (`--fortune-mark`), `.fortune-quote`, `.fortune-by`, `.fortune-foot`, `.fortune-status`, `.fortune-next`, `.fortune-keys`, `.fortune-prev` |
 
 ### Deviations from the original and why
 
 - **Local data first** instead of a single third-party joke API only: no third-party name, no external request by
   default, content per language, authorship visible ("— JPKCom").
-- **"No" switches to the built-in sayings** instead of closing the window (there is something else to show now).
+- **"No" switches to the built-in sayings** instead of closing the window (there is something else to
+  show now); with `fortune.local: false` it closes the window, since there is nothing else.
+- **The card's glyph is the app's** (logo, mark or icon), so a renamed app shows its own glyph.
 - **Consent through the core** (`Desk.consent`, key `consent-fortune`, Settings → Online services) instead
   of the original's own storage key and a hard-coded settings row; the in-window question stays (more
   explicit than the core sheet: who receives what, the language of the texts, a link to the settings).
@@ -129,7 +240,7 @@ first language; the quote carries the answer's `lang`.
 
 Everything of jpkc.com is gone; no private URL of the original manifest is used. The author stays as
 attribution (About page, Author group, the website link `https://www.jpkc.com/`, the author links from
-`config.author.links`).
+`config.author.links`). The example site uses no icon set (`iconSets: []`).
 
 ### `site/apps.js`
 
@@ -151,7 +262,8 @@ Collections:
   one item per kind — **web** demo `contrast` (`site/content/demos/contrast/`, a WCAG contrast checker:
   `index.html` + `index.de.html`, external `demo.js`/`demo.css` only, CSSOM for colours), **image**
   `sketch` (`site/content/images/desk-sketch.svg`, original drawing, `fileName` for downloads), **page**
-  `writing-pages`, **alias** `system` → `about-desktop`, **link** `repository` (the project on GitHub).
+  `writing-pages` (with a terminal manual for `man`: `site/content/<lang>/manuals/writing-pages.md`),
+  **alias** `system` → `about-desktop`, **link** `repository` (the project on GitHub).
 
 Menus: **Pages/Seiten** (About, Docs, Configuration, Keyboard, Writing pages as `{ label, url }` maps,
 Changelog, Imprint, Privacy) and **Explore/Entdecken** (`{ collection: 'showcase' }`, `{ collection:
@@ -185,16 +297,17 @@ parsing). `content.css` styles the pages when opened on their own (light/dark). 
 (`docs/pages.html`) explains the rules to site owners.
 
 Pages: `about`, `docs/index` (Getting started), `docs/configuration`, `docs/keyboard`, `docs/pages`,
-`changelog`, `imprint`, `privacy` — in `en` and `de`, each with `hreflang` alternates.
+`changelog`, `imprint`, `privacy` — in `en` and `de`, each with `hreflang` alternates. Manuals (Markdown
+the terminal's `man` prints, data files under `site/content/`): `manuals/writing-pages.md` in `en` and `de`.
 
 ### Data
 
 - `site/data/fortunes/{en,de}.json`: 44 original sayings each (desktop tips, keyboard shortcuts, web
   development, accessibility, a few light jokes), signature JPKCom, some with "Learn more" links into the
   docs or the contrast demo.
-- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.1.0 released",
-  "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
-  (`changelog.html?release=1.1.0`), because the notify module de-duplicates by path + query.
+- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.2.0 released",
+  "JPKCom Desktop 1.1.0 released", "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
+  (`changelog.html?release=1.2.0`), because the notify module de-duplicates by path + query.
 - `site/wallpapers/README.md`: how to add picture wallpapers (`config.wallpaper.images`); none shipped.
 
 ---
@@ -216,10 +329,31 @@ author links, then checks:
   `config.site.legal`, `site.defaultPageApp`, `notify.app` (page apps), `vault.collection`, `about.moreInfo`;
 - collections: prefix, sort, itemKind, urlTemplate (`{slug}`), basePath (a folder), groups (unknown,
   duplicate, empty), slugs (unique), item urls/kinds (auto rule as the registry);
+- the Catalog's web button: `webUrl`/`allLabel`/`webLabel` on a collection (errors); `webApp` on a
+  collection, a Catalog app or its override record (errors: no app id, unknown app, a Catalog of the
+  same collection; warnings: the app's kind needs a module that is not loaded, a `page` app at
+  `basePath`, no Catalog window shows the collection — `webApp` unused); a `webUrl` equal to `basePath`
+  without `webApp` when the collection's app is a Catalog of it and no `config.site.routes` rule sends
+  the path elsewhere (warning: the button opens it in a new tab); `webUrl`/`allLabel`/`webLabel` on a
+  Catalog app or its override record are warnings only (1.1.0 did not check them);
 - urls: no `javascript:`/`data:`/`//host`; link apps https (http only with `allowHttp`); relative paths
   must exist (a folder URL needs its `index.html`); `docs`/`guide`; `files` paths;
-- icons: in `src/icons/tabler.js` or `src/icons/custom.js`; a Tabler id that exists in `@tabler/icons` but
-  is not built yet → warning "run npm run icons"; unknown → error;
+- manual pages (`man` on items — alias items too — and collections, `config.terminal.manUrl`): the rules
+  of `src/core/man.js` (`cleanMan`): a bad path, scheme, `//host`, whitespace, an unknown placeholder, a bad
+  language key or a template without `{slug}`/`{id}` → error; a path that is not `.md`/`.markdown`/`.txt`,
+  a map without one of `config.languages`, `manUrl` without any collection → warning. Relative paths are
+  then looked up per language: a missing file of an item's own `man` is one warning, the files a template
+  misses are counted per collection and language (one warning each) — never an error (`man` then says "no
+  manual page");
+- icons: in `src/icons/tabler.js`, `src/icons/custom.js` or a site icon set of `config.iconSets`; a Tabler
+  id that exists in `@tabler/icons` but is not built yet → warning "run npm run icons"; an id with the
+  prefix of a configured set that the set does not contain → error naming the set; unknown → error;
+  `config.brand.glyph` the same way (warning);
+- site icon sets: each file exists below the root and not below `vault.dir`, is JSON in format
+  `jpkcom-desktop-icons/1`, ids and prefixes (reserved, duplicates across sets), definitions (`k`, `vb`,
+  `a`, elements and attributes of the allowlist — every dropped item is an error), at most 2 MiB / 5000
+  icons (error); above 256 KiB a warning; a `k: 'o'` icon whose viewBox is not 24 × 24 and that has no
+  `stroke-width` in `a` → warning;
 - tints (config names or a hex pair), sizes, marks, boolean flags;
 - texts: every language map has a value for each of `config.languages`; `'@ns.key'` exists in the locales;
 - site data: `fortunes/<lang>.json` per language (cleaned with the app's own `cleanFortunes`), the notify
@@ -239,13 +373,25 @@ Output: `✖`/`⚠` lines with the location, a summary line; exit 0 (fine), 1 (e
 - `tests/p11-fortune.test.mjs`: text normalisation, link safety, block list, data cleaning, the deck
   (full rounds, no repeats), language choice, state, history, the providers (URLs, safe mode, blocked
   answers, "nothing found" as an empty result, per-language categories, the Useless Facts origin link
-  and signature) and the host check.
+  and signature) and the host check; the source lifecycle `createSources()` (providers from modules set
+  up before and after the app, the same contribution twice, duplicate ids, a failed module, invalid and
+  class-instance definitions, the unknown `remote` reported once at ready, consent register/unregister),
+  the consent binding (`consentTag`, `staleConsent`), `cleanState` with `agreed`, `cleanTexts`,
+  `sourceFor`, `validateConfig` (`local`, `texts`), the descriptor's wiring and the terminal command's
+  `when()`.
 - `tests/p11-site.test.mjs`: the validator (clean and broken manifests, site data, the CLI on the example
   site with `--strict`, a relative `site.home` still checks the `website` app), the manifest (no private content), the fortunes (clean, same categories in every
   language, links exist), the feeds (parse with the notify module's `parseFeed`, targets exist), the
-  content pages (Reader markup, alternates and links exist, no inline code, templates marked).
+  content pages (Reader markup, alternates and links exist, no inline code, templates marked); online
+  only (no fortunes check, needs `remote` and `services.fortune`) and the app texts (every configured
+  language).
 
 Browser check (`tools/browser-check.mjs`): local sayings, keyboard, categories, language switch, the
 Reader pages, docs folder navigation, Catalog, the web demo, the image item, menus; the online source
 with a faked JokeAPI answer (question first, nothing fetched before consent, blocked answer skipped,
-withdrawal, "No" → built-in, settings row); compact layout.
+withdrawal, "No" → built-in, settings row); compact layout. Online only with a provider from a site
+module (`--route` for the module and `site/apps.js`): no warning at start, the consent row uses the app
+texts, question first, "No, thanks" closes, one request after agreeing, the agreement bound to the
+provider and withdrawn for another one, the card glyph follows icon/mark/unknown icon, no local files
+requested, the terminal command hidden; an unknown `remote` (one warning, `noSource`, Next disabled);
+the shipped site unchanged (cookie glyph, "Next fortune", no warning).

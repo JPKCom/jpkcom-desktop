@@ -6,6 +6,7 @@
    re-exports these) comes with the window. No DOM, no desktop imports. */
 
 import { isObj } from '../../core/is.js';
+import { cleanMan } from '../../core/man.js';
 
 /** Longest stored command line */
 export const MAX_LINE = 500;
@@ -29,9 +30,13 @@ export function cleanState(v, size = HISTORY_DEFAULT) {
 
 /* ---------- Config section 'terminal' ---------- */
 
-/* A path relative to the installation root (no scheme, no //host, no backslash) */
-export const isRelPath = v => typeof v === 'string' && v.length > 0 && v.length <= 500 && !/\s/.test(v)
-	&& !/^[a-z][a-z0-9+.-]*:/i.test(v) && !v.startsWith('//') && !v.includes('\\');
+/* A path on this site, relative to the installation root or /root (no scheme, no //host, no whitespace,
+   control character or backslash, ≤ 500) — the one rule of src/core/url.js under its old name */
+export { isSitePath as isRelPath } from '../../core/url.js';
+
+/** The warning for a bad config.terminal.manUrl */
+export const MAN_URL_WARNING = 'manUrl must be null, a path template on this site or a { lang: template } map, each with '
+	+ '{slug} or {id} and only {slug} {id} {collection} {lang} (e.g. \'docs/{lang}/{slug}.md\')';
 
 /** A DNS-over-HTTPS resolver { url: 'https://host/path', name } → cleaned, or null */
 export function cleanDoh(v) {
@@ -53,8 +58,9 @@ export function cleanDoh(v) {
  *   doh          null | { url, name } (https; host for the consent service)
  *   eggs         hidden fun commands
  *   historySize  0–1000 stored lines
- *   manUrl       null | 'docs/{lang}/{slug}.md' — a Markdown manual per collection item (relative path;
- *                placeholders {slug} {id} {collection} {lang})
+ *   manUrl       null | 'docs/{lang}/{slug}.md' | { lang: template } — the site-wide fallback of `man` for
+ *                collection items (src/core/man.js; placeholders {slug} {id} {collection} {lang}, every
+ *                value with {slug} or {id}; false counts as null; a map with one bad entry is ignored as a whole)
  */
 export function cleanConfig(section, warn = () => {}) {
 	const s = isObj(section) ? section : {};
@@ -75,9 +81,8 @@ export function cleanConfig(section, warn = () => {}) {
 		if (Number.isInteger(s.historySize) && s.historySize >= 0 && s.historySize <= HISTORY_MAX) out.historySize = s.historySize;
 		else warn(`historySize must be an integer 0–${HISTORY_MAX} — using ${HISTORY_DEFAULT}`);
 	}
-	if (s.manUrl != null) {
-		if (isRelPath(s.manUrl) && /\{(slug|id)\}/.test(s.manUrl)) out.manUrl = s.manUrl;
-		else warn('manUrl must be null or a relative path with {slug} or {id} (e.g. \'docs/{lang}/{slug}.md\')');
-	}
+	const m = cleanMan(s.manUrl, { template: true });
+	out.manUrl = m.value === false ? null : m.value;
+	if (m.problem) warn(MAN_URL_WARNING);
 	return out;
 }

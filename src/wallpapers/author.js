@@ -14,7 +14,7 @@
    author-emblem from config.wallpaper.motifs. */
 
 import { s } from '../core/dom.js';
-import { icon, hasIcon, logo } from '../core/icons.js';
+import { symbolHref, hasIcon, logo } from '../core/icons.js';
 import { root, centred, stop, shadow, BRAND_BG } from './kit.js';
 
 /* The logo as a group (not a nested <svg>: the wallpaper layer's CSS sizes every svg to
@@ -41,11 +41,11 @@ export default [
 		bg: BRAND_BG,
 		available: () => hasIcon('jpk'),
 		build(u) {
-			/* the glyph's <symbol> enters the sprite on first use */
-			icon('jpk');
+			/* the glyph's <symbol> enters the sprite on first use; its DOM id is the sprite's ('#i-jpk') */
+			const href = symbolHref('jpk');
 			return centred(
 				s('defs', {}, shadow(`${u}s`, 10, 14, 0.35)),
-				s('use', { href: '#jpk', x: 390, y: 390, width: 220, height: 220, color: '#fff', opacity: 0.9, filter: `url(#${u}s)` }));
+				s('use', { href, x: 390, y: 390, width: 220, height: 220, color: '#fff', opacity: 0.9, filter: `url(#${u}s)` }));
 		}
 	},
 	{

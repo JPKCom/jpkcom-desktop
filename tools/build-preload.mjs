@@ -16,6 +16,10 @@
      <link rel="modulepreload">        locales/<lang>/_meta.js of every offered language and the
                                        namespaces (i18n: [...]) of the configured parts for the
                                        language the desktop will most likely start in
+     <link rel="preload" as="fetch"    the site icon sets of config.iconSets (JSON, read from the
+           crossorigin>                config at run time — changing the list needs no rebuild; the
+                                       path rule is SET_PATH of src/core/icon-sets.js, written into
+                                       the generated file from its source)
 
    Site modules in site/modules/<id>/index.js are read the same way and matched by
    their src ({ id, src: 'site/modules/<id>/index.js' }); a site module elsewhere
@@ -35,6 +39,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative, dirname, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULTS } from '../src/core/config.js';
+import { SET_PATH, MAX_SETS } from '../src/core/icon-sets.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/boot/preload.js');
@@ -119,6 +124,9 @@ function render(graph) {
 		siteData: DEFAULTS.site.data
 	};
 	const json = v => JSON.stringify(v);
+	/* The path rule of the icon sets, generated from its source and never hand-copied into the template
+	   text below (a hand-written regex there would lose its backslashes to the template's escapes) */
+	const setRule = `new RegExp(${JSON.stringify(SET_PATH.source)})`;
 	const parts = kind => Object.entries(graph[kind]).map(([id, p]) => `\t\t\t${json(id)}: ${json(p)}`).join(',\n');
 	return `/* JPKCom Desktop — preload hints for the boot (generated) — © Jean Pierre Kolb — MIT License
 
@@ -168,15 +176,18 @@ ${parts('site')}
 			const url = new URL(path, root);
 			return url.origin === root.origin ? url.href : null;
 		};
-		const hint = (path, style = false) => {
+		/* as: 'module' | 'style' | 'fetch' (JSON data, fetched by main.js with credentials same-origin) */
+		const hint = (path, as = 'module') => {
 			const href = local(path);
 			if (!href || seen.has(href)) return;
 			seen.add(href);
 			const el = document.createElement('link');
-			if (style) {
+			if (as === 'module') el.rel = 'modulepreload';
+			else {
 				el.rel = 'preload';
-				el.as = 'style';
-			} else el.rel = 'modulepreload';
+				el.as = as;
+				if (as === 'fetch') el.crossOrigin = 'anonymous';
+			}
 			el.href = href;
 			document.head.append(el);
 		};
@@ -186,7 +197,7 @@ ${parts('site')}
 		const take = part => {
 			if (!part) return;
 			for (const i of part.js) hint(G.files[i]);
-			for (const i of part.css) hint(G.files[i], true);
+			for (const i of part.css) hint(G.files[i], 'style');
 			for (const ns of part.i18n) {
 				if (part.own) own.push([part.own, ns]);
 				else namespaces.add(ns);
@@ -209,6 +220,14 @@ ${parts('site')}
 		refs(cfg.modules, G.defaults.modules, 'module');
 		refs(cfg.apps, G.defaults.apps, 'app');
 		hint(isObj(cfg.site) && typeof cfg.site.data === 'string' ? cfg.site.data : G.defaults.siteData);
+
+		/* Site icon sets: the rule of src/core/config.js (SET_PATH, unique, at most ${MAX_SETS}); the boot refuses one below vault.dir */
+		const SET = ${setRule};
+		const sets = Array.isArray(cfg.iconSets) ? cfg.iconSets : [];
+		for (const p of [...new Set(sets.filter(p => typeof p === 'string' && SET.test(p)))].slice(0, ${MAX_SETS})) {
+			const url = new URL(p, root);
+			if (url.href.startsWith(root.href)) hint(p, 'fetch');
+		}
 
 		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain */
 		const offer = Array.isArray(cfg.languages) && cfg.languages.length && cfg.languages.every(c => typeof c === 'string' && LANG.test(c))

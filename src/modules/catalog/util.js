@@ -1,4 +1,4 @@
-/* JPKCom Desktop — Catalog: pure helpers (search matching, grid keys) — © Jean Pierre Kolb — MIT License
+/* JPKCom Desktop — Catalog: pure helpers (search matching, grid keys, the web button's target) — © Jean Pierre Kolb — MIT License
 
    No DOM; the only import is the shared src/core/text.js (no imports of its own) —
    tests/p04-catalog.test.mjs checks these in Node. URLs from data are checked with the
@@ -47,4 +47,35 @@ export function columnsOf(tops) {
 	let n = 1;
 	while (n < tops.length && Math.abs(tops[n] - tops[0]) < 2) n++;
 	return n;
+}
+
+/** Is id (following aliases) a Catalog window app of collection cid? get(id) → app | null */
+export function isCatalogOf(id, cid, get) {
+	let a = typeof id === 'string' ? get(id) : null;
+	for (let i = 0; a?.alias && i < 5; i++) a = get(a.alias);
+	return a?.kind === 'collection' && (typeof a.collection === 'string' ? a.collection : a.id) === cid;
+}
+
+/**
+ * The app the Catalog's web button launches: the first of values (the collection's webApp, then its
+ * Catalog app's) that is a non-empty string, is no Catalog of the same collection (isSelf) and is
+ * available now. → id | null
+ */
+export function pickWebApp(values, { available = () => false, isSelf = () => false } = {}) {
+	for (const v of values) {
+		if (typeof v !== 'string' || !v || isSelf(v)) continue;
+		if (available(v)) return v;
+	}
+	return null;
+}
+
+/**
+ * A webUrl that would lead back to a Catalog of collection cid: its absolute href (to open in a new
+ * tab), else null (open it through Desk.openUrl). router = { resolveUrl, isExternal, route }.
+ */
+export function selfRouteHref(router, raw, base, cid, get) {
+	const u = router.resolveUrl(raw, base);
+	if (!u || !/^https?:$/.test(u.protocol) || router.isExternal(u)) return null;
+	const to = router.route(u).app;
+	return to && isCatalogOf(to, cid, get) ? u.href : null;
 }

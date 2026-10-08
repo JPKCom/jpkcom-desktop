@@ -161,6 +161,7 @@ npm run check:browser                                        # desktop, default 
 node tools/browser-check.mjs --lang de-DE --mobile           # German, phone viewport
 node tools/browser-check.mjs --base /desktop/ --screenshot /tmp/desk.png
 node tools/browser-check.mjs --site-config /tmp/my-config.js # try a config without touching site/config.js
+node tools/browser-check.mjs --route site/modules/my/index.js=/tmp/my.js   # a site module outside the tree
 ```
 
 A scenario drives the desktop; `desk(fn, …args)` runs `fn(window.JPKDesk, …args)` in the page:

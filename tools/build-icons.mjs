@@ -17,6 +17,9 @@
    sources never name, above all those used only inside sealed vault data
    (tools/seal-vault.mjs warns about vault icons missing from the subset).
 
+   Site icon sets (config.iconSets, site/icon-sets/) are not built here: they are the site's
+   own JSON data (docs/ARCHITECTURE.md §13), and the scan skips site/icon-sets/.
+
    Usage
      node tools/build-icons.mjs            write src/icons/tabler.js
      node tools/build-icons.mjs --check    exit 1 if the file is out of date (CI)
@@ -27,6 +30,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ICON_TAGS } from '../src/core/icon-sets.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/icons/tabler.js');
@@ -35,13 +39,15 @@ const SCAN = ['src', 'site', 'index.html'];
 const SCAN_EXT = new Set(['.js', '.mjs', '.html', '.json']);
 const SKIP_DIRS = new Set(['node_modules', '.git']);
 const EXTRA = join(ROOT, 'site/icons.json');
+const SKIP_PATHS = new Set([join(ROOT, 'site/icon-sets')]);   // site icon sets: large data, never Tabler ids
 const ID_ONLY = /^tif?-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /* Every SVG element type Tabler 3.x ships (checked: 3.49 uses <path> only),
-   plus the basic shapes in case a later release brings them back. Anything
-   else fails loudly instead of silently rendering wrong. */
-const ELEMENTS = new Set(['path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon']);
-/* Attributes kept per element; everything else (class, …) is dropped */
+   plus the basic shapes in case a later release brings them back — the tags of the
+   runtime allowlist (src/core/icon-sets.js). Anything else fails loudly instead of
+   silently rendering wrong. */
+const ELEMENTS = ICON_TAGS;
+/* Attributes kept per element (a subset of ICON_ATTRS, tests/icon-sets.test.mjs); everything else (class, …) is dropped */
 const KEEP = new Set([
 	'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'points',
 	'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity',
@@ -56,7 +62,7 @@ function walk(path, out) {
 	const st = statSync(path);
 	if (st.isDirectory()) {
 		for (const name of readdirSync(path).sort()) {
-			if (SKIP_DIRS.has(name) || name.startsWith('.')) continue;
+			if (SKIP_DIRS.has(name) || name.startsWith('.') || SKIP_PATHS.has(join(path, name))) continue;
 			walk(join(path, name), out);
 		}
 	} else if (SCAN_EXT.has(extname(path)) && path !== OUT) {

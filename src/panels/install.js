@@ -13,11 +13,22 @@
    New version: the worker starts the desktop from its offline copy and says
    { type: 'desk:update' } when a complete new copy is ready (sw.js, fast start)
    or a new worker took over — a banner offers the reload (once per page), and
-   the event 'install:update' {} tells anyone else. */
+   the event 'install:update' {} tells anyone else.
+
+   Caches of a service worker the site used before this desktop (config.offline.legacyCaches,
+   exact names or 'prefix*', never a name of sw.js's own scheme): deleted by the reset group
+   "Offline copies", ~30 s after 'controllerchange' (the earlier worker may still finish
+   requests and write to them after the hand-over), and 3 s after each start when this page
+   does not register the worker (pwa.enabled false …) — sw.js sweeps at the start otherwise.
+   Never while a worker at another script URL controls the page: it would write them again. */
 
 import Desk from '../core/api.js';
+import { legacyMatcher } from '../core/config.js';
 
 const cfg = Desk.config.pwa;
+const legacyList = Desk.config.offline?.legacyCaches ?? [];
+const START_SWEEP_MS = 3000;      // pwa.enabled false: after each start, off the critical path
+const HANDOVER_SWEEP_MS = 30000;  // after controllerchange: the earlier worker may still finish requests
 let offer = null;   // the browser's install prompt, kept for the Settings button
 let ready = false;
 
@@ -48,8 +59,10 @@ async function run() {
 }
 
 export function initInstall() {
-	if (cfg?.enabled === false) return;
 	ready = typeof document !== 'undefined' && !!document.querySelector('link[rel="manifest"]');
+	const registers = cfg?.enabled !== false && ready && Desk.env.isSecure && typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+	scheduleSweep(legacyList, { registers });
+	if (cfg?.enabled === false) return;
 	addEventListener('beforeinstallprompt', e => {
 		e.preventDefault();
 		offer = e;
@@ -61,7 +74,7 @@ export function initInstall() {
 	});
 	matchMedia('(display-mode: standalone)').addEventListener?.('change', changed);
 
-	if (ready && Desk.env.isSecure && 'serviceWorker' in navigator) {
+	if (registers) {
 		navigator.serviceWorker.addEventListener('message', e => {
 			if (e.data?.type === 'desk:update') updateReady();
 		});
@@ -96,7 +109,59 @@ export function ownCaches(root) {
 	return new RegExp(`^[a-z][a-z0-9-]{0,23}:${base}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$`);
 }
 
-/** Reset group "Offline copies": unregisters this root's service worker and deletes its caches */
+/** Cache names the reset group "Offline copies" deletes: this root's own and the legacy ones. Pure. */
+export const cachesToForget = (keys, root, list) => {
+	const own = ownCaches(root);
+	const legacy = legacyMatcher(list);
+	return keys.filter(k => own.test(k) || legacy(k));
+};
+
+/** Deletes the legacy caches that exist; resolves to their names ([] without a list or Cache API) */
+export async function sweepLegacy(list = legacyList, store = globalThis.caches) {
+	if (!list.length || !store) return [];
+	const match = legacyMatcher(list);
+	const gone = (await store.keys()).filter(match);
+	await Promise.all(gone.map(k => store.delete(k)));
+	return gone;
+}
+
+/**
+ * Schedules the page-side sweeps (only with a non-empty list and a Cache API):
+ *   HANDOVER_SWEEP_MS after 'controllerchange' — a new worker took over; the earlier one may still write
+ *   START_SWEEP_MS after 'load' — only when this page does not register the worker (registers: false),
+ *     because then no worker of this installation sweeps at the start
+ * A sweep is skipped while a worker at another script URL than this installation's sw.js controls the
+ * page (it would re-create the caches at once). Everything injectable for tests. Returns whether anything
+ * was scheduled.
+ */
+export function scheduleSweep(list = legacyList, {
+	registers = true,
+	win = globalThis,
+	container = globalThis.navigator?.serviceWorker,
+	store = globalThis.caches,
+	timer = setTimeout,
+	ownUrl = Desk.env.asset('sw.js')
+} = {}) {
+	if (!list.length || !store) return false;
+	const sweep = () => {
+		const url = container?.controller?.scriptURL;
+		if (url && url !== ownUrl) {
+			if (Desk.config.debug) console.info('[install] legacy caches kept: another service worker controls this page', url);
+			return;
+		}
+		sweepLegacy(list, store).catch(() => {});
+	};
+	container?.addEventListener?.('controllerchange', () => timer(sweep, HANDOVER_SWEEP_MS), { once: true });
+	if (!registers) {
+		const later = () => timer(sweep, START_SWEEP_MS);
+		if (win.document?.readyState === 'complete') later();
+		else win.addEventListener?.('load', later, { once: true });
+	}
+	return true;
+}
+
+/** Reset group "Offline copies": unregisters this root's service worker and deletes its caches and the
+    legacy ones (config.offline.legacyCaches; an explicit request, so no check for a foreign worker) */
 export async function forgetOffline() {
 	try {
 		/* Exactly this scope — a desktop at '/' must not unregister the one in '/desk/' */
@@ -104,8 +169,7 @@ export async function forgetOffline() {
 		await Promise.all(regs.filter(r => r.scope === Desk.env.root).map(r => r.unregister()));
 	} catch { /* no service worker */ }
 	try {
-		const own = ownCaches(Desk.env.root);
-		for (const k of await caches.keys()) if (own.test(k)) await caches.delete(k);
+		for (const k of cachesToForget(await caches.keys(), Desk.env.root, legacyList)) await caches.delete(k);
 	} catch { /* no Cache API */ }
 }
 

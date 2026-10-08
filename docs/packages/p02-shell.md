@@ -30,7 +30,7 @@ other service at the moment of use (`service('wm')?.…`), so it also boots with
 | `shortcuts.js` | shortcut registry — service `shortcuts` |
 | `context-menu.js` | context menus — service `contextmenu` |
 | `notifications.js`, `notifications.css` | banners — service `notifications` (`Desk.notifyBanner`) |
-| `deeplinks.js` | `#/path`, `#app=`, `#search=`, history — service `deeplinks` |
+| `deeplinks.js` | `#/path`, `#app=`, `#app=<id>&path=`, `#search=`, history — service `deeplinks` |
 | `drop.js`, `drop.css` | dropped files — service `drop` |
 | `power.js`, `power.css` | boot screen, restart, shut down — service `power` |
 | `contrib.js` | helper: follow a contribution point (`module:loaded` / `module:failed`) |
@@ -46,7 +46,7 @@ other service at the moment of use (`service('wm')?.…`), so it also boots with
 | `shortcuts` | `add({ id, keys, run, label, hint, scope, app, inEditable, when }) → remove()` (or `add(fn)` — `fn(e) → true` when handled), `list()`, `watch(frame)`, `parse(spec)`, `matches(parsed, e)` |
 | `contextmenu` | `add(selector, items(el, ctx), { label, select }) → remove()`, `resolve(el)`, `open(el, x, y, keyboard)`, building blocks `appItems(app, extra)`, `windowItems(win)`, `pinItems(app)`, `linkItems(app)`, `group(...lists)`, `addressOf(app)` |
 | `notifications` | `show({ title, body, icon, tint, app, url, meta, date, timeout, run }) → { close() } \| null`, `clear()`, `when(ms)`, `stamp(ms)` |
-| `deeplinks` | `linkFor(win)`, `hashFor(win)`, `open(hash)`, `parse(hash)`, `start()` |
+| `deeplinks` | `linkFor(win)`, `hashFor(win)`, `hashOf(info)` (pure: the hash for what `hashFor` collected), `open(hash)`, `parse(hash)`, `start()` |
 | `drop` | `handlers() → [{ id, module, label }]`, `handle(id, def) → remove()`, `open(files, target?)`, `kindOf(file)` |
 | `power` | `boot()`, `restart()`, `shutdown()`, `isOff()` |
 | `clock` | `tick()`, `seconds()`, `setSeconds(on)`, `button` |
@@ -221,6 +221,11 @@ shell: `dock-small`, `dock-large`, `dock-magnify`, `dock-dragging`, `icons-hidde
   `parseHash` also drops paths that cannot be pages of the site: a scheme-like first segment
   (`#/blob:…`, `#/data:…`) and dot segments (`#/../../etc/passwd`, also `%2e`) — before, they opened
   the default page app with "Page unavailable" and a 404 request.
+- **Deep links to a window's own location** (`#app=<id>&path=/…`): new. Written and read only for apps with
+  `linkPaths: true`; the path is checked twice — by `parseHash` (the `#/…` rules) and by the app's kind
+  (`wm.acceptUrl(app, path, 'link')`); a refused path opens the app at its start page. Unknown parameters
+  after `app=<id>` are ignored, so later formats degrade to opening the app. A link for a web window the
+  session has just restored wins over the restored location (its frame is still loading: untouched).
 - **Legal entries on phones**: the original dropped imprint/privacy from the brand sheet because its
   folded Pages menu listed them. The port only drops the `site.legal` entries a site menu already
   offers, so they stay reachable when the site menus do not include them.

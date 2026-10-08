@@ -12,7 +12,7 @@ the original is kept; the changes are the ones the contract asks for (descriptor
 
 | File | Purpose |
 |---|---|
-| `src/apps/kit.js` | shared helpers: `sheet`/`confirm`/`alert` (re-exported from `Desk.dialog`), `hasSheet(win)`, `mod(e)`, `newId()`, `isId(v)`, `isNum(v)`, `labels()` (bind/apply texts for the language switch), `winButton(win, lb, icon, key, onClick, cls?)`, `copyWithFeedback(btn, text, { key, doneKey, ms })` |
+| `src/apps/kit.js` | shared helpers: `sheet`/`confirm`/`alert` (re-exported from `Desk.dialog`), `hasSheet(win)`, `mod(e)`, `newId()`, `isId(v)`, `isNum(v)`, `labels()` (bind/apply texts for the language switch), `winButton(win, lb, icon, key, onClick, cls?)`, `copyWithFeedback(btn, text, { key, doneKey, ms })` (`key`/`doneKey`: `'ns.key'` or a function returning the text, like `labels().bind`) |
 | `src/apps/editor/index.js` · `window.js` · `model.js` · `editor.css` | Editor (descriptor: draft storage, drop handler, config section · the window, loaded when it first opens (app field `load`) · pure draft/find/count helpers · `@layer apps` + `@layer compact`, a `windowStyles` sheet) |
 | `src/apps/notes/index.js` · `model.js` · `notes.css` | Notes |
 | `src/apps/todo/index.js` · `window.js` · `model.js` · `todo.css` | Tasks (descriptor: storage, reset group, trash type · the window, loaded when it first opens (app field `load`) · pure list helpers · a `windowStyles` sheet) |

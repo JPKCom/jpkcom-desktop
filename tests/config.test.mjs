@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildConfig, deepMerge, DEFAULTS } from '../src/core/config.js';
+import { buildConfig, deepMerge, DEFAULTS, legacyMatcher } from '../src/core/config.js';
 import { orderByRequires } from '../src/core/modules.js';
 import tabler from '../src/icons/tabler.js';
 
@@ -34,7 +34,18 @@ test('config: objects merge, arrays and language maps replace, null removes colo
 	assert.equal(DEFAULTS.theme.accents.pink, '#c5306f');
 });
 
+test('merge: terminal.manUrl replaces as a whole', () => {
+	const layered = { terminal: { user: 'guest', manUrl: { de: 'help/tools/{slug}.md', en: 'help/en/tools/{slug}.md' } } };
+	const merged = deepMerge(layered, { terminal: { manUrl: { fr: 'aide/{slug}.md' } } });
+	assert.deepEqual(merged.terminal.manUrl, { fr: 'aide/{slug}.md' }, 'no German or English path left next to the site\'s own');
+	assert.equal(merged.terminal.user, 'guest', 'the rest of terminal still merges');
+	assert.equal(deepMerge(layered, { terminal: { manUrl: 'docs/{slug}.md' } }).terminal.manUrl, 'docs/{slug}.md');
+	const c = buildConfig({ terminal: { manUrl: { en: 'm/{slug}.md' } } });
+	assert.deepEqual({ ...c.terminal.manUrl }, { en: 'm/{slug}.md' });
+});
+
 test('config: invalid values fall back with a warning', () => {
+
 	const warnings = [];
 	const c = buildConfig({
 		namespace: 'Bad Name!', defaultLang: 'fr', languages: ['de', 'en'], theme: { default: 'neon', accent: 'nope', accents: { 'Bad': '#123456', ok: 'blue' } },
@@ -59,6 +70,8 @@ test('config: DEFAULTS hold the module sections, so their validateConfig runs wi
 		'fortune.dir': 'site/data/fortunes/',
 		'fortune.langs': ['de', 'en'],
 		'fortune.block': [],
+		'fortune.local': true,
+		'fortune.texts': {},
 		'media.maxItems': 200,
 		'media.seekStep': 5,
 		'editor.maxTabs': 20,
@@ -152,4 +165,63 @@ test('config: trash, backup and wallpaper tones are validated with a warning', (
 	assert.equal(fine.trash.days, 0.5);
 	assert.equal(fine.backup.filePrefix, 'my-site_1.0');
 	assert.ok(!warnings.some(w => w.startsWith('unexpected')));
+});
+
+test('config: offline.legacyCaches defaults to [] and is cleaned with warnings', () => {
+	const warnings = [];
+	const plain = buildConfig({}, m => warnings.push(m));
+	assert.deepEqual([...plain.offline.legacyCaches], []);
+	assert.deepEqual(warnings, []);
+	const cfg = buildConfig({ offline: { legacyCaches: ['oldsite-pages', '*', 'ns:/x/:pages', 3] } }, m => warnings.push(m));
+	assert.deepEqual([...cfg.offline.legacyCaches], ['oldsite-pages']);
+	assert.equal(warnings.length, 3);
+	assert.ok(warnings.every(w => w.includes('config.offline.legacyCaches')));
+	assert.ok(Object.isFrozen(cfg.offline.legacyCaches));
+	assert.equal(cfg.offline.maxPages, 80, 'the other offline keys keep their defaults');
+	warnings.length = 0;
+	assert.deepEqual([...buildConfig({ offline: { legacyCaches: 'x' } }, m => warnings.push(m)).offline.legacyCaches], []);
+	assert.equal(warnings.length, 1);
+	assert.ok(warnings[0].includes('config.offline.legacyCaches'));
+	warnings.length = 0;
+	const broken = buildConfig({ offline: 'none' }, m => warnings.push(m));
+	assert.deepEqual([...broken.offline.legacyCaches], []);
+	assert.equal(broken.offline.fastStart, true);
+	assert.equal(warnings.length, 1, 'one warning for the section, none for the list');
+	assert.deepEqual(DEFAULTS.offline.legacyCaches, [], 'the defaults are untouched');
+});
+
+test('config: legacyMatcher refuses this project\'s scheme even for a matching prefix', () => {
+	const match = legacyMatcher(['olddesk*']);
+	assert.equal(match('olddesk:/x/:pages'), false);
+	assert.equal(match('olddesk:/:2.0.0-89abcdef-next'), false);
+	assert.equal(match('olddesk-shell'), true);
+	assert.equal(match('olddesk:/x/:media'), true, 'not a name of the scheme');
+});
+
+test('config: iconSets defaults to [] and keeps valid relative .json paths in order', () => {
+	assert.deepEqual([...buildConfig(undefined).iconSets], []);
+	assert.deepEqual([...DEFAULTS.iconSets], []);
+	const warns = [];
+	const c = buildConfig({ iconSets: ['site/icon-sets/b.json', 'site/icon-sets/a.json', 'icons.json'] }, w => warns.push(w));
+	assert.deepEqual([...c.iconSets], ['site/icon-sets/b.json', 'site/icon-sets/a.json', 'icons.json']);
+	assert.deepEqual(warns, []);
+});
+
+test('config: iconSets drops invalid entries and duplicates and keeps at most 8 (warned)', () => {
+	const warns = [];
+	const nine = Array.from({ length: 9 }, (_, i) => `site/icon-sets/s${i}.json`);
+	const c = buildConfig({ iconSets: ['../x.json', 'site/icon-sets/s0.json', 7, '/abs.json', 'site/%2e%2e/x.json', 'https://cdn.example/x.json', ...nine] }, w => warns.push(w));
+	assert.deepEqual([...c.iconSets], ['site/icon-sets/s0.json', ...nine.slice(1, 8)]);
+	assert.equal(warns.length, 7, warns.join('\n'));
+	assert.ok(warns.every(w => /^config\.iconSets\[\d+\] must be a \.json path/.test(w)));
+	assert.match(warns.find(w => w.includes('[6]')), /duplicates — skipped "site\/icon-sets\/s0\.json"/);
+	assert.match(warns.at(-1), /s8\.json/);
+});
+
+test('config: a non-array iconSets (true, {}) is warned about and becomes []', () => {
+	for (const v of [true, {}, 'site/icon-sets/x.json', null]) {
+		const warns = [];
+		assert.deepEqual([...buildConfig({ iconSets: v }, w => warns.push(w)).iconSets], [], JSON.stringify(v));
+		assert.match(warns.join('\n'), /config\.iconSets is invalid/);
+	}
 });

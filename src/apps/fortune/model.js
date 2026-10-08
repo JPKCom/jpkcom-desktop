@@ -186,10 +186,74 @@ export function pickLang(chain, langs) {
 /** The base language of a code ('pt-BR' → 'pt') — to tell whether texts are in the user's language */
 export const baseLang = code => String(code ?? '').split('-')[0].toLowerCase();
 
-/** Stored state (key 'fortune'): { source: 'local' | 'remote' } */
+/* The provider the user agreed to: '<id>@<sorted hosts>' (providers.js consentTag) */
+const AGREED = /^[a-z][a-z0-9-]{0,31}@[a-z0-9.,-]+$/;
+
+/** The most host names a provider may name (providers.js cleanProvider) */
+export const MAX_HOSTS = 8;
+
+/* The longest agreement a valid provider yields: id (32) '@' and MAX_HOSTS host
+   names (253 each) with their commas — so every accepted provider's tag is kept */
+const AGREED_MAX = 32 + 1 + MAX_HOSTS * 254;
+
+/**
+ * Stored state (key 'fortune'): { source?: 'local' | 'remote', agreed?: '<id>@<hosts>' } —
+ * null when neither is usable.
+ */
 export function cleanState(v) {
 	if (!isObj(v)) return null;
-	return v.source === 'local' || v.source === 'remote' ? { source: v.source } : null;
+	const out = {};
+	if (v.source === 'local' || v.source === 'remote') out.source = v.source;
+	if (typeof v.agreed === 'string' && v.agreed.length <= AGREED_MAX && AGREED.test(v.agreed)) out.agreed = v.agreed;
+	return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The source the app uses: online only (local false) → 'remote' when a usable online
+ * provider exists, else null; otherwise the stored choice ('remote' only with a usable
+ * provider), else 'local'. remote: whether a usable online provider exists.
+ */
+export function sourceFor({ stored, local = true, remote = false } = {}) {
+	if (!local) return remote ? 'remote' : null;
+	return stored === 'remote' && remote ? 'remote' : 'local';
+}
+
+/* ---------- Config: online only, app texts ---------- */
+
+/** A text: a non-empty string ('@ns.key' or plain), or a non-empty { lang: text } map of non-empty strings */
+export const isText = v => (typeof v === 'string' && v.length > 0)
+	|| (isObj(v) && Object.values(v).length > 0 && Object.values(v).every(x => typeof x === 'string' && x.length > 0));
+
+/**
+ * The fortune texts a site may replace (config.fortune.texts) — those without
+ * placeholders that may name the app.
+ */
+export const TEXT_KEYS = Object.freeze(['next', 'prev', 'copy', 'copied', 'loading', 'empty',
+	'localError', 'noSource', 'sourceLocal', 'askTitle', 'allow', 'deny', 'denyOnline', 'service',
+	'serviceHint', 'cmd', 'cmdMan']);
+
+/** config.fortune.local: true (default) or false (online only); anything else → true with a warning */
+export function cleanLocal(v, warn = () => {}) {
+	if (v === undefined || v === true) return true;
+	if (v === false) return false;
+	warn('local must be true or false — built-in sayings used');
+	return true;
+}
+
+/** config.fortune.texts → a frozen { key: text } of the known keys (TEXT_KEYS); the rest is reported */
+export function cleanTexts(v, warn = () => {}) {
+	if (v == null) return Object.freeze({});
+	if (!isObj(v)) {
+		warn('texts must be an object { key: text } — ignored');
+		return Object.freeze({});
+	}
+	const out = {};
+	for (const [k, text] of Object.entries(v)) {
+		if (!TEXT_KEYS.includes(k)) warn(`texts.${k} cannot be replaced (keys: ${TEXT_KEYS.join(', ')}) — skipped`);
+		else if (!isText(text)) warn(`texts.${k} must be a text, '@ns.key' or { lang: text } — skipped`);
+		else out[k] = typeof text === 'string' ? text : Object.freeze({ ...text });
+	}
+	return Object.freeze(out);
 }
 
 /** Appends an entry to the history after the shown one (forward entries are dropped), at most max kept */

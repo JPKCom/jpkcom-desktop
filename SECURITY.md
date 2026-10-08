@@ -28,8 +28,9 @@ reasonable time to release a fix before you publish details.
 
 | Version | Supported |
 |---|---|
-| 1.1.x | yes |
-| 1.0.x | no — please update to 1.1 |
+| 1.2.x | yes |
+| 1.1.x | no — please update to 1.2 |
+| 1.0.x | no — please update to 1.2 |
 | < 1.0 | no (never released) |
 
 Only the latest release of the latest minor version receives security fixes.
@@ -106,6 +107,8 @@ Crypto (`src/modules/vault/vault-core.js`):
   `config.vault.maxBytes` are not read.
 - "Stay logged in" keeps only the non-extractable `CryptoKey` in IndexedDB — never the password.
   Plain-text buffers are zeroed after use. The service worker never caches the vault folder.
+  A service worker your site used **before** this desktop may have done so: when you replace one, list its
+  caches in `config.offline.legacyCaches` (`docs/deploy.md` §11) so that copies of the sealed files go too.
 - Requires a secure context (HTTPS). The deployment must not list directories, should serve
   `site/vault/*.bin` with `Cache-Control: no-cache` and `X-Robots-Tag: noindex` (the shipped
   configurations do), and the plain-text bookmark file must stay outside the project and every web

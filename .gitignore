@@ -10,6 +10,11 @@ node_modules/
 site/vault/*.bin
 site/vault/*.json
 
+# Site icon sets are the site operator's own material, often commercially licensed: never in this
+# public repository or its forks. A private site repository that tracks its set deletes these lines
+# (or adds !site/icon-sets/<name>.json). docs/ARCHITECTURE.md §13, docs/deploy.md §2.
+site/icon-sets/*
+
 # Editors, OS, logs
 .DS_Store
 Thumbs.db

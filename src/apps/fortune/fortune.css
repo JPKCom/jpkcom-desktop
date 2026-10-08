@@ -138,6 +138,19 @@
 		inset-inline-start: 18px;
 		font-size: 30px;
 		color: var(--fortune-mark);
+
+		/* the app's glyph: an icon or a logo (SVG) or a short text mark (site override) */
+		&:is(svg) {
+			inline-size: 1em;
+			block-size: 1em;
+		}
+
+		/* the tile-mark look; the size of the glyph's 30px (font shorthand ems would follow the card) */
+		&:is(span) {
+			font: 800 24px / 1 var(--font-mono);
+			letter-spacing: -0.04em;
+			text-align: center;
+		}
 	}
 
 	.fortune-quote {

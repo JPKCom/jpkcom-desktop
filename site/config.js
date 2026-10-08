@@ -138,6 +138,15 @@ window.DESKTOP_CONFIG = {
 		windowControls: { side: 'left', style: 'classic' }
 	},
 
+	/* Site icon sets: your own icons next to Tabler — JSON files (format: docs/ARCHITECTURE.md §13), paths
+	   relative to the installation root ('site/icon-sets/x.json'), at most 8; loaded before the modules, kept
+	   offline by the service worker. Their ids ('<prefix>-<name>', a prefix of your own) work everywhere a
+	   Tabler id does (site/apps.js, vault data, brand.glyph). Two-tone icons: tune --icon-duo-opacity /
+	   --icon-duo-color in site/theme.css. A set's licence is your business — the project ships none, and
+	   site/icon-sets/ is git-ignored in the public repository.
+	   Example: iconSets: ['site/icon-sets/duotone.json'] */
+	iconSets: [],
+
 	/* ---------- Wallpaper ---------- */
 	wallpaper: {
 		/* Until the user picks one: { type: 'gradient', from, to, dir } | { type: 'color', color }
@@ -294,9 +303,14 @@ window.DESKTOP_CONFIG = {
 	   langs: the languages that have such a file — only these are fetched (a language without one
 	   falls back along its chain, e.g. to 'en', without a 404); null = try every language.
 	   remote: an online source, which needs services.fortune and its host in your CSP connect-src:
-	     'jokeapi' (v2.jokeapi.dev) or 'uselessfacts' (uselessfacts.jsph.pl); null = local only.
-	   block: category ids that are never shown, locally or online, e.g. ['spooky'] */
-	fortune: { remote: null, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [] },
+	     'jokeapi' (v2.jokeapi.dev), 'uselessfacts' (uselessfacts.jsph.pl) or the id of a provider your
+	     own module adds (fortuneProviders in its descriptor); null = local only.
+	   local: false = no local sayings at all, only the online source (needs remote; dir and langs
+	     are then unused).
+	   block: category ids that are never shown, locally or online, e.g. ['spooky']
+	   texts: replaces texts that name the app, e.g. after renaming it in site/apps.js:
+	     { next: { en: 'Next fact', de: 'Nächster Fakt' } } — keys in docs/packages/p11-fortune-site.md */
+	fortune: { remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} },
 
 	/* Audio and video players: maxItems = longest playlist (1–1000), seekStep = seconds the ←/→ keys
 	   jump (1–60). Files stay on the device; nothing is stored. */
@@ -315,9 +329,10 @@ window.DESKTOP_CONFIG = {
 	   doh: DNS-over-HTTPS resolver for dig/host/nslookup (needs services.dns) — null or
 	     { url: 'https://dns.google/resolve', name: 'dns.google' }   (a JSON API: Accept: application/dns-json;
 	   https only). Its host must also be allowed in your server's Content-Security-Policy connect-src.
-	   manUrl: null, or a relative Markdown path template for `man <entry>` with {slug} or {id} (also
-	     {collection} and {lang}), e.g. 'site/docs/{lang}/{slug}.md'. Collection items may name their own
-	     manual with docs (a .md/.txt on this site is printed, any other URL becomes a link). */
+	   manUrl: null, or a Markdown path template for `man <entry>` with {slug} or {id} (also {collection},
+	     {lang}) — or { en: '…', de: '…' } — used for items of the site's collections whose collection sets
+	     no man (see site/apps.js; never for the vault's bookmarks); e.g. 'site/docs/{lang}/{slug}.md'. Items and collections name their own manual with
+	     man; an item's docs that is a .md/.txt on this site is still printed while it has no man. */
 	terminal: { user: 'guest', doh: null, eggs: true, historySize: 100, manUrl: null },
 
 	trash: { days: 30, max: 200 },     // deleted notes and tasks stay this long / at most this many
@@ -341,7 +356,12 @@ window.DESKTOP_CONFIG = {
 	pwa: { enabled: true },
 	/* Offline copy (sw.js): maxPages = Reader pages kept offline (0 = none, max 1000); timeoutMs = how long
 	   the network may take before a cached copy answers (500–60000 ms); fastStart = start from the offline
-	   copy and look for a new version in the background (visitors are offered a reload) — false: every
-	   start asks the server first (network first, each update visible at once, a slower start) */
-	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true }
+	   copy and look for a new version in the background (visitors are offered a reload) — feeds, fortunes,
+	   site/data/ and site/content/ are always fetched fresh first and never count as a new version — false:
+	   every start asks the server first (network first, each update visible at once, a slower start).
+	   legacyCaches = cache names of a service worker your site used BEFORE this desktop, deleted for every
+	   visitor: exact names or a prefix ending in '*' (at least 4 characters before it), e.g.
+	   ['oldsite-shell-*', 'oldsite-pages']. Never needed for this desktop's own caches, which it never
+	   deletes this way. The old worker must be replaced for this to work: see docs/deploy.md §11. */
+	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true, legacyCaches: [] }
 };

@@ -27,12 +27,12 @@
 <tr><td><code>services</code></td><td>Online-Dienste, die die Website anbietet: <code>weather</code>, <code>geolocation</code>, <code>fortune</code>, <code>dns</code>. Standardmäßig alle <code>false</code>.</td></tr>
 <tr><td><code>reader</code></td><td>Wie der Inhalt einer Seite gefunden wird: <a href="pages.html">Seiten schreiben</a>.</td></tr>
 <tr><td><code>notify</code></td><td>Der Nachrichten-Feed pro Sprache und die App, die seine Einträge öffnet.</td></tr>
-<tr><td><code>fortune</code></td><td>Der Ordner der Sprüche (<code>dir</code>), eine optionale Online-Quelle (<code>remote</code>) und Kategorien, die draußen bleiben (<code>block</code>).</td></tr>
+<tr><td><code>fortune</code></td><td>Der Ordner der Sprüche (<code>dir</code>), eine optionale Online-Quelle (<code>remote</code>: eingebaut oder aus einem eigenen Modul), <code>local: false</code> für eine App nur mit Online-Quelle, Kategorien, die draußen bleiben (<code>block</code>), und Texte, die die App nennen (<code>texts</code>).</td></tr>
 </tbody>
 </table>
 
 <h2 id="services">Online-Dienste</h2>
-<p>Ein Dienst braucht zwei Schalter: Die Website bietet ihn an (<code>services.fortune: true</code>), und jede Besucherin, jeder Besucher stimmt vor der ersten Anfrage zu. Sein Host muss außerdem im <code>connect-src</code> deiner Content Security Policy stehen — zum Beispiel <code>v2.jokeapi.dev</code> für <code>fortune: { remote: 'jokeapi' }</code> oder <code>uselessfacts.jsph.pl</code> für <code>remote: 'uselessfacts'</code>.</p>
+<p>Ein Dienst braucht zwei Schalter: Die Website bietet ihn an (<code>services.fortune: true</code>), und jede Besucherin, jeder Besucher stimmt vor der ersten Anfrage zu. Sein Host muss außerdem im <code>connect-src</code> deiner Content Security Policy stehen — zum Beispiel <code>v2.jokeapi.dev</code> für <code>fortune: { remote: 'jokeapi' }</code> oder <code>uselessfacts.jsph.pl</code> für <code>remote: 'uselessfacts'</code>. Eine Quelle aus einem eigenen Modul braucht dort ebenfalls ihre Hosts.</p>
 
 <h2 id="language">Eine Sprache hinzufügen</h2>
 <ol>

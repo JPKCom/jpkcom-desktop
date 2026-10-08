@@ -4,9 +4,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	normalizeText, isSafeLink, cleanBlock, cleanFortunes, createDeck, pickLang, baseLang, cleanState, pushHistory, MAX_HISTORY,
-	cleanLangs, fetchCodes, DEFAULT_LANGS
+	cleanLangs, fetchCodes, DEFAULT_LANGS, cleanTexts, cleanLocal, sourceFor, TEXT_KEYS, MAX_HOSTS
 } from '../src/apps/fortune/model.js';
-import { jokeapi, uselessfacts, cleanProvider, checkRequestUrl, categoriesFor } from '../src/apps/fortune/providers.js';
+import {
+	jokeapi, uselessfacts, cleanProvider, checkRequestUrl, categoriesFor, createSources, consentTag, staleConsent
+} from '../src/apps/fortune/providers.js';
 import { readFileSync } from 'node:fs';
 
 const plain = s => normalizeText(String(s).replace(/<[^>]*>/g, '').replace(/&quot;/g, '"'));
@@ -228,4 +230,268 @@ test('fortune: the window loads on demand — the descriptor does not import win
 	assert.equal(typeof fortune.terminal.fortune.run, 'function', 'the terminal command stays in the descriptor');
 	const { default: hooks } = await import('../src/apps/fortune/window.js');
 	for (const hook of ['mount', 'focus', 'relabel', 'menu', 'unmount']) assert.equal(typeof hooks[hook], 'function', hook);
+});
+
+/* ---------- Sources from modules, consent bound to the provider, online only, app texts ---------- */
+
+const def = (id, hosts = ['api.example.org']) => ({ id, name: 'X', hosts, url: () => 'https://api.example.org/', parse: () => null });
+
+/** createSources with a fake consent object and a warn collector; remote is changeable */
+function sourcesKit(remote = null) {
+	const calls = [];
+	const warns = [];
+	const state = { remote };
+	const s = createSources({
+		builtIns: [jokeapi, uselessfacts],
+		remote: () => state.remote,
+		consent: { register: p => calls.push(['reg', p.id, [...p.hosts]]), unregister: () => calls.push(['unreg']) },
+		warn: m => warns.push(m)
+	});
+	return { s, calls, warns, state };
+}
+
+test('createSources: built-ins, consent for a configured built-in', () => {
+	const { s, calls } = sourcesKit('jokeapi');
+	assert.deepEqual(s.ids(), ['jokeapi', 'uselessfacts']);
+	assert.deepEqual(s.builtIn(), ['jokeapi', 'uselessfacts']);
+	assert.deepEqual(calls, [], 'no consent call before fromContributions');
+	s.fromContributions([]);
+	assert.deepEqual(calls, [['reg', 'jokeapi', ['v2.jokeapi.dev']]]);
+	s.fromContributions([]);
+	assert.equal(calls.length, 1, 'registered once');
+	const none = sourcesKit(null);
+	none.s.fromContributions([]);
+	assert.deepEqual(none.calls, [], 'nothing configured, nothing registered');
+});
+
+test('createSources: a provider from a module set up before the app', () => {
+	const { s, calls, warns } = sourcesKit('example');
+	s.fromContributions([Object.freeze({ ...def('example'), module: 'm' })]);
+	assert.equal(s.configured().id, 'example');
+	assert.deepEqual(calls, [['reg', 'example', ['api.example.org']]]);
+	assert.deepEqual(warns, []);
+});
+
+test('createSources: a provider from a module set up after the app', () => {
+	const { s, calls } = sourcesKit('example');
+	s.fromContributions([]);
+	assert.deepEqual(calls, [], 'unknown yet: no registration');
+	const list = [Object.freeze({ ...def('example'), module: 'm' })];
+	s.onLoaded('other', list);
+	assert.equal(s.has('example'), false, 'only the items of the loaded module');
+	s.onLoaded('m', list);
+	assert.deepEqual(calls, [['reg', 'example', ['api.example.org']]]);
+	assert.equal(s.configured().id, 'example');
+});
+
+test('createSources: the same contribution twice is adopted once', () => {
+	const { s, calls, warns } = sourcesKit('example');
+	const list = [Object.freeze({ ...def('example'), module: 'm' })];
+	s.fromContributions(list);
+	s.onLoaded('m', list);
+	assert.equal(s.ids().filter(id => id === 'example').length, 1);
+	assert.deepEqual(warns, [], 'silently');
+	assert.equal(calls.filter(c => c[0] === 'reg').length, 1);
+});
+
+test('createSources: duplicate ids keep the first', () => {
+	const { s, warns } = sourcesKit(null);
+	assert.ok(s.add(def('example'), 'a'));
+	assert.equal(s.add(def('example', ['b.example.org']), 'b'), null);
+	assert.equal(warns.length, 1);
+	assert.match(warns[0], /exists already/);
+	assert.deepEqual([...s.get('example').hosts], ['api.example.org']);
+	assert.equal(s.add(def('jokeapi'), 'c'), null, 'a built-in id is taken as well');
+});
+
+test('createSources: a failed module takes its providers and the consent', () => {
+	const { s, calls } = sourcesKit('example');
+	s.fromContributions([Object.freeze({ ...def('example'), module: 'm' })]);
+	assert.deepEqual(s.onFailed('m'), ['example']);
+	assert.equal(s.has('example'), false);
+	assert.deepEqual(calls, [['reg', 'example', ['api.example.org']], ['unreg']]);
+	assert.deepEqual(s.onFailed('x'), []);
+	assert.equal(calls.length, 2);
+	assert.deepEqual(s.onFailed(null), []);
+	assert.ok(s.has('jokeapi') && s.has('uselessfacts'), 'built-ins are never dropped');
+	/* the imperative path: addProvider(def, { module }) */
+	assert.ok(s.add(def('example', ['c.example.org']), 'n'));
+	assert.deepEqual(calls.at(-1), ['reg', 'example', ['c.example.org']]);
+	assert.deepEqual(s.onFailed('n'), ['example']);
+	assert.deepEqual(calls.at(-1), ['unreg']);
+});
+
+test('createSources: invalid definitions', () => {
+	const { s, calls, warns } = sourcesKit('bad');
+	assert.equal(s.add({ id: 'bad' }), null);
+	assert.equal(warns.length, 1);
+	assert.deepEqual(calls, []);
+	/* a class instance loses its prototype methods in the loader's copy */
+	class P {
+		constructor() {
+			this.id = 'cls';
+			this.name = 'C';
+			this.hosts = ['api.example.org'];
+		}
+		url() { return 'https://api.example.org/'; }
+		parse() { return null; }
+	}
+	s.fromContributions([Object.freeze({ ...new P(), module: 'm' })]);
+	assert.equal(s.has('cls'), false);
+	assert.match(warns.at(-1), /needs url\(\) and parse\(\)/);
+});
+
+test('createSources: unknown remote reported once at ready', () => {
+	const { s, state } = sourcesKit('nope');
+	s.fromContributions([]);
+	const first = s.ready({ local: true, offered: true });
+	assert.equal(first.length, 1);
+	assert.match(first[0], /unknown online source 'nope'/);
+	assert.match(first[0], /jokeapi, uselessfacts/);
+	assert.doesNotMatch(first[0], /nothing to show/);
+	assert.deepEqual(s.ready({ local: true, offered: true }), [], 'once');
+	state.remote = 'jokeapi';
+	assert.deepEqual(sourcesKit('jokeapi').s.ready({ local: true, offered: true }), []);
+	assert.match(sourcesKit('nope').s.ready({ local: false, offered: true })[0], /nothing to show$/);
+	const services = sourcesKit('jokeapi').s.ready({ local: false, offered: false });
+	assert.equal(services.length, 1);
+	assert.match(services[0], /services\.fortune is not true/);
+	assert.deepEqual(sourcesKit(null).s.ready({ local: true, offered: false }), []);
+});
+
+test('staleConsent: agreeing for A, then configuring B asks again', () => {
+	const a = cleanProvider(def('alpha', ['b.example.org', 'a.example.org']));
+	const b = cleanProvider(def('beta'));
+	assert.equal(consentTag(a), 'alpha@a.example.org,b.example.org', 'hosts sorted');
+	assert.equal(staleConsent({ granted: true, agreed: consentTag(a), provider: b }), true);
+	assert.equal(staleConsent({ granted: true, agreed: consentTag(a), provider: a }), false);
+	const otherHosts = cleanProvider(def('alpha', ['c.example.org']));
+	assert.equal(staleConsent({ granted: true, agreed: consentTag(a), provider: otherHosts }), true);
+	assert.equal(staleConsent({ granted: true, agreed: null, provider: a }), true, 'from before the binding');
+	assert.equal(staleConsent({ granted: false, agreed: null, provider: a }), false);
+	assert.equal(staleConsent({ granted: true, agreed: null, provider: null }), false);
+});
+
+test('cleanState keeps source and agreed', () => {
+	assert.deepEqual(cleanState({ source: 'remote', agreed: 'example@api.example.org' }), { source: 'remote', agreed: 'example@api.example.org' });
+	assert.equal(cleanState({ agreed: 'x' }), null, 'no @');
+	assert.deepEqual(cleanState({ agreed: 'example@api.example.org' }), { agreed: 'example@api.example.org' });
+	assert.deepEqual(cleanState({ source: 'local', agreed: 'Bad@Host' }), { source: 'local' });
+	assert.equal(cleanState({ agreed: `example@${'a'.repeat(2100)}` }), null, 'too long');
+	for (const junk of [null, 'local', 3, [], { source: 'cloud', agreed: 7 }]) assert.equal(cleanState(junk), null);
+});
+
+test('every accepted provider keeps its agreement through cleanState; too many hosts are rejected', () => {
+	/* the longest valid host name: 253 characters, labels of at most 63 */
+	const host = n => `${String.fromCharCode(97 + n)}${'a'.repeat(62)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`;
+	assert.equal(host(0).length, 253);
+	const hosts = Array.from({ length: MAX_HOSTS }, (_, i) => host(i));
+	const id = `x${'y'.repeat(31)}`;
+	const p = cleanProvider(def(id, hosts));
+	assert.ok(p, 'MAX_HOSTS longest host names are accepted');
+	const tag = consentTag(p);
+	assert.ok(tag.length > 2000);
+	assert.deepEqual(cleanState({ agreed: tag }), { agreed: tag }, 'the tag round-trips');
+	assert.equal(staleConsent({ granted: true, agreed: cleanState({ agreed: tag }).agreed, provider: p }), false);
+	const warns = [];
+	assert.equal(cleanProvider(def('many', [...hosts, 'z.example.org']), m => warns.push(m)), null, 'one host too many');
+	assert.match(warns.join(), /at most 8/);
+	const dup = cleanProvider(def('dup', [...hosts, hosts[0]]));
+	assert.equal(dup?.hosts.length, MAX_HOSTS, 'duplicates count once');
+});
+
+test('cleanTexts keeps known keys with texts and reports the rest', () => {
+	const warns = [];
+	const w = m => warns.push(m);
+	const ok = cleanTexts({ loading: 'x', service: { en: 'a', de: 'b' }, cmd: '@my.cmd' }, w);
+	assert.deepEqual(ok, { loading: 'x', service: { en: 'a', de: 'b' }, cmd: '@my.cmd' });
+	assert.ok(Object.isFrozen(ok) && Object.isFrozen(ok.service));
+	assert.deepEqual(warns, []);
+	for (const bad of [{ bogus: 'x' }, { next: 3 }, { next: {} }, { error: 'x' }, { next: { en: '' } }]) {
+		const before = warns.length;
+		assert.deepEqual(cleanTexts(bad, w), {});
+		assert.equal(warns.length, before + 1, JSON.stringify(bad));
+	}
+	assert.match(warns[0], /texts\.bogus cannot be replaced \(keys: next, /);
+	assert.match(warns[1], /texts\.next must be a text/);
+	assert.match(warns[3], /texts\.error cannot be replaced/, 'a key with placeholders');
+	const n = warns.length;
+	assert.deepEqual(cleanTexts(null, w), {});
+	assert.deepEqual(cleanTexts(undefined, w), {});
+	assert.equal(warns.length, n, 'silently');
+	assert.deepEqual(cleanTexts('next', w), {});
+	assert.match(warns.at(-1), /texts must be an object/);
+	assert.ok(TEXT_KEYS.includes('noSource') && TEXT_KEYS.includes('denyOnline'));
+	for (const k of ['error', 'askText', 'askLang', 'keys', 'by']) assert.ok(!TEXT_KEYS.includes(k), `${k} has placeholders`);
+});
+
+test('cleanLocal and sourceFor: stored choice, online only, no source', () => {
+	const warns = [];
+	assert.equal(cleanLocal(undefined), true);
+	assert.equal(cleanLocal(false), false);
+	assert.equal(cleanLocal('no', m => warns.push(m)), true);
+	assert.equal(warns.length, 1);
+	assert.equal(sourceFor({ stored: 'remote', local: true, remote: true }), 'remote');
+	assert.equal(sourceFor({ stored: 'remote', local: true, remote: false }), 'local');
+	assert.equal(sourceFor({ stored: 'local', local: true, remote: true }), 'local');
+	assert.equal(sourceFor({ stored: undefined, local: true, remote: true }), 'local');
+	for (const stored of ['local', 'remote', undefined]) {
+		assert.equal(sourceFor({ stored, local: false, remote: true }), 'remote');
+		assert.equal(sourceFor({ stored, local: false, remote: false }), null);
+	}
+});
+
+test('validateConfig: local and texts', async () => {
+	const { default: fortune } = await import('../src/apps/fortune/index.js');
+	const run = section => {
+		const warns = [];
+		return { out: fortune.validateConfig(section, m => warns.push(m)), warns };
+	};
+	let r = run({});
+	assert.equal(r.out.local, true);
+	assert.deepEqual(r.out.texts, {});
+	assert.deepEqual(r.warns, []);
+	assert.equal(run({ remote: 'jokeapi', local: false }).out.local, false);
+	r = run({ local: 'no' });
+	assert.equal(r.out.local, true);
+	assert.equal(r.warns.length, 1);
+	for (const section of [{ local: false }, { local: false, remote: 'Bad Id' }]) {
+		r = run(section);
+		assert.equal(r.out.local, true);
+		assert.ok(r.warns.some(m => /local: false needs an online source/.test(m)), JSON.stringify(section));
+	}
+	assert.equal(run({ texts: { next: 'N' } }).out.texts.next, 'N');
+});
+
+test('the descriptor wires the lifecycle', async () => {
+	const { default: fortune } = await import('../src/apps/fortune/index.js');
+	const on = [];
+	const once = [];
+	const provided = [];
+	const warns = [];
+	const { warn } = console;
+	console.warn = m => warns.push(String(m));
+	try {
+		fortune.setup({
+			modules: { contributions: point => (point === 'fortuneProviders' ? [] : []) },
+			on: name => on.push(name),
+			once: name => once.push(name),
+			provide: (name, impl) => provided.push([name, impl])
+		});
+	} finally {
+		console.warn = warn;
+	}
+	for (const name of ['module:loaded', 'module:failed', 'consent:change']) assert.ok(on.includes(name), name);
+	assert.ok(once.includes('modules:ready'));
+	assert.equal(provided[0][0], 'fortune');
+	for (const k of ['random', 'addProvider', 'providers', 'source']) assert.equal(typeof provided[0][1][k], 'function', k);
+	assert.deepEqual(warns.filter(m => m.includes('[fortune]')), [], 'nothing reported during setup()');
+	const src = readFileSync(new URL('../src/apps/fortune/index.js', import.meta.url), 'utf8');
+	assert.doesNotMatch(src, /setup\(desk\)[\s\S]*unknown online source/, 'the check is deferred to modules:ready');
+});
+
+test('terminal fortune: texts and when', async () => {
+	const { default: fortune } = await import('../src/apps/fortune/index.js');
+	const cmd = fortune.terminal.fortune;
+	for (const k of ['run', 'help', 'man', 'when']) assert.equal(typeof cmd[k], 'function', k);
 });

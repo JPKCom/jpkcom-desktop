@@ -1,6 +1,6 @@
 {
 	"name": "jpkcom-desktop",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"description": "A desktop-style web interface in vanilla JavaScript: windows, menu bar, dock and apps in the browser. No build step, no runtime dependencies, strict CSP.",
 	"type": "module",
 	"private": true,

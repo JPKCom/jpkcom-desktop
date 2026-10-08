@@ -28,6 +28,7 @@ export default {
 	localError: 'Die Sprüche ließen sich nicht laden.',
 	empty: 'In dieser Kategorie gibt es noch nichts.',
 	offline: 'Keine Internetverbindung.',
+	noSource: 'Für diese App ist gerade keine Quelle verfügbar.',
 
 	/* The question before an online source is used */
 	askTitle: 'Bevor etwas geladen wird',
@@ -36,6 +37,7 @@ export default {
 	askLang: 'Die Texte sind auf {language}.',
 	allow: 'Einverstanden, laden',
 	deny: 'Lieber die eingebauten Sprüche',
+	denyOnline: 'Lieber nicht',
 	toSettings: 'Einstellungen öffnen',
 
 	/* Terminal-Befehl `fortune` */

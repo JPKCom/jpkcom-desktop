@@ -6,7 +6,14 @@
                           (config.vault.dir) are ignored (router.pageAllowed), so are
                           paths that cannot be pages ('/blob:…', '/data:…', '/../…')
    index.html#app=<id>    opens an app (not links: popups nobody asked for)
+   index.html#app=<id>&path=/<p>
+                          an app at a location of its own (only apps that allow it —
+                          web: linkPaths; else its start page); the path follows the
+                          #/<path> rules and the app's kind decides (acceptUrl, 'link')
    index.html#search=<q>  opens the search with a query (when a search module is loaded)
+
+   Unknown &name=value parameters after app=<id> are ignored, so a later format
+   still opens the app.
 
    The address bar always shows the active window; every new window is a
    history entry, so Back closes it (and Forward opens it again). The entry
@@ -21,9 +28,19 @@ import { registry } from '../core/registry.js';
 import { launch, router } from '../core/router.js';
 import { get as service } from '../core/services.js';
 
+/* URL parsers read a backslash as '/' and drop tabs and newlines: '/\host' and '/<TAB>/host'
+   would lead to another site. Hash data is untrusted (ARCHITECTURE §5). A page of this site
+   has no scheme-like first segment ('/blob:…', '/data:…') and no dot segments ('/../x',
+   also '%2e' — URL parsers read it as a dot): such paths are dropped. → raw | null */
+function cleanHashPath(raw) {
+	if (/[\\\u0000-\u001f\u007f]/.test(raw) || /^\/[^/?#]*:/.test(raw)) return null;
+	if (/\/(?:\.|%2e){1,2}(?=[/?#]|$)/i.test(raw)) return null;
+	return raw;
+}
+
 /**
  * What a hash asks for (pure, exported for tests):
- *   { path: '/x/' } | { app: 'id' } | { search: 'text' } | null
+ *   { path: '/x/' } | { app: 'id' } | { app: 'id', url: '/x/' } | { search: 'text' } | null
  */
 export function parseHash(hash) {
 	let raw = String(hash ?? '').replace(/^#/, '');
@@ -33,19 +50,17 @@ export function parseHash(hash) {
 	} catch {
 		return null;
 	}
-	/* URL parsers read a backslash as '/' and drop tabs and newlines: '/\host' and '/<TAB>/host'
-	   would lead to another site. Hash data is untrusted (ARCHITECTURE §5). A page of this site
-	   has no scheme-like first segment ('/blob:…', '/data:…') and no dot segments ('/../x',
-	   also '%2e' — URL parsers read it as a dot): such links are dropped, not opened as an
-	   unavailable page. */
+	/* A bad path is dropped, not opened as an unavailable page */
 	if (/^\/(?!\/)/.test(raw)) {
-		if (/[\\\u0000-\u001f\u007f]/.test(raw) || /^\/[^/?#]*:/.test(raw)) return null;
-		if (/\/(?:\.|%2e){1,2}(?=[/?#]|$)/i.test(raw)) return null;
-		return { path: raw };
+		const path = cleanHashPath(raw);
+		return path ? { path } : null;
 	}
 	if (raw.startsWith('app=')) {
-		const id = raw.slice(4);
-		return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id) ? { app: id } : null;
+		const m = /^app=([a-z0-9][a-z0-9-]{0,63})((?:&(?!path=)[a-z][a-z0-9-]{0,31}=[^&]*)*)(?:&path=([\s\S]*))?$/.exec(raw);
+		if (!m) return null;
+		/* unknown parameters (m[2]) are ignored: a later format still opens the app */
+		const path = m[3] && /^\/(?!\/)/.test(m[3]) ? cleanHashPath(m[3]) : null;
+		return path ? { app: m[1], url: path } : { app: m[1] };    // a bad path is dropped: the app still opens
 	}
 	if (raw.startsWith('search=')) return { search: raw.slice(7, 207) };
 	return null;
@@ -58,18 +73,39 @@ let current = null;    // the state of the entry we are on
 const base = () => location.pathname + location.search;
 const wm = () => service('wm');
 
-/** The shortest way back to what a window shows: '#/path', '#app=id' or '' (dropped files). */
-export function hashFor(win) {
-	if (!win || win.app.transient) return '';
-	const path = wm()?.locationOf?.(win) ?? null;
+/**
+ * The hash for a window (pure, exported for tests): '' | '#/<path>' | '#app=<id>&path=<path>' | '#app=<id>'
+ *   { id, kind, transient, path (wm.locationOf), routedApp (router.route(path).app), startPath (of the start
+ *     page, + query), accepted (wm.acceptUrl(app, path, 'link')) }
+ * A page window: its page; another window: the path when it leads back to this very app, else
+ * '&path=' when the app's kind accepts it from a link and it is not the start page ('%' as '%25',
+ * so one decoding gives the exact path), else the app.
+ */
+export function hashOf({ id, kind, transient = false, path = null, routedApp = null, startPath = null, accepted = null }) {
+	if (transient) return '';
 	if (path) {
-		/* A page window: its page; another window: only if the path leads back to this very app */
-		if (win.kind === 'page') return `#${path}`;
-		try {
-			if (router.route(new URL(path, location.origin)).app === win.app.id) return `#${path}`;
-		} catch { /* not a URL */ }
+		if (kind === 'page' || routedApp === id) return `#${path}`;
+		if (accepted && path !== startPath) return `#app=${encodeURIComponent(id)}&path=${path.replaceAll('%', '%25')}`;
 	}
-	return `#app=${encodeURIComponent(win.app.id)}`;
+	return `#app=${encodeURIComponent(id)}`;
+}
+
+/** The shortest way back to what a window shows: '#/path', '#app=id&path=/path', '#app=id' or '' (dropped files). */
+export function hashFor(win) {
+	if (!win) return '';
+	const path = wm()?.locationOf?.(win) ?? null;
+	let routedApp = null;
+	let startPath = null;
+	let accepted = null;
+	if (path && win.kind !== 'page') {
+		try {
+			routedApp = router.route(new URL(path, location.origin)).app ?? null;
+		} catch { /* not a URL */ }
+		const start = router.resolveUrl(registry.url(win.app) ?? '');
+		startPath = start ? start.pathname + start.search : null;
+		if (routedApp !== win.app.id) accepted = wm()?.acceptUrl?.(win.app, path, 'link') ?? null;
+	}
+	return hashOf({ id: win.app.id, kind: win.kind, transient: win.app.transient === true, path, routedApp, startPath, accepted });
 }
 
 /** Opens what a hash asks for. */
@@ -85,7 +121,12 @@ export function openHash(hash) {
 		router.openUrl(url.href);
 	} else if (want.app) {
 		const app = registry.get(want.app);
-		if (app && app.kind !== 'launcher' && app.kind !== 'link' && registry.available(app)) launch(app.id);
+		if (app && app.kind !== 'launcher' && app.kind !== 'link' && registry.available(app)) {
+			/* Second guard: the app's own kind decides about a linked path (an alias: its target's) */
+			const target = app.alias ? registry.get(app.alias) ?? app : app;
+			const url = want.url ? wm()?.acceptUrl?.(target, want.url, 'link') ?? null : null;
+			launch(app.id, url ? { url } : {});
+		}
 	} else if (want.search != null) {
 		service('search')?.open?.(want.search);
 	}
@@ -181,5 +222,5 @@ export function initDeeplinks() {
 		on(name, () => { if (!quiet) sync(); });
 	}
 	addEventListener('popstate', onPop);
-	return Object.freeze({ linkFor, hashFor, open: openHash, start, parse: parseHash });
+	return Object.freeze({ linkFor, hashFor, hashOf, open: openHash, start, parse: parseHash });
 }

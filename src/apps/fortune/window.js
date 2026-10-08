@@ -3,13 +3,17 @@
    The question (online source only), the saying with its history, the source
    and category selects, and the requests to the online source (index.js has
    the descriptor, the config, the built-in sayings, the consent and the
-   service). win.state.fortune is the open window's handle. */
+   service). win.state.fortune is the open window's handle.
+
+   Texts that name the app go through appText() (config.fortune.texts). Key
+   functions given to lb.bind()/winButton() run at once: they may only use
+   module-level helpers (appText, cfg) or ones declared before the first bind. */
 
 import Desk from '../../core/api.js';
 import { labels, winButton, hasSheet, mod, copyWithFeedback } from '../kit.js';
-import { MAX_TRIES, normalizeText, pickLang, baseLang, pushHistory, isCat } from './model.js';
+import { MAX_TRIES, normalizeText, pickLang, baseLang, pushHistory, isCat, sourceFor } from './model.js';
 import { checkRequestUrl, categoriesFor } from './providers.js';
-import { KEY, SERVICE, TIMEOUT_MS, warn, cfg, remoteProvider, storedSource, saveSource, localData, drawLocal } from './index.js';
+import { KEY, SERVICE, TIMEOUT_MS, warn, cfg, appText, remoteProvider, storedSource, saveSource, localData, drawLocal } from './index.js';
 
 const { h, t, L, i18n } = Desk;
 
@@ -66,10 +70,11 @@ function mount(win, body) {
 	const denyBtn = h('button', { type: 'button', class: 'btn', onclick: () => deny() });
 	const allowBtn = h('button', { type: 'button', class: 'btn btn-primary', onclick: () => allow() });
 	const setBtn = h('button', { type: 'button', class: 'fortune-textbtn', onclick: () => Desk.showSettings('online') });
-	lb.bind(denyBtn, 'fortune.deny', ['text']);
-	lb.bind(allowBtn, 'fortune.allow', ['text']);
+	/* "No": the built-in sayings — or, online only, close the window (deny() below) */
+	lb.bind(denyBtn, () => appText(cfg().local !== false ? 'deny' : 'denyOnline'), ['text']);
+	lb.bind(allowBtn, () => appText('allow'), ['text']);
 	lb.bind(setBtn, 'fortune.toSettings', ['text']);
-	lb.bind(askTitle, 'fortune.askTitle', ['text']);
+	lb.bind(askTitle, () => appText('askTitle'), ['text']);
 	lb.bind(askText2, 'fortune.askText2', ['text']);
 	const ask = h('section', { class: 'fortune-ask', 'aria-labelledby': askTitle.id, hidden: true },
 		Desk.tile(win.app, 'fortune-tile'),
@@ -90,7 +95,9 @@ function mount(win, body) {
 
 	const quote = h('blockquote', { class: 'fortune-quote', dir: 'auto' });
 	const byline = h('figcaption', { class: 'fortune-by', hidden: true });
-	const card = h('figure', { class: 'fortune-card', 'aria-live': 'polite' }, Desk.icon('ti-cookie', 'i fortune-mark'), quote, byline);
+	/* the app's own glyph (logo, mark or icon of a site override), as the question's tile */
+	const mark = Desk.icons.appGlyph(win.app, { cls: 'i fortune-mark', fallback: 'ti-cookie' });
+	const card = h('figure', { class: 'fortune-card', 'aria-live': 'polite' }, mark, quote, byline);
 	const status = h('p', { class: 'fortune-status', role: 'status' });
 	const keys = h('p', { class: 'fortune-keys' });
 	const nextBtn = h('button', { type: 'button', class: 'btn btn-primary fortune-next', onclick: () => next() });
@@ -102,8 +109,8 @@ function mount(win, body) {
 
 	body.append(h('div', { class: 'fortune' }, ask, main));
 
-	const prevBtn = winButton(win, lb, 'ti-chevron-left', 'fortune.prev', () => prev(), 'fortune-prev');
-	const copyBtn = winButton(win, lb, 'ti-copy', 'fortune.copy', () => copy());
+	const prevBtn = winButton(win, lb, 'ti-chevron-left', () => appText('prev'), () => prev(), 'fortune-prev');
+	const copyBtn = winButton(win, lb, 'ti-copy', () => appText('copy'), () => copy());
 	const webBtn = winButton(win, lb, 'ti-external-link', 'fortune.web', () => openWeb());
 	win.addActions(prevBtn, copyBtn, webBtn);
 
@@ -126,10 +133,11 @@ function mount(win, body) {
 
 	function fillSelects() {
 		const p = remoteProvider();
-		srcField.hidden = !p;
-		if (p) {
+		/* online only: nothing to choose */
+		srcField.hidden = !p || cfg().local === false;
+		if (!srcField.hidden) {
 			srcSelect.replaceChildren(
-				h('option', { value: 'local', text: t('fortune.sourceLocal') }),
+				h('option', { value: 'local', text: appText('sourceLocal') }),
 				h('option', { value: 'remote', text: L(p.name) }));
 			srcSelect.value = remoteActive() ? 'remote' : 'local';
 		}
@@ -171,8 +179,9 @@ function mount(win, body) {
 		switch (st.error) {
 			case 'offline': return t('fortune.offline');
 			case 'error': return t('fortune.error', { host: hostOf(remoteActive() ?? remoteProvider()) });
-			case 'local': return t('fortune.localError');
-			case 'empty': return t('fortune.empty');
+			case 'local': return appText('localError');
+			case 'empty': return appText('empty');
+			case 'nosource': return appText('noSource');
 			default: return '';
 		}
 	}
@@ -185,11 +194,11 @@ function mount(win, body) {
 		else quote.removeAttribute('lang');
 		byline.textContent = item?.by ? t('fortune.by', { name: item.by }) : '';
 		byline.hidden = !item?.by;
-		status.textContent = st.busy ? t('fortune.loading') : errorText();
+		status.textContent = st.busy ? appText('loading') : errorText();
 		status.classList.toggle('is-error', !!st.error && !st.busy);
-		nextBtn.textContent = t(st.error && st.error !== 'empty' && !item ? 'fortune.retry' : 'fortune.next');
-		/* aria-disabled instead of disabled: the button keeps the keyboard focus */
-		nextBtn.setAttribute('aria-disabled', String(st.busy));
+		nextBtn.textContent = st.error && st.error !== 'empty' && st.error !== 'nosource' && !item ? t('fortune.retry') : appText('next');
+		/* aria-disabled instead of disabled: the button keeps the keyboard focus (also without a source) */
+		nextBtn.setAttribute('aria-disabled', String(st.busy || st.error === 'nosource'));
 		prevBtn.disabled = st.idx <= 0;
 		copyBtn.disabled = !item;
 		webBtn.disabled = !item?.url;
@@ -201,6 +210,12 @@ function mount(win, body) {
 		if (st.busy) return;
 		if (!view()) {
 			allowBtn.focus({ preventScroll: true });
+			return;
+		}
+		/* online only and no usable source: say so instead of loading */
+		if (cfg().local === false && !remoteActive()) {
+			st.error = 'nosource';
+			update();
 			return;
 		}
 		/* Forward through the history first, as a browser does */
@@ -247,7 +262,7 @@ function mount(win, body) {
 
 	async function copy() {
 		const item = st.list[st.idx];
-		if (item) await copyWithFeedback(copyBtn, item.text, { key: 'fortune.copy', doneKey: 'fortune.copied' });
+		if (item) await copyWithFeedback(copyBtn, item.text, { key: () => appText('copy'), doneKey: () => appText('copied') });
 	}
 
 	function openWeb() {
@@ -259,9 +274,10 @@ function mount(win, body) {
 	function setSource(source, { focus = false } = {}) {
 		/* the source select sits in the part that the question may hide: keep the focus */
 		const had = main.contains(document.activeElement);
-		const s = source === 'remote' && remoteProvider() ? 'remote' : 'local';
+		/* online only: always the online source (null without a usable one → next() says so) */
+		const s = sourceFor({ stored: source, local: cfg().local !== false, remote: !!remoteProvider() });
 		st.source = s;
-		saveSource(s);
+		if (s) saveSource(s);
 		st.seq++;
 		st.busy = false;
 		st.error = null;
@@ -282,11 +298,13 @@ function mount(win, body) {
 		next();
 	}
 
-	/* "No": the built-in sayings instead (the original closed the window — it had nothing else) */
-	const deny = () => setSource('local', { focus: true });
+	/* "No": the built-in sayings instead (the original closed the window — it had nothing else);
+	   online only there is nothing else either: close it, the question comes again next time */
+	const deny = () => (cfg().local !== false ? setSource('local', { focus: true }) : Desk.close(win));
 
 	/* The built-in data of the current language (also after a language switch) */
 	async function refreshLocal() {
+		if (cfg().local === false) return;
 		const d = await localData();
 		if (!win.el.isConnected || d === st.local) return;
 		st.local = d;
@@ -376,9 +394,9 @@ export default {
 		const f = win.state.fortune;
 		if (!f) return [];
 		return [
-			{ label: t('fortune.next'), run: () => f.next() },
-			{ label: t('fortune.prev'), disabled: !f.canPrev(), run: () => f.prev() },
-			{ label: t('fortune.copy'), disabled: !f.hasItem(), run: () => f.copy() },
+			{ label: appText('next'), run: () => f.next() },
+			{ label: appText('prev'), disabled: !f.canPrev(), run: () => f.prev() },
+			{ label: appText('copy'), disabled: !f.hasItem(), run: () => f.copy() },
 			...(remoteProvider() ? ['-', { label: t('fortune.privacy'), run: () => Desk.showSettings('online') }] : [])
 		];
 	},

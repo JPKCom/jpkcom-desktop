@@ -27,12 +27,12 @@
 <tr><td><code>services</code></td><td>Online services the site offers: <code>weather</code>, <code>geolocation</code>, <code>fortune</code>, <code>dns</code>. All <code>false</code> by default.</td></tr>
 <tr><td><code>reader</code></td><td>How the content of a page is found: <a href="pages.html">Writing pages</a>.</td></tr>
 <tr><td><code>notify</code></td><td>The news feed per language and the app that opens its entries.</td></tr>
-<tr><td><code>fortune</code></td><td>The folder of the sayings (<code>dir</code>), an optional online source (<code>remote</code>) and categories to leave out (<code>block</code>).</td></tr>
+<tr><td><code>fortune</code></td><td>The folder of the sayings (<code>dir</code>), an optional online source (<code>remote</code>: built in or from your own module), <code>local: false</code> for an online-only app, categories to leave out (<code>block</code>) and texts that name the app (<code>texts</code>).</td></tr>
 </tbody>
 </table>
 
 <h2 id="services">Online services</h2>
-<p>A service needs two switches: the site offers it (<code>services.fortune: true</code>) and each visitor agrees before the first request. Its host must also be allowed in the <code>connect-src</code> of your Content Security Policy — for example <code>v2.jokeapi.dev</code> for <code>fortune: { remote: 'jokeapi' }</code> or <code>uselessfacts.jsph.pl</code> for <code>remote: 'uselessfacts'</code>.</p>
+<p>A service needs two switches: the site offers it (<code>services.fortune: true</code>) and each visitor agrees before the first request. Its host must also be allowed in the <code>connect-src</code> of your Content Security Policy — for example <code>v2.jokeapi.dev</code> for <code>fortune: { remote: 'jokeapi' }</code> or <code>uselessfacts.jsph.pl</code> for <code>remote: 'uselessfacts'</code>. A source your own module adds needs its hosts there as well.</p>
 
 <h2 id="language">Adding a language</h2>
 <ol>

@@ -39,7 +39,7 @@ import { begin as beginSetup, end as endSetup, rollback, discard } from './undo.
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const KINDS = new Set(['core', 'module', 'app']);
 /* Window hooks of an app implementation — everything else in an app definition is manifest.
-   render: panels (kind 'native'); acceptUrl(app, path) is the only hook that gets the app, not the window */
+   render: panels (kind 'native'); acceptUrl(app, path, from) is the only hook that gets the app, not the window */
 export const HOOKS = ['mount', 'render', 'focus', 'relabel', 'menu', 'unmount', 'reopen', 'serialize', 'restore',
 	'locationOf', 'acceptUrl', 'reload', 'popOut', 'canPopOut', 'canLink', 'beforeClose'];
 /* Descriptor fields the loader handles itself; any other array/object field is a contribution */

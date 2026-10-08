@@ -2,7 +2,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fold, matches, gridMove, columnsOf } from '../src/modules/catalog/util.js';
+import { fold, matches, gridMove, columnsOf, isCatalogOf, pickWebApp, selfRouteHref } from '../src/modules/catalog/util.js';
+import { createRegistry } from '../src/core/registry.js';
+import { createRouter } from '../src/core/router.js';
 import { isSafeUrl } from '../src/core/url.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -58,6 +60,77 @@ test('URLs from data', () => {
 	/* the shared rule (core/url.js): parser tricks the old local copy let through */
 	assert.equal(isSafeUrl('java\tscript:alert(1)'), false);
 	assert.equal(isSafeUrl('/\t/evil.example/x'), false);
+});
+
+/* ---------- The web button (webApp, webUrl) ---------- */
+
+function webSetup({ collections, apps = [], routes = [] }) {
+	const reg = createRegistry({ warn: () => {} });
+	reg.load({ apps, collections });
+	const origin = 'https://desk.example';
+	const root = `${origin}/desktop/`;
+	const router = createRouter({ registry: reg, site: { hosts: ['www.desk.example'], routes }, origin, root });
+	return { reg, router, root, get: id => reg.get(id) };
+}
+
+test('web button: a Catalog of the same collection, also through an alias or a second Catalog app', () => {
+	const { get } = webSetup({
+		collections: [{ id: 'tools', name: 'Tools', basePath: 'tools/', items: [] }, { id: 'other', name: 'Other', items: [] }],
+		apps: [
+			{ id: 'browse', kind: 'collection', collection: 'tools', name: 'Browse' },
+			{ id: 'tools-alias', alias: 'tools', name: 'Alias' },
+			{ id: 'tools-web', kind: 'web', name: 'Web', hidden: true, url: 'tools/' }
+		]
+	});
+	for (const id of ['tools', 'browse', 'tools-alias']) assert.equal(isCatalogOf(id, 'tools', get), true, id);
+	for (const id of ['other', 'tools-web', 'nope', 42]) assert.equal(isCatalogOf(id, 'tools', get), false, String(id));
+	assert.equal(isCatalogOf('other', 'other', get), true);
+});
+
+test('web button: webApp before the Catalog app\'s, unavailable and own Catalogs skipped', () => {
+	assert.equal(pickWebApp(['a', 'b'], { available: () => true }), 'a');
+	assert.equal(pickWebApp([null, 'b'], { available: () => true }), 'b');
+	assert.equal(pickWebApp(['a', 'b'], { available: id => id === 'b' }), 'b');
+	assert.equal(pickWebApp(['browse', 'b'], { available: () => true, isSelf: id => id === 'browse' }), 'b');
+	assert.equal(pickWebApp([42, '', {}, 'c'], { available: () => true }), 'c');
+	assert.equal(pickWebApp(['a', 'b'], { available: () => false }), null);
+	assert.equal(pickWebApp(['a']), null, 'nothing is available by default');
+	assert.equal(pickWebApp([undefined, undefined], { available: () => true }), null);
+});
+
+test('web button: which webUrl leads back to the Catalog (part B)', () => {
+	const { router, root, get } = webSetup({
+		collections: [
+			{ id: 'tools', name: 'Tools', basePath: 'tools/', items: [] },
+			{ id: 'moved', name: 'Moved', basePath: 'moved/', items: [] },
+			{ id: 'other', name: 'Other', items: [] }
+		],
+		apps: [
+			{ id: 'tools-web', kind: 'web', name: 'Web', hidden: true, url: 'tools/' },
+			{ id: 'browse', kind: 'collection', collection: 'tools', name: 'Browse' }
+		],
+		routes: [{ match: '^/desktop/moved/?$', app: 'tools-web' }]
+	});
+	const href = 'https://desk.example/desktop/tools/';
+	assert.equal(selfRouteHref(router, 'tools/', root, 'tools', get), href);
+	assert.equal(selfRouteHref(router, 'tools', root, 'tools', get), 'https://desk.example/desktop/tools');
+	assert.equal(selfRouteHref(router, 'tools/index.html', root, 'tools', get), null, 'routes to a page');
+	assert.equal(selfRouteHref(router, 'moved/', root, 'moved', get), null, 'a site route sends it elsewhere');
+	assert.equal(selfRouteHref(router, 'https://example.org/tools/', root, 'tools', get), null, 'external');
+	assert.equal(selfRouteHref(router, 'https://www.desk.example/desktop/tools/', root, 'tools', get), href, 'site.hosts are this origin');
+	/* the browse window shows collection tools too: self is decided by the collection, not by the window's app */
+	assert.equal(selfRouteHref(router, 'tools/', root, 'tools', get), href);
+	assert.equal(selfRouteHref(router, 'tools/', root, 'other', get), null);
+	assert.equal(selfRouteHref(router, 'mailto:x@y', root, 'tools', get), null);
+
+	/* a route to an alias of a Catalog of the same collection counts */
+	const second = webSetup({
+		collections: [{ id: 'tools', name: 'Tools', basePath: 'tools/', app: 'browse', items: [] }],
+		apps: [{ id: 'browse-alias', alias: 'browse', name: 'Old tools' }],
+		routes: [{ match: '^/desktop/old-tools/?$', app: 'browse-alias' }]
+	});
+	assert.equal(selfRouteHref(second.router, 'old-tools/', second.root, 'tools', second.get), 'https://desk.example/desktop/old-tools/');
+	assert.equal(selfRouteHref(second.router, 'tools/', second.root, 'tools', second.get), 'https://desk.example/desktop/tools/');
 });
 
 /* The window code of the P4 kinds (§19.3 load) stays out of the boot: the descriptor reaches

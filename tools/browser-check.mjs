@@ -10,6 +10,7 @@
      node tools/browser-check.mjs [--path /] [--lang de] [--base /] [--mobile]
                                   [--scenario file.mjs] [--screenshot out.png]
                                   [--size 1280x800] [--wait 600] [--serve-args "--connect https://…"]
+                                  [--site-config c.js [--keep-sw]] [--route path=file …] [--no-sw]
 
      --path        page to open, relative to the base (default: the base itself; '?lang=…' allowed)
      --lang        browser language (navigator.language), e.g. de-DE
@@ -25,10 +26,19 @@
                    swapped in with page.route(), which never sees requests a service worker answers —
                    so service workers are blocked with it (after a reload sw.js would serve the real
                    config unnoticed); --keep-sw keeps them and warns when one takes over the page
-     --no-sw       block service workers (always on with --site-config unless --keep-sw)
+     --route path=file  serve a local file at <base><path> (repeatable), e.g. a site module or
+                   site/apps.js that is not in the tree: --route site/modules/u9/index.js=/tmp/u9.js.
+                   Installed with page.route() before the first navigation, like --site-config (and,
+                   like it, service workers are blocked unless --keep-sw). Content type from the
+                   extension (.js/.mjs text/javascript, .json application/json, .css text/css, else
+                   text/plain), UTF-8.
+     --no-sw       block service workers (always on with --site-config or --route unless --keep-sw)
      --serve-args  extra arguments for serve.mjs, one string split at spaces; the next argument is taken
                    even when it starts with '--': --serve-args "--connect https://api.example --wasm"
-                   (the older form with a leading space, --serve-args " --connect …", still works)
+                   (the older form with a leading space, --serve-args " --connect …", still works).
+                   A trial config and out-of-tree fixtures through serve.mjs --extra:
+                   --serve-args "--extra site/config.js=<cfg>,site/icon-sets/t.json=<set>" — unlike
+                   --site-config, this keeps service workers working with the trial config
 
    Every option also takes the form --name=value, e.g. --lang=de-DE --serve-args="--wasm".
 
@@ -47,6 +57,7 @@
      flock /tmp/jpkcom-desktop-browser.lock node tools/browser-check.mjs … */
 
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -69,6 +80,29 @@ const PATH = opt('path', '').replace(/^\//, '');
 const MOBILE = flag('mobile');
 const [W, H] = opt('size', MOBILE ? '390x844' : '1280x800').split('x').map(Number);
 const WAIT = Number(opt('wait', '600'));
+
+/* --route path=file (repeatable, also --route=path=file): split at the first '=', read before anything starts */
+const ROUTES = [];
+for (const v of args.flatMap((a, i) => (a.startsWith('--route=') ? [a.slice(8)]
+	: a === '--route' && args[i + 1] !== undefined && !args[i + 1].startsWith('--') ? [args[i + 1]] : []))) {
+	const at = v.indexOf('=');
+	const path = at > 0 ? v.slice(0, at).replace(/^\/+/, '') : '';
+	const file = at > 0 ? v.slice(at + 1) : '';
+	if (!path || !file) {
+		console.error(`--route ${v}: expected path=file`);
+		process.exit(2);
+	}
+	let body;
+	try {
+		body = readFileSync(resolve(process.cwd(), file), 'utf8');
+	} catch (e) {
+		console.error(`--route ${v}: ${file} cannot be read (${e.code ?? e.message})`);
+		process.exit(2);
+	}
+	const ext = (/\.([a-z0-9]+)$/i.exec(path)?.[1] ?? '').toLowerCase();
+	const type = ext === 'js' || ext === 'mjs' ? 'text/javascript' : ext === 'json' ? 'application/json' : ext === 'css' ? 'text/css' : 'text/plain';
+	ROUTES.push({ path, file, body, contentType: `${type}; charset=utf-8` });
+}
 
 let chromium;
 try {
@@ -141,7 +175,7 @@ const browser = await chromium.launch({ headless: true });
 let failed = false;
 try {
 	const siteConfig = opt('site-config', null);
-	const blockSw = flag('no-sw') || (!!siteConfig && !flag('keep-sw'));
+	const blockSw = flag('no-sw') || ((!!siteConfig || ROUTES.length > 0) && !flag('keep-sw'));
 	const context = await browser.newContext({
 		serviceWorkers: blockSw ? 'block' : 'allow',
 		viewport: { width: W, height: H },
@@ -174,6 +208,11 @@ try {
 		await page.route(/\/site\/config\.js(\?.*)?$/, route => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body }));
 		log(`site/config.js replaced by ${siteConfig}`);
 	}
+	for (const r of ROUTES) {
+		const esc = `${BASE}${r.path}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		await page.route(new RegExp(`^[^?#]*${esc}(\\?.*)?$`), route => route.fulfill({ status: 200, contentType: r.contentType, body: r.body }));
+		log(`routed ${r.path} → ${r.file}`);
+	}
 	await page.addInitScript(() => {
 		document.addEventListener('securitypolicyviolation', e =>
 			console.error(`CSP violation: ${e.violatedDirective} blocked ${e.blockedURI || '(inline)'}`));
@@ -200,9 +239,9 @@ try {
 		if (typeof scenarioMod.default !== 'function') throw new Error(`scenario ${scenario} has no default export function`);
 		await scenarioMod.default({ page, desk, log, assert });
 	}
-	/* --site-config --keep-sw: a service worker in control answers site/config.js past page.route() */
-	if (siteConfig && !blockSw && await page.evaluate(() => !!navigator.serviceWorker?.controller).catch(() => false)) {
-		warnings.push('a service worker controls the page: after a reload it serves the real site/config.js, not --site-config');
+	/* --site-config/--route --keep-sw: a service worker in control answers those files past page.route() */
+	if ((siteConfig || ROUTES.length) && !blockSw && await page.evaluate(() => !!navigator.serviceWorker?.controller).catch(() => false)) {
+		warnings.push('a service worker controls the page: after a reload it serves the real files, not --site-config/--route');
 	}
 	const shot = opt('screenshot', null);
 	if (shot) { await page.screenshot({ path: shot }); log(`screenshot ${shot}`); }

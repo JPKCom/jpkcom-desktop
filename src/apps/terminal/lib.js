@@ -5,13 +5,17 @@
    tests (tests/p09-terminal.test.mjs) import it directly. The terminal window
    (window.js) and the command files build on it; both load with the first
    window. What the descriptor needs at boot (config, stored history, command
-   names) is in config.js and re-exported here. */
+   names) is in config.js and re-exported here. The rules of manual values
+   (man, manUrl) are src/core/man.js; what `man <entry>` reads, in which order
+   and what it says is decided here (manPlan, manLookup, manOutcome). */
 
 import { fold as foldText } from '../../core/text.js';
 import { isObj } from '../../core/is.js';
+import { isTextPath } from '../../core/man.js';
 import { MAX_LINE, HISTORY_DEFAULT, isRelPath } from './config.js';
 
 export { MAX_LINE, HISTORY_DEFAULT, HISTORY_MAX, NAME, cleanState, isRelPath, cleanDoh, cleanConfig } from './config.js';
+export { MAN_VARS, isTextPath } from '../../core/man.js';
 
 /** Largest text cat/man print (characters) */
 export const MAX_FETCH = 400000;
@@ -120,6 +124,136 @@ export const historyLine = (line, entry) => (entry?.def?.sensitive === true ? en
 
 /** Fills {name} placeholders with URL-encoded values; unknown ones stay */
 export const fillTemplate = (tpl, vars) => String(tpl).replace(/\{([a-z]+)\}/g, (all, k) => (Object.hasOwn(vars, k) && vars[k] != null ? encodeURIComponent(String(vars[k])) : all));
+
+/* ---------- Manual pages of entries (`man <entry>`, p09 "Manual pages of entries") ---------- */
+
+/** At most this many text files are tried for one `man <entry>` */
+export const MAX_MAN_SOURCES = 6;
+
+/**
+ * One manual value (cleaned by src/core/man.js) → paths in fallback order, each once.
+ *   vars: { slug, id, collection }; chain: the i18n fallback chain ['de', 'en', …]
+ *   string with {lang} → one path per chain language; without → the one path;
+ *   map → per chain language the equal key, else the first key of the same base language
+ *         ({lang} = that key), then the map's first value (the last resort of Desk.L)
+ */
+export function expandMan(value, vars, chain) {
+	if (value == null || value === false) return [];
+	const out = [];
+	const add = (tpl, lang) => {
+		const path = fillTemplate(tpl, { ...vars, lang });
+		if (!out.includes(path)) out.push(path);
+	};
+	const langs = Array.isArray(chain) ? chain : [];
+	if (typeof value === 'string') {
+		if (value.includes('{lang}')) for (const lang of langs) add(value, lang);
+		else add(value, null);
+		return out;
+	}
+	if (!isObj(value)) return out;
+	const keys = Object.keys(value).filter(k => typeof value[k] === 'string');
+	const used = new Set();
+	for (const lang of langs) {
+		const base = String(lang).split('-')[0];
+		const key = keys.includes(lang) ? lang : keys.find(k => k.split('-')[0] === base);
+		if (!key) continue;
+		used.add(key);
+		add(value[key], key);
+	}
+	if (keys.length && !used.has(keys[0])) add(value[keys[0]], keys[0]);
+	return out;
+}
+
+/**
+ * What `man` reads for one entry (pure):
+ *   entry: { kind: 'apps' | <collection id>, key, id, app }   (catalog.js targets())
+ *   collection: { man, source } | null,  manUrl (config.terminal.manUrl),  chain,
+ *   L: resolves { lang: url } (Desk.L),  isText(path) → a text file on this site
+ * → { texts: string[] (≤ MAX_MAN_SOURCES), page: string | null, off: boolean }
+ * Order: the item's own man → its collection's man → manUrl (the first that is set decides; false = off).
+ * A collection's man applies only to items of the collection's own source (not the vault's in a site
+ * collection); manUrl only to items of the site's own collections (source 'site').
+ * An item's docs that is a text file is printed first while the item has no man of its own (1.1.0);
+ * a docs that is not printed is the page ("Full documentation"), else the first non-text path.
+ */
+export function manPlan({ entry, collection = null, manUrl = null, chain = [], L = v => (typeof v === 'string' ? v : null), isText = isTextPath }) {
+	const app = entry?.app ?? {};
+	const docs = app.docs != null ? (L(app.docs) || null) : null;
+	if (entry?.kind === 'apps') {
+		const text = !!docs && isText(docs);
+		return { texts: text ? [docs] : [], page: docs && !text ? docs : null, off: false };
+	}
+	const own = app.man == null ? undefined : app.man;
+	const tpl = !!collection && app.source === collection.source;
+	const coll = collection?.man ?? null;
+	/* manUrl only for the site's own items: a collection another source brought (the vault's) never uses it */
+	const site = tpl && collection.source === 'site';
+	const level = own !== undefined ? own : !tpl ? null : coll !== null ? coll : site ? (manUrl ?? null) : null;
+	const off = level === false;
+	const vars = { slug: app.slug ?? entry?.key, id: app.id ?? entry?.id, collection: app.collection ?? entry?.kind };
+	const paths = expandMan(level, vars, chain);
+	const texts = [];
+	/* off: nothing is read — a docs text file then only stays as the link */
+	if (!off) {
+		if (own === undefined && docs && isText(docs)) texts.push(docs);
+		for (const p of paths) if (isText(p) && !texts.includes(p)) texts.push(p);
+	}
+	const page = docs && !texts.includes(docs) ? docs : (paths.find(p => !isText(p)) ?? null);
+	return { texts: texts.slice(0, MAX_MAN_SOURCES), page, off };
+}
+
+/** Has this plan anything to show? (Tab completion, lookup) */
+export const hasManual = plan => !!plan && !plan.off && (plan.texts.length > 0 || plan.page !== null);
+
+/**
+ * `man <name>` among entries (commands come first, in the command): an exact key or name over all
+ * entries wins (also one without a manual); then a unique prefix/part among the entries that have a
+ * manual; then a unique prefix among all of them (no part match: a stray substring — an egg like `rm`
+ * — must not name an unrelated entry). exact: only the exact step (the query names a hidden command).
+ * → { hit, manual: boolean } | { many } | {}
+ */
+export function manLookup(query, list, has, { exact: exactOnly = false } = {}) {
+	const q = fold(query);
+	if (!q) return {};
+	const exact = list.find(x => fold(x.key) === q || fold(x.name) === q);
+	if (exact) return { hit: exact, manual: !!has(exact) };
+	if (exactOnly) return {};
+	const withManual = resolve(query, list.filter(x => has(x)));
+	if (withManual.hit) return { hit: withManual.hit, manual: true };
+	if (withManual.many) return { many: withManual.many };
+	const pre = list.filter(x => fold(x.key).startsWith(q) || fold(x.name).startsWith(q));
+	if (pre.length === 1) return { hit: pre[0], manual: !!has(pre[0]) };
+	return pre.length ? { many: pre } : {};
+}
+
+/** A failed manual request: 'missing' (404/410), 'stop' (network/timeout), 'aborted', 'failed' (anything else) */
+export function manMiss(err) {
+	const code = err?.code;
+	if (code === 'aborted' || err?.name === 'AbortError') return 'aborted';
+	if (code === 'http' && (err.status === 404 || err.status === 410)) return 'missing';
+	if (code === 'network' || code === 'timeout') return 'stop';
+	return 'failed';
+}
+
+/** Is this Content-Type an HTML page? (a 200 HTML answer counts as a missing manual) */
+export const isHtmlType = type => /\btext\/html\b/i.test(String(type ?? ''));
+
+/**
+ * What `man <entry>` shows after fetching (pure):
+ *   'aborted'  the command was cancelled — nothing
+ *   'print'    a text loaded
+ *   'link'     no text to read, a page to link (not off)
+ *   'error'    nothing loaded and at least one request failed (offline, server error, too large)
+ *   'none'     no manual, off, or every file missing — "<name> has no manual page." (not an error)
+ */
+export function manOutcome({ texts = [], page = null, off = false, loaded = false, failed = 0, aborted = false } = {}) {
+	if (aborted) return 'aborted';
+	if (loaded) return 'print';
+	if (!off && !texts.length && page) return 'link';
+	if (failed > 0) return 'error';
+	return 'none';
+}
+
 
 /* ---------- site/apps.js files (cat) ---------- */
 

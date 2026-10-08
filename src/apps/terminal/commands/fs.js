@@ -5,12 +5,15 @@
    then a unique part of the name — the current directory first) and
    addresses on this site or https. `cat` prints the files of site/apps.js
    `files` (Markdown rendered, other text as it is). `man` explains a command
-   (i18n) or prints the manual of an entry: its `docs` (a .md/.txt file on
-   this site) or config.terminal.manUrl filled with the entry's slug. */
+   (i18n) or prints the manual of an entry: a collection item's own `man`,
+   else its collection's `man`, else config.terminal.manUrl (site/apps.js,
+   ARCHITECTURE §7 "Manual pages"), and an item's `docs` text file; `~/apps`
+   entries only their `docs`. An entry without a manual, or whose files are
+   all missing, gets a calm note with a link — not an error. */
 
 import Desk from '../../../core/api.js';
 import { textOf } from '../registry.js';
-import { fold, resolve, fillTemplate, MAX_FETCH } from '../lib.js';
+import { fold, resolve, MAX_FETCH, isTextPath, manPlan, hasManual, manLookup, manMiss, manOutcome, isHtmlType } from '../lib.js';
 import { dirNames, isDir, listing, targets, files } from '../catalog.js';
 
 const t = (key, params) => Desk.t(`terminal.${key}`, params);
@@ -66,33 +69,54 @@ function listDir(io, name) {
 	}
 }
 
-/* open/man: 'dir/name' restricts the search to one directory */
-function lookup(q, cwd, filter = () => true) {
+/* open/man: 'dir/name' restricts the search to one directory; the current directory comes first
+   → { query, list } (the query without the directory) */
+function lookupList(q, cwd) {
 	const m = q.match(/^~?\/?([a-z0-9-]+)\/(.+)$/i);
 	const only = m && isDir(fold(m[1])) ? fold(m[1]) : null;
-	const list = targets({ only, first: cwd || null }).filter(filter);
-	return resolve(only ? m[2] : q, list);
+	return { query: only ? m[2] : q, list: targets({ only, first: cwd || null }) };
 }
 
 /* ---------- man ---------- */
 
-/** The manual source of an entry: its docs (a text file on this site) or config.terminal.manUrl */
-function manSources(x, cfg) {
-	const out = [];
-	const docs = Desk.L(x.app.docs);
-	if (docs) out.push(docs);
-	if (cfg.manUrl && x.kind !== 'apps') {
-		for (const lang of Desk.i18n.chain()) {
-			out.push(fillTemplate(cfg.manUrl, { slug: x.key, id: x.id, collection: x.kind, lang }));
-		}
-	}
-	return [...new Set(out)];
-}
-
+/** A text file on this site (.md/.markdown/.txt) — only those are read */
 const isTextFile = p => {
 	const url = Desk.router.resolveUrl(p);
-	return !!url && !Desk.router.isExternal(url) && /\.(md|markdown|txt)$/i.test(url.pathname);
+	return !!url && !Desk.router.isExternal(url) && isTextPath(url.pathname);
 };
+
+/** What `man` reads for an entry (lib.js manPlan); a page link that does not resolve counts as none */
+function planOf(x, cfg) {
+	const plan = manPlan({
+		entry: x,
+		collection: x.kind === 'apps' ? null : Desk.apps.collection(x.kind),
+		manUrl: cfg.manUrl,
+		chain: Desk.i18n.chain(),
+		L: v => Desk.L(v),
+		isText: isTextFile
+	});
+	return plan.page && !Desk.router.resolveUrl(plan.page) ? { ...plan, page: null } : plan;
+}
+
+/**
+ * One manual file → { text, url } | { miss: 'external'|'missing'|'failed'|'stop'|'aborted' }.
+ * Same origin only; an HTML answer (a fallback page sent with 200) counts as missing.
+ */
+async function fetchManual(path, signal) {
+	const url = Desk.router.resolveUrl(path);
+	if (!url || Desk.router.isExternal(url)) return { miss: 'external', url: path };
+	let html = false;
+	try {
+		const text = await Desk.net.request(url.href, {
+			read: 'text', accept: 'text/markdown, text/plain', signal,
+			onHeaders: h => { html = isHtmlType(h.get('Content-Type')); }
+		});
+		/* a long manual is cut short and printed, as `cat` does (1.1.0) */
+		return html ? { miss: 'missing', url: url.href } : { text: text.slice(0, MAX_FETCH), url: url.href };
+	} catch (e) {
+		return { miss: manMiss(e), url: url.href };
+	}
+}
 
 function manCommand(io, entry) {
 	const head = `${entry.name.toUpperCase()}(1)`;
@@ -111,32 +135,63 @@ function manCommand(io, entry) {
 	}
 }
 
-async function manEntry(io, x, cfg) {
-	const sources = manSources(x, cfg);
-	const texts = sources.filter(isTextFile);
-	const page = sources.find(p => !isTextFile(p) && Desk.router.resolveUrl(p)) ?? null;
+/** "<name> has no manual page." and where to go instead: the documentation page, else the entry itself */
+function noManualPage(io, x, page) {
+	io.dim(t('noManualPage', { name: x.name }));
+	if (page) io.print([`${t('manMore')} `, io.link(page, page)], 'term-dim');
+	else io.print([`${t('manOpen')} `, entryLink(io, x)], 'term-dim');
+}
+
+async function manEntry(io, x, plan) {
+	const { texts, page, off } = plan;
+	const tried = [];
 	let loaded = null;
-	/* the next source (the next language of the chain) only when the first file is missing */
-	for (const s of texts) {
-		loaded = await loadText(io, s, x.key, { quiet: true });
-		if (loaded || io.signal?.aborted) break;
+	let missing = 0;
+	let failed = 0;
+	let aborted = false;
+	/* the next file (the next language of the chain) only while the files are missing or fail on the
+	   server; offline or a timeout stops — the next request would fail the same way */
+	for (const path of texts) {
+		const done = io.progress(t('loading', { name: x.key }));
+		const r = await fetchManual(path, io.signal);
+		done();
+		tried.push(r.url);
+		if (r.text !== undefined) {
+			loaded = r;
+			break;
+		}
+		if (r.miss === 'aborted' || io.signal?.aborted) {
+			aborted = true;
+			break;
+		}
+		if (r.miss === 'missing') missing++;
+		else failed++;
+		if (r.miss === 'stop') break;
 	}
-	if (loaded) {
-		const head = `${x.key.toUpperCase()}(1)`;
-		io.say(`${head}   ${t('manHead', { name: Desk.L(Desk.config.brand.name) })}   ${head}`, 'term-pre term-dim');
-		io.blank();
-		printText(io, loaded);
-	} else if (texts.length && !io.signal?.aborted) {
-		io.err(t('fetchError', { name: x.key }));
-	}
-	/* The full documentation as a page (docs or manUrl that is not a text file);
-	   after a text manual without one: the entry's own page (as the original did) */
-	if (page) {
-		if (loaded) io.blank();
-		io.print([`${t('manMore')} `, io.link(page, page)], 'term-dim');
-	} else if (loaded) {
-		io.blank();
-		io.print([`${t('manMore')} `, entryLink(io, x)], 'term-dim');
+	const outcome = manOutcome({ texts, page, off, loaded: !!loaded, missing, failed, aborted });
+	if ((outcome === 'none' || outcome === 'error') && Desk.config.debug) console.info(`[terminal] man ${x.key}: ${outcome} — tried`, tried);
+	switch (outcome) {
+		case 'print': {
+			const head = `${x.key.toUpperCase()}(1)`;
+			io.say(`${head}   ${t('manHead', { name: Desk.L(Desk.config.brand.name) })}   ${head}`, 'term-pre term-dim');
+			io.blank();
+			printText(io, loaded);
+			/* the full documentation as a page; without one the entry's own page (as the original did) */
+			io.blank();
+			io.print([`${t('manMore')} `, page ? io.link(page, page) : entryLink(io, x)], 'term-dim');
+			break;
+		}
+		case 'link':
+			io.print([`${t('manMore')} `, io.link(page, page)], 'term-dim');
+			break;
+		case 'error':
+			io.err(t('fetchError', { name: x.key }));
+			if (page) io.print([`${t('manMore')} `, io.link(page, page)], 'term-dim');
+			break;
+		case 'none':
+			noManualPage(io, x, page);
+			break;
+		default:
 	}
 }
 
@@ -213,7 +268,8 @@ export default function fsCommands(cfg) {
 					io.say(t('opening', { name: q }));
 					return;
 				}
-				const r = lookup(q, shell.cwd());
+				const { query, list } = lookupList(q, shell.cwd());
+				const r = resolve(query, list);
 				if (r.hit) {
 					io.say(t('opening', { name: r.hit.name }));
 					if (!Desk.launch(r.hit.id)) io.err(t('cannotOpen', { name: r.hit.name }));
@@ -260,7 +316,7 @@ export default function fsCommands(cfg) {
 			help: '@terminal.cmd.man',
 			usage: '@terminal.usage.man',
 			man: '@terminal.man.man',
-			complete: (word, { shell }) => [...shell.commands.names(), ...targets().filter(x => manSources(x, cfg).length).map(x => x.key)],
+			complete: (word, { shell }) => [...shell.commands.names(), ...targets().filter(x => hasManual(planOf(x, cfg))).map(x => x.key)],
 			async run(args, io, { shell, rest }) {
 				const q = rest.trim();
 				if (!q) {
@@ -274,13 +330,26 @@ export default function fsCommands(cfg) {
 					manCommand(io, entry);
 					return;
 				}
-				const r = lookup(q, shell.cwd(), x => manSources(x, cfg).length > 0);
+				/* an exact name always means that entry, also one without a manual (p09 "Manual pages of entries") */
+				const { query, list } = lookupList(q, shell.cwd());
+				const plans = new Map();
+				const plan = x => {
+					if (!plans.has(x)) plans.set(x, planOf(x, cfg));
+					return plans.get(x);
+				};
+				/* a hidden command that has no page (an egg): only an entry of exactly that name answers */
+				const r = manLookup(query, list, x => hasManual(plan(x)), { exact: !!entry });
 				if (!r.hit) {
 					io.err(t('noManual', { name: q }));
 					if (r.many) io.table(matchRows(r.many));
 					return;
 				}
-				await manEntry(io, r.hit, cfg);
+				if (!r.manual) {
+					if (Desk.config.debug) console.info(`[terminal] man ${r.hit.key}: none — tried`, []);
+					noManualPage(io, r.hit, plan(r.hit).page);
+					return;
+				}
+				await manEntry(io, r.hit, plan(r.hit));
 			}
 		}
 	};

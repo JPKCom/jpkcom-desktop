@@ -7,8 +7,33 @@
 
 import Desk from '../../core/api.js';
 import { h } from '../../core/dom.js';
-import { matches, gridMove, columnsOf } from './util.js';
+import { matches, gridMove, columnsOf, isCatalogOf, pickWebApp, selfRouteHref } from './util.js';
 import { t, name, actions, webUrl, allLabel, webLabel, openLabel } from './index.js';
+
+/* ---------- The web button ---------- */
+
+/* The Catalog's web button: { label, run } or null (no available webApp, no webUrl).
+   c = the collection, app = the window's Catalog app, cid = the collection it shows. */
+function webTarget(c, app, cid) {
+	const get = id => Desk.apps.get(id);
+	const id = pickWebApp([c?.webApp, app?.webApp], {
+		available: v => Desk.apps.available(v),
+		isSelf: v => isCatalogOf(v, cid, get)
+	});
+	const url = webUrl(c, app);
+	if (!id && !url) return null;
+	const openWeb = () => {
+		if (!url) return false;
+		/* a webUrl that routes back to a Catalog of this collection opens in a new tab */
+		const tab = selfRouteHref(Desk.router, url, Desk.env.root, cid, get);
+		if (tab) {
+			window.open(tab, '_blank', 'noopener');
+			return true;
+		}
+		return Desk.openUrl(url);
+	};
+	return { label: webLabel(c, app), run: () => (id != null && Desk.launch(id) !== false) || openWeb() };
+}
 
 /* ---------- The window ---------- */
 
@@ -101,14 +126,13 @@ function mount(win, body) {
 		const hadFocus = grid.contains(document.activeElement) ? document.activeElement.dataset.app : null;
 		search.placeholder = t('core.search');
 		search.setAttribute('aria-label', t('catalog.searchIn', { name: name(win.app) }));
-		const web = webUrl(collection(), win.app);
+		const web = webTarget(collection(), win.app, cid);
 		extraBtn.hidden = !web;
 		if (web) {
-			const label = webLabel(collection(), win.app);
-			extraBtn.replaceChildren(Desk.icon('ti-world'), h('span', { class: 'catalog-extra-label', text: label }));
-			extraBtn.setAttribute('aria-label', label);
-			extraBtn.title = label;
-			extraBtn.onclick = () => Desk.openUrl(web);
+			extraBtn.replaceChildren(Desk.icon('ti-world'), h('span', { class: 'catalog-extra-label', text: web.label }));
+			extraBtn.setAttribute('aria-label', web.label);
+			extraBtn.title = web.label;
+			extraBtn.onclick = web.run;
 		}
 		if (state.selected && !Desk.apps.get(state.selected)) state.selected = null;
 		renderSide(list);
@@ -219,8 +243,8 @@ function mount(win, body) {
 			render();
 			return true;
 		},
-		web: () => webUrl(collection(), win.app),
-		webLabel: () => webLabel(collection(), win.app),
+		/* the web button's target: { label, run } | null */
+		web: () => webTarget(collection(), win.app, cid),
 		close() {
 			state.closed = true;
 			off();
@@ -253,7 +277,7 @@ export default {
 		return [
 			{ label: openLabel(app), disabled: !app, run: () => app && c.launch(app.id) },
 			...actions(app).filter(a => a.id !== 'tab').map(a => ({ label: a.label, run: a.run })),
-			...(web ? ['-', { label: c.webLabel(), run: () => Desk.openUrl(web) }] : [])
+			...(web ? ['-', { label: web.label, run: web.run }] : [])
 		];
 	}
 };

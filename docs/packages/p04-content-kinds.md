@@ -172,7 +172,13 @@ kind `collection`, `app.collection = id`).
   groups; chips in a row on phones.
 - **Toolbar**: search field (`ti-search`; matches name, description and host; case- and
   diacritic-insensitive, every word must occur; the first Esc clears it) and "Overview on the web"
-  (`ti-world`) when the collection or its Catalog app has a `webUrl` (opens through `Desk.openUrl`).
+  (`ti-world`) when the collection or its Catalog app has a `webApp` that is registered and openable
+  (launched with `Desk.launch`; the collection's value first, then the Catalog app's; never a Catalog of
+  the same collection) or a `webUrl` (opened through `Desk.openUrl`; a `webUrl` whose route is a Catalog
+  of this collection — it equals `basePath` — opens in a new tab). `webApp` wins; `webUrl` is used when
+  no `webApp` is available. Recommended `webApp` target: a hidden `web` app (a `page` app at `basePath`
+  would get a deep link to the Catalog); a Reader overview only needs `webUrl: '<basePath>index.html'`.
+  The button and its menu entry follow `'apps:change'` (an app that registers later shows the button).
 - **Per-collection wording**: optional `allLabel` (the "All" entry, e.g. "All tools") and `webLabel` (the
   web button, e.g. "Arcade hall") — text, `'@ns.key'` or `{ lang: text }` — on the collection or its
   Catalog app; otherwise "All" / "Overview on the web".
@@ -189,6 +195,7 @@ kind `collection`, `app.collection = id`).
   `ti-compass`) — URLs or `{ lang: url }` maps, relative to the root or http(s), opened through
   `Desk.openUrl`; checked with the shared rule of `src/core/url.js` (`isSafeUrl`: no control characters,
   no backslash), by the registry when the item is loaded (a bad link is dropped with a warning) and again here; Download for `image` items and items with `download: true`; Open in new tab for links.
+  `docs` should be a page (the Catalog opens it); the text twin for the terminal is `man` (ARCHITECTURE §7).
 - Redraws on `'apps:change'` (vault unlock, modules) once per batch, keeping selection and focus; on a
   language switch (`relabel`).
 - Hooks: `serialize → { section }` (when not "All"), `restore` (validated id), `menu` (Open — "Open in
@@ -227,7 +234,8 @@ The Catalog items carry their own look (no dependency on the shell's `.icon` sty
   translated); facts fetched only for same-origin pictures (no remote fallback to the author's site);
   errors re-translate on a language switch; the 50 MB limit is a placeholder in the message.
 - **Catalog**: data-driven from collections (no fixed tools/games/links/portfolio sources, no site app
-  ids; per-collection labels through `allLabel`/`webLabel`); several status-bar actions instead of one; locale-aware, diacritic-insensitive search; keyboard
+  ids; per-collection labels through `allLabel`/`webLabel`; the web button launches an app named by the
+  collection (`webApp`, as the original's hidden sub-windows) or opens `webUrl`); several status-bar actions instead of one; locale-aware, diacritic-insensitive search; keyboard
   grid navigation with one tab stop; the sidebar hides without groups; the shown section survives a
   session restore.
 - **CSP reports while parsing**: browsers apply the page's CSP to inert documents too, so a fetched page

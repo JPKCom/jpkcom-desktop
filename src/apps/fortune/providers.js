@@ -5,7 +5,8 @@
    (consent 'fortune'). Its hosts must be in the server's CSP connect-src.
 
    Provider definition:
-     { id, name: text, hosts: ['api.example.org'], home: 'https://…' | null,
+     { id, name: text, hosts: ['api.example.org'],       1 to MAX_HOSTS (8) host names
+       home: 'https://…' | null,
        langs: ['en', 'de'] | null,                       languages it serves (null: any)
        categories: [{ id, label: text,                   optional; label '@ns.key' or { lang: text }
                       langs?: ['en'] }],                 languages the category exists in (default: all)
@@ -18,6 +19,11 @@
                                                          throw an error with code 'empty': nothing found
    plain(html) turns foreign text into plain text (parsed inert in the browser).
 
+   Added by modules: descriptor contribution fortuneProviders (a plain object literal — own
+   properties only) or Desk.fortune.addProvider(def, { module }). createSources() below keeps
+   the list, adopts contributions, drops a failed module's providers and registers the consent
+   for the configured one.
+
    Built in:
      jokeapi       JokeAPI v2 (https://jokeapi.dev/), host v2.jokeapi.dev — jokes in
                    cs, de, en, es, fr, pt; safe mode, no offensive flags. Not every category
@@ -28,7 +34,7 @@
                    random facts in de and en; "Learn more" opens the fact's origin (source_url,
                    https only), its name (source) is the signature */
 
-import { isCat, isLang, baseLang } from './model.js';
+import { isCat, isLang, baseLang, isText, MAX_HOSTS } from './model.js';
 import { isObj } from '../../core/is.js';
 
 const HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -128,8 +134,6 @@ export function httpsUrl(raw) {
 	}
 }
 
-const isText = v => (typeof v === 'string' && v.length > 0) || (isObj(v) && Object.values(v).length > 0 && Object.values(v).every(x => typeof x === 'string'));
-
 /**
  * Checks a provider definition (built-in ones and those added through the
  * service) → a frozen copy or null (reported through warn).
@@ -141,8 +145,9 @@ export function cleanProvider(def, warn = () => {}) {
 	};
 	if (!isObj(def) || !isCat(def.id)) return bad('needs an id [a-z][a-z0-9-]');
 	if (!isText(def.name)) return bad('needs a name');
-	const hosts = (Array.isArray(def.hosts) ? def.hosts : [def.hosts]).filter(x => typeof x === 'string' && HOST.test(x));
+	const hosts = [...new Set((Array.isArray(def.hosts) ? def.hosts : [def.hosts]).filter(x => typeof x === 'string' && HOST.test(x)))];
 	if (!hosts.length) return bad('needs its host names (hosts) for the consent and the CSP');
+	if (hosts.length > MAX_HOSTS) return bad(`names ${hosts.length} hosts (at most ${MAX_HOSTS})`);
 	if (typeof def.url !== 'function' || typeof def.parse !== 'function') return bad('needs url() and parse()');
 	const langs = Array.isArray(def.langs) ? def.langs.filter(isLang) : null;
 	const categories = (Array.isArray(def.categories) ? def.categories : [])
@@ -181,4 +186,136 @@ export function checkRequestUrl(provider, raw) {
 		return null;
 	}
 	return url.protocol === 'https:' && provider.hosts.includes(url.hostname) ? url.href : null;
+}
+
+/* ---------- The consent bound to a provider ---------- */
+
+/** What the user agreed to: '<id>@<sorted hosts>' (stored as agreed in the key 'fortune') */
+export const consentTag = p => `${p.id}@${[...p.hosts].sort().join(',')}`;
+
+/**
+ * A granted consent that was given for another provider (other id or hosts) or
+ * without a record (from before the binding) does not count → true: withdraw it.
+ * Without a provider nothing can be requested, so nothing is stale.
+ */
+export function staleConsent({ granted = false, agreed = null, provider = null } = {}) {
+	return !!(granted && provider && agreed !== consentTag(provider));
+}
+
+/**
+ * What is wrong with the configured online source, reported once at 'modules:ready':
+ * remote (config.fortune.remote), local (config.fortune.local), known (a provider has
+ * that id), offered (services.fortune: true), builtIn (ids) → messages.
+ */
+export function remoteProblems({ remote = null, local = true, known = false, offered = false, builtIn = [] } = {}) {
+	if (remote && !known) {
+		return [`unknown online source '${remote}' (built in: ${builtIn.join(', ')}; a module adds one with fortuneProviders or Desk.fortune.addProvider() in its setup())${local ? '' : ' — the app has nothing to show'}`];
+	}
+	if (remote && known && !local && !offered) return ['local: false, but services.fortune is not true — the app has nothing to show'];
+	return [];
+}
+
+/* ---------- The sources and their lifecycle ---------- */
+
+/**
+ * The app's online sources and their lifecycle (pure: no DOM, no Desk — index.js wires the bus).
+ *   builtIns  provider definitions that are always there (never dropped)
+ *   remote()  the configured id (config.fortune.remote), read on every call
+ *   consent   { register(provider), unregister() } — the registration for the configured provider
+ * → {
+ *   add(def, module = null) → provider | null   cleanProvider; duplicate id → warn, null; then sync()
+ *   fromContributions(list)                     add(item, item.module) for each, then sync() (also with [])
+ *   onLoaded(id, list)                          add() the items with item.module === id
+ *   onFailed(id) → ids                          drops the providers added with that module; sync()
+ *   ready({ local, offered }) → string[]        remoteProblems() — the first call only, later calls → []
+ *   configured() → provider | null              the provider remote() names
+ *   get(id), has(id), ids(), builtIn() → ids
+ * }
+ * A contribution object seen once (fromContributions, then onLoaded with the full list) is
+ * adopted once, silently.
+ */
+export function createSources({ builtIns = [], remote = () => null, consent = null, warn = () => {} } = {}) {
+	const list = new Map();          // id → { provider, module }
+	const fixed = [];                // the built-in ids
+	const seen = new WeakSet();      // contribution objects already handled
+	let registered = null;           // the provider the consent is registered for
+	let checked = false;
+
+	for (const def of builtIns) {
+		const p = cleanProvider(def, warn);
+		if (!p || list.has(p.id)) continue;
+		list.set(p.id, { provider: p, module: null });
+		fixed.push(p.id);
+	}
+
+	const configured = () => {
+		const id = remote();
+		return (typeof id === 'string' && list.get(id)?.provider) || null;
+	};
+
+	/* The consent entry follows the configured provider: registered once it exists, withdrawn when it goes */
+	function sync() {
+		const p = configured();
+		if (p === registered) return;
+		if (registered) consent?.unregister?.();
+		registered = null;
+		if (p) {
+			consent?.register?.(p);
+			registered = p;
+		}
+	}
+
+	function add(def, module = null) {
+		const p = cleanProvider(def, warn);
+		if (!p) return null;
+		if (list.has(p.id)) {
+			warn(`provider '${p.id}' exists already — kept the first`);
+			return null;
+		}
+		list.set(p.id, { provider: p, module: typeof module === 'string' ? module : null });
+		sync();
+		return p;
+	}
+
+	function adopt(item) {
+		if (item && typeof item === 'object') {
+			if (seen.has(item)) return;
+			seen.add(item);
+		}
+		add(item, item?.module);
+	}
+
+	return Object.freeze({
+		add,
+		fromContributions(items) {
+			for (const item of Array.isArray(items) ? items : []) adopt(item);
+			sync();
+		},
+		onLoaded(id, items) {
+			if (typeof id !== 'string') return;
+			for (const item of Array.isArray(items) ? items : []) if (item?.module === id) adopt(item);
+		},
+		onFailed(id) {
+			const gone = [];
+			if (typeof id !== 'string') return gone;
+			for (const [pid, entry] of list) {
+				if (entry.module === id) {
+					list.delete(pid);
+					gone.push(pid);
+				}
+			}
+			sync();
+			return gone;
+		},
+		ready({ local = true, offered = false } = {}) {
+			if (checked) return [];
+			checked = true;
+			return remoteProblems({ remote: remote(), local, known: !!configured(), offered, builtIn: [...fixed] });
+		},
+		configured,
+		get: id => list.get(id)?.provider ?? null,
+		has: id => list.has(id),
+		ids: () => [...list.keys()],
+		builtIn: () => [...fixed]
+	});
 }

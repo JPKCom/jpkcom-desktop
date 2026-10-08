@@ -6,6 +6,15 @@
 	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
 	"items": [
 		{
+			"id": "jpkcom-desktop-1.2.0",
+			"url": "../content/en/changelog.html?release=1.2.0",
+			"title": "JPKCom Desktop 1.2.0 released",
+			"summary": "Feeds and site data are fresh again with the fast start, sites can bring their own icon sets, and the terminal reads manual pages per entry and language. Plus web windows anywhere on the site and a Fortune app you can rename.",
+			"content_text": "JPKCom Desktop 1.2.0 keeps data fresh and brings more for site owners. See the changelog for the details.",
+			"date_published": "2026-10-08T12:30:00+02:00",
+			"tags": ["release"]
+		},
+		{
 			"id": "jpkcom-desktop-1.1.0",
 			"url": "../content/en/changelog.html?release=1.1.0",
 			"title": "JPKCom Desktop 1.1.0 released",

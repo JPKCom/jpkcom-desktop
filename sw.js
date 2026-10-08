@@ -5,26 +5,47 @@
    the web root ('/') and in a sub-folder ('/desktop/'): every path below is resolved
    against its own location.
 
-   Fast start (config.offline.fastStart, the default): the desktop's own files
-   are answered from the offline copy when there is one — no network on the way
-   to the first paint. A few seconds after each start (at most once a minute)
-   the worker compares every copy with the server (cache: 'no-cache', mostly
-   304); when anything changed it fetches a complete new copy into a second
-   cache ('…-next', the same crawl as the install) and tells the open pages
-   ({ type: 'desk:update' } → "new version, reload"). The next start of the
-   desktop moves it in place before the first file is answered, so a page never
-   mixes old and new files. A changed sw.js or site/config.js still installs a
-   new worker as before (and tells the pages the same).
+   Fast start (config.offline.fastStart, the default): the desktop's code is
+   answered from the offline copy when there is one — no network on the way to
+   the first paint. A few seconds after each start (at most once a minute) the
+   worker compares every copy of the code with the server (cache: 'no-cache',
+   mostly 304); when anything changed it fetches a complete new copy into a
+   second cache ('…-next', the same crawl as the install) and tells the open
+   pages ({ type: 'desk:update' } → "new version, reload"). The next start of
+   the desktop moves it in place before the first file is answered, so a page
+   never mixes old and new code. A changed sw.js or site/config.js still
+   installs a new worker as before (and tells the pages the same).
+   Runtime copies: a file of the shell (not a data file, see below) the crawl
+   did not fetch but the desktop read later (a man or cat text outside the data
+   folders, an image — not a script or style) is stored with the header
+   X-Desk-Copy: runtime. The update check refreshes such copies in place
+   (changed bytes → new copy; 404/410 or no longer to be kept → deleted; no
+   answer → kept) and never prepares or announces an update because of them.
 
-   Network first (fastStart: false; always for Reader pages): online you get the
-   deployed files (revalidated with cache: 'no-cache'), offline — or when the
-   network takes longer than config.offline.timeoutMs and a copy exists — the
-   last good copy.
+   Data files — notify.feeds (also outside the root), the fortune files of the
+   language chain, site/data/, site/content/ — are never answered from the copy
+   first: network first like fastStart: false, offline the last copy. The update
+   check skips them and '-next' never contains them, so a new feed item or an
+   edited content file never offers a new version. Code wins over the data
+   folders: SHELL_FILES, site.data, the wallpapers, the site icon sets and the
+   files and folders of { id, src } modules and apps stay code wherever they lie (an exact feed or
+   fortune file stays data, also inside a module folder; of two folders the
+   deeper one decides, so a module file directly in site/ leaves site/data/ data). Data is always the
+   server's current version, so older code may read it for one session: a data
+   file must stay readable by the previous code (add fields, do not rename or
+   remove them; a new file name for an incompatible format).
+
+   Network first (fastStart: false; always for data files and Reader pages):
+   online you get the deployed files (revalidated with cache: 'no-cache'),
+   offline — or when the network takes longer than config.offline.timeoutMs
+   and a copy exists — the last good copy.
 
    What it caches (and nothing else):
      shell    the desktop itself: index.html (one copy, whatever the query), the
               manifest, assets/icons/, src/, locales/, site/ (except the vault folder)
-              — precached at install, refreshed whenever the page loads them
+              and the files of config.iconSets (site icon sets)
+              — precached at install, refreshed whenever the page loads them; data
+              files among them are network first (see above)
      pages    same-origin HTML the Reader fetches (fetch with Accept: text/html),
               at most config.offline.maxPages, the oldest go first
    Never: cross-origin requests (online services, CDNs), non-GET requests, range
@@ -54,7 +75,11 @@
    on activation only this installation's own older caches are deleted — every
    cache of this naming scheme for this folder, whatever its namespace (one folder
    holds one installation; a changed namespace leaves no orphans). Other desktops
-   or apps on the same origin keep theirs.
+   or apps on the same origin keep theirs. Caches of a service worker the site used
+   before (config.offline.legacyCaches: exact names or 'prefix*') are deleted on
+   activation, once more 30 s after it (that worker may still finish requests and
+   write to them) and at every start. A name of this scheme, for any folder, is
+   never deleted that way.
 
    config.pwa.enabled === false switches it off for good: a service worker that is
    still registered from before installs, deletes its caches and unregisters itself. */
@@ -62,7 +87,7 @@
 'use strict';
 
 /* Keep equal to package.json "version" and VERSION in src/core/env.js (tests/p12-sw.test.mjs checks it) */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 /* Defaults for what this worker reads from the config — mirror src/core/config.js DEFAULTS
    (tests/p12-sw.test.mjs checks that they match) */
@@ -79,7 +104,8 @@ const DEFAULTS = Object.freeze({
 	enabled: true,
 	maxPages: 80,
 	timeoutMs: 4000,
-	fastStart: true
+	fastStart: true,
+	legacyCaches: []
 });
 
 /* Required parts of the desktop (src/boot/main.js CORE_PARTS) */
@@ -95,15 +121,31 @@ const SHELL_FILES = ['./', 'manifest.webmanifest', 'site/config.js', 'src/boot/p
 const SHELL_DIRS = ['src/', 'locales/', 'site/', 'assets/icons/'];
 const SHELL_ROOT_FILES = ['', 'index.html', 'manifest.webmanifest'];
 
+/* Folders (relative to the root) whose files are data, not code: network first, never part of an update.
+   Code inside them (SHELL_FILES, site.data, wallpapers, { id, src } modules and apps) stays code. */
+const DATA_DIRS = ['site/data/', 'site/content/'];
+
 const MAX_FILES = 800;            // upper bound for the precache crawl
 const INSTALL_TIMEOUT_MS = 20000; // per file during the install
 const CHECK_DELAY_MS = 3000;      // fast start: the update check waits until the desktop has started
 const CHECK_GAP_MS = 60000;       // … and runs at most once in this time
 const CHECK_BATCH = 6;            // files compared at the same time
+const LEGACY_FOLLOW_UP_MS = 30000; // legacy caches: once more after the hand-over
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const NS = /^[a-z][a-z0-9-]{0,23}$/;
+/* Site icon sets: the path rule SET_PATH and MAX_SETS of src/core/icon-sets.js — a classic worker cannot
+   import the module, so this is a copy (tests/p12-sw.test.mjs keeps them equal) */
+const SET_PATH = /^(?!\/)(?!.*\/\/)(?!(?:.*\/)?\.)[A-Za-z0-9._\/-]{1,251}\.json$/;
+const MAX_SETS = 8;
 const LANG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+/* A cache name of this project's scheme, any folder, any namespace ('<namespace>:<base>:<version>-<hash>',
+   '…-next', '<namespace>:<base>:pages'): never a legacy cache. Keep in step with cacheNames().own below
+   and with CACHE_SCHEME in src/core/config.js (tests/p12-sw.test.mjs checks both). */
+const SCHEME = /^[a-z][a-z0-9-]{0,23}:\/.*:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$/;
+/* offline.legacyCaches entry: an exact name, or a prefix of at least 4 characters followed by '*' */
+const LEGACY = /^(?:[^*\u0000-\u001f\u007f]{1,128}|[^*\u0000-\u001f\u007f]{4,127}\*)$/;
+const MAX_LEGACY = 32;
 
 /** The installation root: absolute URL and path, both with a trailing slash */
 const ROOT_URL = new URL('./', self.location.href).href;
@@ -147,6 +189,8 @@ function cleanConfig(raw) {
 	const relDir = v => typeof v === 'string' && /^(?![a-z][a-z0-9+.-]*:)(?!\/\/)(?!.*\.\.)[^\s?#\\]*\/$/i.test(v) && !!local(v);
 	const siteData = pick(isObj(c.site) ? c.site.data : undefined, v => !!local(v), DEFAULTS.siteData);
 	const fortuneDir = pick(isObj(c.fortune) ? c.fortune.dir : undefined, relDir, DEFAULTS.fortuneDir);
+	/* online only (fortune.local: false) only when the page keeps it: remote must be a valid id */
+	const onlineOnly = isObj(c.fortune) && c.fortune.local === false && typeof c.fortune.remote === 'string' && ID.test(c.fortune.remote);
 	const cleaned = {
 		namespace: pick(c.namespace, v => typeof v === 'string' && NS.test(v), DEFAULTS.namespace),
 		languages: [...new Set(languages)],
@@ -155,36 +199,75 @@ function cleanConfig(raw) {
 		apps,
 		siteData,
 		vaultDir: pick(isObj(c.vault) ? c.vault.dir : undefined, relDir, DEFAULTS.vaultDir),
-		fortuneDir: has(apps, 'fortune') ? fortuneDir : null,
+		fortuneDir: has(apps, 'fortune') && !onlineOnly ? fortuneDir : null,
 		feeds: has(modules, 'notify') ? Object.values(feeds).filter(v => !!local(v)) : [],
 		images: images.map(i => (isObj(i) ? i.src : null)).filter(v => !!local(v)),
 		enabled: !(isObj(c.pwa) && c.pwa.enabled === false),
 		maxPages: int(isObj(c.offline) ? c.offline.maxPages : undefined, 0, 1000, DEFAULTS.maxPages),
 		timeoutMs: int(isObj(c.offline) ? c.offline.timeoutMs : undefined, 500, 60000, DEFAULTS.timeoutMs),
-		fastStart: !(isObj(c.offline) && c.offline.fastStart === false)
+		fastStart: !(isObj(c.offline) && c.offline.fastStart === false),
+		/* the rule of src/core/config.js cleanLegacyCaches(): valid, unique, in order, at most MAX_LEGACY */
+		legacy: (() => {
+			const list = isObj(c.offline) && Array.isArray(c.offline.legacyCaches) ? c.offline.legacyCaches : DEFAULTS.legacyCaches;
+			return [...new Set(list.filter(e => typeof e === 'string' && LEGACY.test(e) && !SCHEME.test(e)))].slice(0, MAX_LEGACY);
+		})()
 	};
+	/* Site icon sets: the rule of src/core/config.js (valid, unique, at most MAX_SETS, in config order), then
+	   only those inside the installation root and not below the vault folder (main.js refuses those) */
+	const vaultUrl = local(cleaned.vaultDir);
+	const setPaths = (Array.isArray(c.iconSets) ? c.iconSets : []).filter(p => typeof p === 'string' && SET_PATH.test(p));
+	cleaned.iconSets = [...new Set(setPaths)].slice(0, MAX_SETS).filter(p => {
+		const url = local(p);
+		return !!url && url.startsWith(ROOT_URL) && !(vaultUrl && url.startsWith(vaultUrl));
+	});
 	/* Files outside the standard folders that still belong to the desktop (absolute URLs):
-	     files  exact files — the site data file, wallpapers, feeds; a module file that has no folder of its own
+	     files  exact files — the site data file, wallpapers, feeds, icon sets outside site/; a module file that has no folder of its own
 	     dirs   folder prefixes — the folder of a site module ({ id, src }), the fortune folder
 	   A folder that is the installation root or one of its parents (a module at 'demo.js' or '../demo.js',
 	   fortune.dir '/') would take in every file of the site: such an entry only keeps its exact files */
 	const ownDir = dir => !!dir && !ROOT_URL.startsWith(dir);
-	const files = [local(siteData), ...cleaned.feeds.map(p => local(p)), ...cleaned.images.map(p => local(p))];
+	const files = [local(siteData), ...cleaned.feeds.map(p => local(p)), ...cleaned.images.map(p => local(p)),
+		...cleaned.iconSets.filter(p => !SHELL_DIRS.some(d => p.startsWith(d))).map(p => local(p))];
 	const dirs = [];
+	const refFiles = [];
+	const refDirs = [];
 	for (const r of [...modules, ...apps].filter(isObj)) {
 		const file = local(r.src);
 		const dir = local('./', file);
-		if (ownDir(dir)) dirs.push(dir);
-		else files.push(file);
+		refFiles.push(file);
+		if (ownDir(dir)) {
+			dirs.push(dir);
+			refDirs.push(dir);
+		} else {
+			files.push(file);
+		}
 	}
+	const fortuneFiles = cleaned.fortuneDir ? localeChain(cleaned).map(code => local(`${cleaned.fortuneDir}${code}.json`)) : [];
 	if (cleaned.fortuneDir) {
 		const dir = local(cleaned.fortuneDir);
 		if (ownDir(dir)) dirs.push(dir);
-		else files.push(...localeChain(cleaned).map(code => local(`${cleaned.fortuneDir}${code}.json`)));
+		else files.push(...fortuneFiles);
 	}
 	cleaned.extra = {
 		files: [...new Set(files.filter(Boolean).map(shellKey))],
 		dirs: [...new Set(dirs)]
+	};
+	/* Code and data (absolute URLs, ARCHITECTURE §14 "Code and data"); the precedence is in isDataUrl().
+	     code  exact files — SHELL_FILES, site.data, wallpapers, the site icon sets (config.iconSets), the entry
+	           file of every { id, src } module/app;
+	           folders — the own folder of every { id, src } module/app (none at or above the root)
+	     data  exact files — the feeds, the fortune files of the language chain (never the fortune folder);
+	           folders — DATA_DIRS */
+	const codeFiles = [...SHELL_FILES.map(p => local(p)), local(siteData), ...cleaned.images.map(p => local(p)),
+		...cleaned.iconSets.map(p => local(p)), ...refFiles];
+	const dataFiles = [...cleaned.feeds.map(p => local(p)), ...fortuneFiles];
+	cleaned.code = {
+		files: [...new Set(codeFiles.filter(Boolean).map(shellKey))],
+		dirs: [...new Set(refDirs.filter(Boolean))]
+	};
+	cleaned.data = {
+		files: [...new Set(dataFiles.filter(Boolean).map(shellKey))],
+		dirs: DATA_DIRS.map(d => local(d)).filter(Boolean)
 	};
 	return cleaned;
 }
@@ -204,6 +287,14 @@ function readSiteConfig() {
 	return cleanConfig(raw);
 }
 
+/** Is this cache one of an earlier service worker (config.offline.legacyCaches)? Never a name of this
+    project's scheme — whatever a prefix would match. Same rule as src/core/config.js legacyMatcher() */
+function legacyMatcher(list) {
+	const exact = new Set(list.filter(e => !e.endsWith('*')));
+	const prefixes = list.filter(e => e.endsWith('*')).map(e => e.slice(0, -1));
+	return name => typeof name === 'string' && !SCHEME.test(name) && (exact.has(name) || prefixes.some(p => name.startsWith(p)));
+}
+
 /** FNV-1a, 32 bit, as 8 hex digits — names the precache generation */
 function hash(text) {
 	let h = 0x811c9dc5;
@@ -218,8 +309,10 @@ function hash(text) {
     update) and '<namespace>:<base>:pages' */
 function cacheNames(cfg, base = BASE) {
 	const prefix = `${cfg.namespace}:${base}:`;
-	/* only what changes the precache list; 'extra' is derived from it (and holds the origin) */
-	const { enabled, maxPages, timeoutMs, fastStart, extra, ...relevant } = cfg;
+	/* only what changes the precache list — and fastStart, which decides how its copies are marked
+	   (a switch starts from a fresh crawl); 'extra', 'code' and 'data' are derived from it (and hold the
+	   origin); the legacy list never touches the shell cache name */
+	const { enabled, maxPages, timeoutMs, legacy, extra, code, data, ...relevant } = cfg;
 	const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const shell = `${prefix}${VERSION}-${hash(JSON.stringify(relevant))}`;
 	return {
@@ -229,8 +322,10 @@ function cacheNames(cfg, base = BASE) {
 		pages: `${prefix}pages`,
 		/* Every cache this worker's naming scheme gives an installation in this folder, whatever the
 		   namespace: one folder holds one installation, so they are all its own — also the ones of an
-		   earlier namespace (config.namespace changed) */
-		own: new RegExp(`^[a-z][a-z0-9-]{0,23}:${esc}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$`)
+		   earlier namespace (config.namespace changed). SCHEME above is this pattern for any folder: keep both in step */
+		own: new RegExp(`^[a-z][a-z0-9-]{0,23}:${esc}:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$`),
+		/* caches of an earlier service worker (config.offline.legacyCaches) */
+		legacy: legacyMatcher(cfg.legacy ?? [])
 	};
 }
 
@@ -253,20 +348,21 @@ function localeChain(cfg) {
 	return [...out];
 }
 
-/** Entry points of the crawl (absolute URLs) */
-function precacheRoots(cfg) {
+/** Entry points of the crawl (absolute URLs); data: false leaves the data files out (a prepared update) */
+function precacheRoots(cfg, { data = true } = {}) {
 	const urls = [
 		...SHELL_FILES.map(p => local(p)),
 		...CORE_PARTS.map(p => moduleUrl(p, 'core')),
 		...cfg.modules.map(r => moduleUrl(r, 'module')),
 		...cfg.apps.map(r => moduleUrl(r, 'app')),
 		local(cfg.siteData),
+		...cfg.iconSets.map(p => local(p)),
 		...cfg.images.map(p => local(p)),
 		...cfg.feeds.map(p => local(p))
 	];
 	/* the fortune app walks the i18n fallback chain until a file exists — keep every candidate */
 	if (cfg.fortuneDir) for (const code of localeChain(cfg)) urls.push(local(`${cfg.fortuneDir}${code}.json`));
-	return [...new Set(urls.filter(Boolean))];
+	return [...new Set(urls.filter(Boolean))].filter(u => data || !isDataUrl(u, cfg));
 }
 
 /** Locale files: _meta and every namespace, for the whole language chain; sources: [[ns, folder URL]] of
@@ -359,6 +455,15 @@ const keep = res => cacheable(res) && !/\b(?:no-store|private)\b/i.test(res.head
 /** A redirected response must not answer a navigation — store a clean copy */
 const clean = res => (res.redirected ? new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers }) : res);
 
+/* A copy the desktop fetched at runtime (not the crawl): refreshed in place by the update check */
+const RUNTIME_HEADER = 'X-Desk-Copy';
+const runtimeCopy = res => {
+	const headers = new Headers(res.headers);
+	headers.set(RUNTIME_HEADER, 'runtime');
+	return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+};
+const isRuntimeCopy = res => !!res && res.headers.get(RUNTIME_HEADER) === 'runtime';
+
 /** Fetches one file into the cache; returns its text when it may hold further references */
 async function precacheOne(cache, url) {
 	const res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(url, { cache: 'no-cache', signal })));
@@ -372,8 +477,9 @@ async function precacheOne(cache, url) {
 }
 
 /** Crawls from the roots, level by level; every file is fetched once, failures are skipped.
+    data: false leaves data files out — neither as roots nor when the crawl meets one (a prepared update).
     → { files, failed, offline } — offline: how many failed without an answer (network, timeout) */
-async function precache(cfg, cacheName) {
+async function precache(cfg, cacheName, { data = true } = {}) {
 	const cache = await caches.open(cacheName);
 	const seen = new Set();
 	const namespaces = new Set();
@@ -394,12 +500,12 @@ async function precache(cfg, cacheName) {
 				}
 				r.value.namespaces.forEach(ns => namespaces.add(ns));
 				for (const [ns, dir] of r.value.sources ?? []) sources.set(`${dir}\n${ns}`, [ns, dir]);
-				for (const u of r.value.urls) if (isShellUrl(u, cfg) && !seen.has(shellKey(u))) next.push(u);
+				for (const u of r.value.urls) if (isShellUrl(u, cfg) && (data || !isDataUrl(u, cfg)) && !seen.has(shellKey(u))) next.push(u);
 			});
 			level = [...new Set(next)];
 		}
 	};
-	await run(precacheRoots(cfg));
+	await run(precacheRoots(cfg, { data }));
 	await run(localeUrls(cfg, [...namespaces], [...sources.values()]));
 	if (failed.length) console.info(`[sw] ${seen.size - failed.length} files kept offline; not available: ${failed.length}`, failed);
 	return { files: seen.size - failed.length, failed, offline };
@@ -426,12 +532,26 @@ function isShellUrl(url, cfg) {
 	return SHELL_ROOT_FILES.includes(rel) || SHELL_DIRS.some(d => rel.startsWith(d));
 }
 
+/** Is this shell URL a data file (§14: network first, never compared, never in '-next')?
+    First match wins: exact code file, exact data file, then the deepest folder that holds it — a code
+    folder wins a tie (a module directly in site/data/), a data folder wins over a code folder above it
+    (a module file directly in site/ leaves site/data/ data) */
+function isDataUrl(url, cfg) {
+	const key = shellKey(url);
+	if (cfg.code.files.includes(key)) return false;
+	if (cfg.data.files.includes(key)) return true;
+	const deepest = dirs => dirs.reduce((len, prefix) => (key.startsWith(prefix) && prefix.length > len ? prefix.length : len), -1);
+	const data = deepest(cfg.data.dirs);
+	return data >= 0 && data > deepest(cfg.code.dirs);
+}
+
 /**
  * What to do with a request: null (leave it to the browser) or { kind, key }
  *   'shell-nav'  the desktop's own index, top-level → shell cache under the root URL
  *   'nav'        any other navigation in scope → navigation preload answer only
  *   'page'       a Reader fetch of same-origin HTML → pages cache (query kept)
- *   'asset'      a file of the desktop → shell cache (query dropped)
+ *   'data'       a data file (isDataUrl) → shell cache, always network first (query dropped)
+ *   'asset'      a code file of the desktop → shell cache (query dropped)
  */
 function classify(req, cfg) {
 	if (!cfg.enabled || req.method !== 'GET') return null;
@@ -450,7 +570,7 @@ function classify(req, cfg) {
 	if (req.destination === '' && /\btext\/html\b/.test(accept) && rel !== '' && rel !== 'index.html') {
 		return cfg.maxPages > 0 ? { kind: 'page', key: url.href.replace(/#.*$/, '') } : null;
 	}
-	if (isShellUrl(url.href, cfg)) return { kind: 'asset', key: shellKey(url.href) };
+	if (isShellUrl(url.href, cfg)) return { kind: isDataUrl(url.href, cfg) ? 'data' : 'asset', key: shellKey(url.href) };
 	return null;
 }
 
@@ -478,13 +598,17 @@ async function store(cacheName, key, res, max) {
 /**
  * Network first: the network answer is stored (inside waitUntil) and returned. When the
  * network fails — or is slower than timeoutMs while a copy exists — the copy answers.
- * opts: { cacheName, key, max (pages limit), timeoutMs, preload (Promise<Response|undefined>) }
+ * opts: { cacheName, key, max (pages limit), timeoutMs, preload (Promise<Response|undefined>),
+ *         runtime (store the copy marked X-Desk-Copy: runtime — a file the crawl did not fetch) }
  */
 async function networkFirst(event, request, opts) {
-	const { cacheName, key, max = 0, timeoutMs, preload = null } = opts;
+	const { cacheName, key, max = 0, timeoutMs, preload = null, runtime = false } = opts;
 	const network = (async () => {
 		const res = (preload && (await preload.catch(() => null))) || (await fetch(request));
-		if (keep(res)) event.waitUntil(store(cacheName, key, clean(res.clone()), max).catch(() => {}));
+		if (keep(res)) {
+			const copy = clean(res.clone());
+			event.waitUntil(store(cacheName, key, runtime ? runtimeCopy(copy) : copy, max).catch(() => {}));
+		}
 		return res;
 	})();
 	let timer = null;
@@ -553,16 +677,39 @@ async function announceUpdate() {
 }
 
 /**
- * Compares every file of the shell cache (and of a prepared update) with the server. When
+ * Compares every code file of the shell cache (and of a prepared update) with the server — data
+ * files never count (isDataUrl) and never join '-next'. When
  * anything changed, the whole desktop is fetched again into '-next' (the install's crawl, so
  * new files join), the marker is written last and the pages hear about it. Offline, a timeout
  * or a crawl that could not reach every file: nothing is kept, the next start tries again.
+ * Runtime copies (X-Desk-Copy: runtime) are refreshed in place instead and never count as a change.
  * fresh: the navigation preload answer for index.html (saves one request).
  */
 async function checkForUpdate(cfg, names, fresh = null) {
 	const shell = await caches.open(names.shell);
 	const prepared = (await caches.has(names.next)) ? await caches.open(names.next) : null;
-	const keys = (await shell.keys()).map(r => r.url);
+	/* data files are never compared (network first, never part of an update) */
+	const all = (await shell.keys()).map(r => r.url).filter(u => !isDataUrl(u, cfg));
+	const marked = await Promise.all(all.map(async key => isRuntimeCopy(await shell.match(key))));
+	const keys = all.filter((_, i) => !marked[i]);
+	const runtime = all.filter((_, i) => marked[i]);
+	/* A runtime copy: gone (404/410) or not to be kept → deleted; changed → replaced; no answer → kept */
+	const refresh = async key => {
+		const res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(key, { cache: 'no-cache', signal })));
+		if (res.status === 404 || res.status === 410 || (cacheable(res) && !keep(res))) {
+			await shell.delete(key);
+			return;
+		}
+		if (!keep(res)) return;
+		const copy = await shell.match(key);
+		const [now, before] = await Promise.all([res.arrayBuffer(), copy ? copy.arrayBuffer() : null]);
+		if (!before || !sameBytes(now, before)) {
+			await shell.put(key, runtimeCopy(new Response(now, { status: res.status, statusText: res.statusText, headers: res.headers })));
+		}
+	};
+	for (let i = 0; i < runtime.length; i += CHECK_BATCH) {
+		await Promise.allSettled(runtime.slice(i, i + CHECK_BATCH).map(refresh));
+	}
 	let changed = false;
 	const compare = async key => {
 		let res = key === ROOT_URL && fresh ? await fresh.catch(() => null) : null;
@@ -579,7 +726,7 @@ async function checkForUpdate(cfg, names, fresh = null) {
 	}
 	if (!changed) return false;
 	await caches.delete(names.next);
-	const { offline } = await precache(cfg, names.next);
+	const { offline } = await precache(cfg, names.next, { data: false });
 	if (offline) {
 		await caches.delete(names.next);
 		return false;
@@ -603,17 +750,39 @@ function scheduleCheck(fresh) {
 	return checking;
 }
 
-/** A file of the desktop: the copy when there is one, else the network (stored, as network first) */
-async function cacheFirst(event, request, key) {
+/* Code of the desktop: never refreshed in place — a running page would mix old and new modules */
+const CODE_DESTINATIONS = ['script', 'style', 'worker', 'sharedworker', 'json', 'audioworklet', 'paintworklet'];
+
+/**
+ * A file of the desktop: the copy when there is one, else the network (stored, as network first).
+ * destination: of the page's request (a rebuilt Request loses it)
+ */
+async function cacheFirst(event, request, key, destination = '') {
 	const copy = await caches.open(NAMES.shell).then(c => c.match(key));
 	if (copy) return copy;
-	return networkFirst(event, request, { cacheName: NAMES.shell, key, timeoutMs: CONFIG.timeoutMs });
+	/* only files the crawl did not store get here: their copy is marked as a runtime copy — except
+	   code (a module the crawl missed; an exact code file such as site.data, a wallpaper or a site icon
+	   set, which the page reads with fetch()), which stays on the crawl's compare-and-swap path */
+	const runtime = !CODE_DESTINATIONS.includes(destination) && !CONFIG.code.files.includes(key);
+	return networkFirst(event, request, { cacheName: NAMES.shell, key, timeoutMs: CONFIG.timeoutMs, runtime });
 }
 
 /* ---------- Lifecycle ---------- */
 
 const CONFIG = readSiteConfig();
 const NAMES = cacheNames(CONFIG);
+
+/* Legacy caches (config.offline.legacyCaches) are deleted on activation, once more LEGACY_FOLLOW_UP_MS
+   later and at every start: the earlier worker may still finish requests after the hand-over and write
+   to them again (it controlled the page while this one installed) */
+let legacyFollowUp = false;
+
+async function sweepLegacy() {
+	const gone = (await caches.keys()).filter(NAMES.legacy);
+	await Promise.all(gone.map(k => caches.delete(k)));
+	if (gone.length) console.info('[sw] removed the caches of an earlier service worker:', gone);
+	return gone;
+}
 
 self.addEventListener('install', event => {
 	event.waitUntil((async () => {
@@ -627,6 +796,12 @@ self.addEventListener('activate', event => {
 		const current = CONFIG.enabled ? [NAMES.shell, NAMES.pages] : [];
 		const keys = await caches.keys();
 		await Promise.all(keys.filter(k => NAMES.own.test(k) && !current.includes(k)).map(k => caches.delete(k)));
+		/* also a switched-off worker; the follow-up waits for the first fetch event (a delay here would
+		   hold every request of the claimed pages: fetch events wait until this worker is activated) */
+		if (CONFIG.legacy.length) {
+			await sweepLegacy();
+			legacyFollowUp = true;
+		}
 		if (!CONFIG.enabled) {
 			await self.registration.unregister();
 			return;
@@ -642,12 +817,20 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
+	/* Legacy caches: once more LEGACY_FOLLOW_UP_MS after the activation — before classify, so it also runs
+	   for requests this worker leaves alone and for a switched-off worker that still controls its pages */
+	if (legacyFollowUp) {
+		legacyFollowUp = false;
+		event.waitUntil(new Promise(ok => setTimeout(ok, LEGACY_FOLLOW_UP_MS)).then(sweepLegacy).catch(() => {}));
+	}
 	const req = event.request;
 	const route = classify(req, CONFIG);
 	if (!route) return;
 	const preload = req.mode === 'navigate' ? event.preloadResponse : null;
 	switch (route.kind) {
 		case 'shell-nav':
+			/* every start: the legacy caches once more (this worker always has the current list) */
+			if (CONFIG.legacy.length) event.waitUntil(sweepLegacy().catch(() => {}));
 			if (CONFIG.fastStart) {
 				/* From the copy (after moving a prepared update in place); the check uses the preload answer */
 				event.respondWith((async () => {
@@ -677,9 +860,13 @@ self.addEventListener('fetch', event => {
 		case 'page':
 			event.respondWith(networkFirst(event, req, { cacheName: NAMES.pages, key: route.key, max: CONFIG.maxPages, timeoutMs: CONFIG.timeoutMs }));
 			break;
+		case 'data':
+			/* Data is never answered from the copy first (and never part of an update) */
+			event.respondWith(networkFirst(event, revalidating(req), { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs }));
+			break;
 		case 'asset':
 			event.respondWith(CONFIG.fastStart
-				? cacheFirst(event, revalidating(req), route.key)
+				? cacheFirst(event, revalidating(req), route.key, req.destination)
 				: networkFirst(event, revalidating(req), { cacheName: NAMES.shell, key: route.key, timeoutMs: CONFIG.timeoutMs }));
 			break;
 		default:

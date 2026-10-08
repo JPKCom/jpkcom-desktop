@@ -15,7 +15,8 @@
 import { i18n } from './i18n.js';
 import { emit } from './bus.js';
 import { V } from './store.js';
-import { isSafeUrl } from './url.js';
+import { isSafeUrl, isSafeScope } from './url.js';
+import { cleanMan } from './man.js';
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const KIND = /^[a-z][a-z0-9-]{0,31}$/;
@@ -34,7 +35,7 @@ const isText = v => (typeof v === 'string' && v.length > 0) || (isObj(v) && Obje
 const isUrlValue = v => isSafeUrl(v) || (isObj(v) && Object.values(v).length > 0 && Object.values(v).every(isSafeUrl));
 const isSize = v => Array.isArray(v) && v.length === 2 && v.every(n => Number.isFinite(n) && n > 0);
 const isTint = v => (typeof v === 'string' && KIND.test(v)) || (Array.isArray(v) && v.length === 2 && v.every(c => HEX.test(c)));
-const FLAGS = ['fixed', 'desktop', 'dock', 'hidden', 'nodock', 'transient', 'download'];
+const FLAGS = ['fixed', 'desktop', 'dock', 'hidden', 'nodock', 'transient', 'download', 'linkPaths'];
 
 /** Two-letter mark from a name: 'Space Invaders' → 'SI', 'Tetris' → 'Te' */
 export function initials(name) {
@@ -122,6 +123,11 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 			delete out.size;
 		}
 		if (raw.url != null && !isUrlValue(raw.url)) return bad('url must be a path or an http(s) URL, or a { lang: url } map of them');
+		/* web: the folder a stored or linked location may lie in (router.acceptPath) — checked once, here */
+		if (raw.scope != null && !isSafeScope(raw.scope)) {
+			warn(`[registry] ${where}: scope ${JSON.stringify(String(raw.scope).slice(0, 80))} must be a folder path ('wiki/' or '/wiki/') without '..', '?', '#', ';', an encoded '/' or a scheme — ignored, the default folder applies`);
+			delete out.scope;
+		}
 		for (const f of FLAGS) if (out[f] != null) out[f] = out[f] === true;
 		if (raw.kind === 'link') {
 			const values = typeof raw.url === 'string' ? { _: raw.url } : raw.url ?? {};
@@ -220,7 +226,9 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 			for (let i = 0; target?.alias && i < 4; i++) target = apps.get(target.alias);
 			if (target && !target.alias) {
 				const own = Object.fromEntries(Object.entries(e).filter(([, v]) => v != null));
-				view = Object.freeze({ ...target, ...own, id: e.id, kind: target.kind, alias: target.id });
+				/* the manual of an alias is its own man, never its target's (ARCHITECTURE §7 "Manual pages") */
+				const { man: _targetMan, ...shown } = target;
+				view = Object.freeze({ ...shown, ...own, id: e.id, kind: target.kind, alias: target.id });
 			}
 		}
 		views.set(id, view);
@@ -343,13 +351,20 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 			warn(`[registry] ${where}: ${key} must be a path or an http(s) URL, or a { lang: url } map of them — ignored`);
 			return undefined;
 		};
+		/* the terminal's manual (false, a path on this site or { lang: path }); a bad one is dropped, not the item */
+		const manOf = () => {
+			const r = cleanMan(raw.man);
+			if (r.problem) warn(`[registry] ${where}: man must be false, a path on this site or a { lang: path } map with only {slug} {id} {collection} {lang} — ignored`);
+			return r.value ?? undefined;
+		};
+		const man = manOf();
 		const base = {
 			id, collection: d.id, group: group?.id ?? null, slug: raw.slug, item: true,
 			name: raw.name, desc: raw.desc,
 			icon: raw.icon ?? group?.icon ?? d.defaultIcon ?? d.icon,
 			tint: raw.tint ?? group?.tint ?? d.tint,
 			mark: raw.mark ?? (d.initials && !raw.icon && isText(raw.name) ? initials(L(raw.name)) : null),
-			size: raw.size ?? d.size, docs: link('docs'), guide: link('guide'), fileName: raw.fileName, download: raw.download,
+			size: raw.size ?? d.size, docs: link('docs'), guide: link('guide'), man, fileName: raw.fileName, download: raw.download,
 			/* item flags: kept out of the Dock (e.g. private vault bookmarks), hidden from lists */
 			nodock: raw.nodock === true ? true : undefined,
 			hidden: raw.hidden === true ? true : undefined
@@ -358,7 +373,7 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		if (raw.app != null) {
 			return {
 				id, collection: d.id, group: group?.id ?? null, slug: raw.slug, item: true, alias: raw.app,
-				name: raw.name, desc: raw.desc, icon: raw.icon, tint: raw.tint, mark: raw.mark
+				name: raw.name, desc: raw.desc, icon: raw.icon, tint: raw.tint, mark: raw.mark, man
 			};
 		}
 		if (!isText(raw.name)) return bad('name is missing');
@@ -372,7 +387,9 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		}
 		if (!KIND.test(kind)) return bad(`kind '${kind}' is invalid`);
 		/* http:// is allowed per collection or per item (an intranet bookmark) */
-		return { ...base, kind, url, allowHttp: raw.allowHttp === true || d.allowHttp };
+		/* scope is validated by normalize() (register), like on an AppEntry */
+		return { ...base, kind, url, allowHttp: raw.allowHttp === true || d.allowHttp,
+			scope: raw.scope, linkPaths: raw.linkPaths === true ? true : undefined };
 	}
 
 	function addRecords(c, items, { source, prepend = false }) {
@@ -390,8 +407,11 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 	/**
 	 * Adds a collection:
 	 *   { id, prefix?, app?, name, desc?, icon?, tint?, sort: 'alpha'|'manual', itemKind: 'auto'|'link'|'web'|'page'|'image',
-	 *     basePath?, urlTemplate?, size?, defaultIcon?, initials?, allowHttp?, webUrl?, allLabel?, webLabel?, groups: [...], items: [...] }
+	 *     basePath?, urlTemplate?, size?, defaultIcon?, initials?, allowHttp?, webApp?, webUrl?, allLabel?, webLabel?, man?, groups: [...], items: [...] }
+	 * webApp (an app id): the app the Catalog's web button launches — wins over webUrl while it is available.
 	 * webUrl (a path or http(s) URL, or a { lang: url } map): the collection's page on the classic website;
+	 * man (false, or a template on this site with {slug} or {id}, or a { lang: template } map): the terminal's
+	 * manual for every item of this source that sets none (src/core/man.js); collection(id).man → null when not set.
 	 * allLabel / webLabel: the Catalog's wording for "All" and "… on the web" (text or { lang: text }).
 	 * Its browser app (kind 'collection', id = app ?? id) is created unless the site declares it.
 	 */
@@ -408,10 +428,22 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 		if (raw.webUrl !== undefined && raw.webUrl !== null && !isUrlValue(raw.webUrl)) {
 			warn(`[registry] ${where}: webUrl must be a path or an http(s) URL, or a { lang: url } map — ignored`);
 		}
+		const man = cleanMan(raw.man, { template: true });
+		if (man.problem) warn(`[registry] ${where}: man must be false, or a template on this site with {slug} or {id} (or a { lang: template } map) — ignored`);
+		const appId = raw.app === null ? null : (typeof raw.app === 'string' && ID.test(raw.app) ? raw.app : raw.id);
+		/* Existence and other Catalogs are checked at use: module, author and vault apps may come later */
+		let webApp = raw.webApp == null ? null : typeof raw.webApp === 'string' && ID.test(raw.webApp) ? raw.webApp : undefined;
+		if (webApp === undefined) {
+			warn(`[registry] ${where}: webApp must be an app id [a-z0-9-] — ignored`);
+			webApp = null;
+		} else if (webApp && webApp === appId) {
+			warn(`[registry] ${where}: webApp '${webApp}' is the collection's own Catalog — ignored`);
+			webApp = null;
+		}
 		const def = Object.freeze({
 			id: raw.id,
 			prefix: typeof raw.prefix === 'string' && ID.test(raw.prefix) ? raw.prefix : raw.id,
-			app: raw.app === null ? null : (typeof raw.app === 'string' && ID.test(raw.app) ? raw.app : raw.id),
+			app: appId,
 			name: raw.name,
 			desc: isText(raw.desc) ? raw.desc : null,
 			icon: typeof raw.icon === 'string' ? raw.icon : 'ti-folder',
@@ -425,9 +457,11 @@ export function createRegistry({ L = v => (typeof v === 'string' ? v : Object.va
 			initials: raw.initials === true,
 			allowHttp: raw.allowHttp === true,
 			search: raw.search !== false,
+			webApp,
 			webUrl: isUrlValue(raw.webUrl) ? raw.webUrl : null,
 			allLabel: isText(raw.allLabel) ? raw.allLabel : null,
 			webLabel: isText(raw.webLabel) ? raw.webLabel : null,
+			man: man.value,
 			source
 		});
 		const c = { def, groups: new Map(), records: [] };

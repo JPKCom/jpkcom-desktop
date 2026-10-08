@@ -36,6 +36,8 @@ export default {
 
 	whichManual: 'Welche Handbuchseite hättest du gern? Zum Beispiel: man ls',
 	noManual: 'Kein Handbucheintrag für {name}',
+	noManualPage: '{name} hat keine Handbuchseite.',
+	manOpen: 'Öffnen:',
 	manHead: '{name} Handbuch',
 	manShell: 'jsh-Handbuch',
 	manName: 'NAME',

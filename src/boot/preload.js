@@ -12,35 +12,35 @@
 	'use strict';
 
 	const G = {
-		files: ["src/boot/main.js","src/core/config.js","src/core/env.js","src/core/bus.js","src/core/undo.js","src/core/i18n.js","src/core/store.js","src/core/is.js","src/core/registry.js","src/core/url.js","src/core/modules.js","src/core/storage-registry.js","src/core/consent.js","src/core/dialog.js","src/core/dom.js","src/core/a11y.js","src/core/services.js","src/core/api.js","src/core/text.js","src/core/icons.js","src/icons/tabler.js","src/icons/custom.js","src/core/router.js","src/core/net.js","src/wm/index.js","src/wm/wm.js","src/wm/snap.js","src/wm/tilemenu.js","src/wm/overview.js","src/wm/session.js","src/wm/wm.css","src/wm/extras.css","src/shell/index.js","src/shell/menus.js","src/shell/menubar.js","src/shell/clock.js","src/shell/lang.js","src/shell/menubar-fit.js","src/shell/title-fit.js","src/shell/dock.js","src/shell/desktop-icons.js","src/shell/launcher.js","src/shell/shortcuts.js","src/shell/contrib.js","src/shell/context-menu.js","src/shell/notifications.js","src/shell/deeplinks.js","src/shell/drop.js","src/shell/power.js","src/shell/menus.css","src/shell/menubar.css","src/shell/desktop-icons.css","src/shell/dock.css","src/shell/launcher.css","src/shell/notifications.css","src/shell/drop.css","src/shell/power.css","src/panels/index.js","src/panels/settings.js","src/panels/pure.js","src/panels/install.js","src/panels/wallpaper.js","src/wallpapers/index.js","src/wallpapers/author.js","src/wallpapers/kit.js","src/wallpapers/motifs.js","src/panels/trash.js","src/panels/backup.js","src/modules/calendar/index.js","src/modules/calendar/core.js","src/modules/calendar/calendar.css","src/modules/catalog/index.js","src/modules/holidays/index.js","src/modules/holidays/core.js","src/modules/holidays/holidays.css","src/modules/notify/index.js","src/modules/notify/core.js","src/modules/notify/notify.css","src/modules/reader/index.js","src/modules/reader/util.js","src/modules/search/index.js","src/modules/search/engine.js","src/modules/search/pagefind.js","src/modules/search/search.css","src/modules/vault/index.js","src/modules/vault/vault-core.js","src/modules/viewer/index.js","src/modules/viewer/util.js","src/modules/weather/index.js","src/modules/weather/providers/open-meteo.js","src/modules/weather/core.js","src/modules/weather/providers/brightsky.js","src/modules/weather/weather.css","src/apps/calc/index.js","src/apps/calc/history.js","src/apps/editor/index.js","src/apps/editor/model.js","src/apps/kit.js","src/apps/fortune/index.js","src/apps/fortune/model.js","src/apps/fortune/providers.js","src/apps/media/index.js","src/apps/media/types.js","src/apps/media/util.js","src/apps/notes/index.js","src/apps/notes/model.js","src/apps/terminal/index.js","src/apps/terminal/config.js","src/apps/terminal/registry.js","src/apps/todo/index.js","src/apps/todo/model.js","site/modules/hello/index.js","site/modules/hello/model.js","site/modules/hello/hello.css"],
-		boot: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
+		files: ["src/boot/main.js","src/core/config.js","src/core/icon-sets.js","src/core/env.js","src/core/bus.js","src/core/undo.js","src/core/i18n.js","src/core/store.js","src/core/is.js","src/core/registry.js","src/core/url.js","src/core/man.js","src/core/modules.js","src/core/storage-registry.js","src/core/consent.js","src/core/dialog.js","src/core/dom.js","src/core/a11y.js","src/core/services.js","src/core/api.js","src/core/text.js","src/core/icons.js","src/icons/tabler.js","src/icons/custom.js","src/core/router.js","src/core/net.js","src/wm/index.js","src/wm/wm.js","src/wm/snap.js","src/wm/tilemenu.js","src/wm/overview.js","src/wm/session.js","src/wm/wm.css","src/wm/extras.css","src/shell/index.js","src/shell/menus.js","src/shell/menubar.js","src/shell/clock.js","src/shell/lang.js","src/shell/menubar-fit.js","src/shell/title-fit.js","src/shell/dock.js","src/shell/desktop-icons.js","src/shell/launcher.js","src/shell/shortcuts.js","src/shell/contrib.js","src/shell/context-menu.js","src/shell/notifications.js","src/shell/deeplinks.js","src/shell/drop.js","src/shell/power.js","src/shell/menus.css","src/shell/menubar.css","src/shell/desktop-icons.css","src/shell/dock.css","src/shell/launcher.css","src/shell/notifications.css","src/shell/drop.css","src/shell/power.css","src/panels/index.js","src/panels/settings.js","src/panels/pure.js","src/panels/install.js","src/panels/wallpaper.js","src/wallpapers/index.js","src/wallpapers/author.js","src/wallpapers/kit.js","src/wallpapers/motifs.js","src/panels/trash.js","src/panels/backup.js","src/modules/calendar/index.js","src/modules/calendar/core.js","src/modules/calendar/calendar.css","src/modules/catalog/index.js","src/modules/holidays/index.js","src/modules/holidays/core.js","src/modules/holidays/holidays.css","src/modules/notify/index.js","src/modules/notify/core.js","src/modules/notify/notify.css","src/modules/reader/index.js","src/modules/reader/util.js","src/modules/search/index.js","src/modules/search/engine.js","src/modules/search/pagefind.js","src/modules/search/search.css","src/modules/vault/index.js","src/modules/vault/vault-core.js","src/modules/viewer/index.js","src/modules/viewer/util.js","src/modules/weather/index.js","src/modules/weather/providers/open-meteo.js","src/modules/weather/core.js","src/modules/weather/providers/brightsky.js","src/modules/weather/weather.css","src/apps/calc/index.js","src/apps/calc/history.js","src/apps/editor/index.js","src/apps/editor/model.js","src/apps/kit.js","src/apps/fortune/index.js","src/apps/fortune/model.js","src/apps/fortune/providers.js","src/apps/media/index.js","src/apps/media/types.js","src/apps/media/util.js","src/apps/notes/index.js","src/apps/notes/model.js","src/apps/terminal/index.js","src/apps/terminal/config.js","src/apps/terminal/registry.js","src/apps/todo/index.js","src/apps/todo/model.js","site/modules/hello/index.js","site/modules/hello/model.js","site/modules/hello/hello.css"],
+		boot: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25],
 		core: {
-			"wm": {"js":[24,25,26,27,28,29],"css":[30,31],"i18n":["wm"]},
-			"shell": {"js":[32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48],"css":[49,50,51,52,53,54,55,56],"i18n":["shell","wm"]},
-			"panels": {"js":[57,58,59,60,61,62,63,64,65,66,67],"css":[],"i18n":["settings","wallpaper","backup","trash","about","help"]}
+			"wm": {"js":[26,27,28,29,30,31],"css":[32,33],"i18n":["wm"]},
+			"shell": {"js":[34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50],"css":[51,52,53,54,55,56,57,58],"i18n":["shell","wm"]},
+			"panels": {"js":[59,60,61,62,63,64,65,66,67,68,69],"css":[],"i18n":["settings","wallpaper","backup","trash","about","help"]}
 		},
 		module: {
-			"calendar": {"js":[68,69],"css":[70],"i18n":["calendar"]},
-			"catalog": {"js":[71],"css":[],"i18n":["catalog"]},
-			"holidays": {"js":[72,73],"css":[74],"i18n":["holidays"]},
-			"notify": {"js":[75,76],"css":[77],"i18n":["notify"]},
-			"reader": {"js":[78,79],"css":[],"i18n":["reader"]},
-			"search": {"js":[80,81,82],"css":[83],"i18n":["search"]},
-			"vault": {"js":[84,85],"css":[],"i18n":["vault"]},
-			"viewer": {"js":[86,87],"css":[],"i18n":["viewer"]},
-			"weather": {"js":[88,89,90,91],"css":[92],"i18n":["weather"]}
+			"calendar": {"js":[70,71],"css":[72],"i18n":["calendar"]},
+			"catalog": {"js":[73],"css":[],"i18n":["catalog"]},
+			"holidays": {"js":[74,75],"css":[76],"i18n":["holidays"]},
+			"notify": {"js":[77,78],"css":[79],"i18n":["notify"]},
+			"reader": {"js":[80,81],"css":[],"i18n":["reader"]},
+			"search": {"js":[82,83,84],"css":[85],"i18n":["search"]},
+			"vault": {"js":[86,87],"css":[],"i18n":["vault"]},
+			"viewer": {"js":[88,89],"css":[],"i18n":["viewer"]},
+			"weather": {"js":[90,91,92,93],"css":[94],"i18n":["weather"]}
 		},
 		app: {
-			"calc": {"js":[93,94],"css":[],"i18n":["calc"]},
-			"editor": {"js":[95,96,97],"css":[],"i18n":["editor"]},
-			"fortune": {"js":[98,99,100],"css":[],"i18n":["fortune"]},
-			"media": {"js":[101,102,103],"css":[],"i18n":["media"]},
-			"notes": {"js":[104,105,97],"css":[],"i18n":["notes","kit"]},
-			"terminal": {"js":[106,107,108],"css":[],"i18n":["terminal"]},
-			"todo": {"js":[109,110,97],"css":[],"i18n":["todo","kit"]}
+			"calc": {"js":[95,96],"css":[],"i18n":["calc"]},
+			"editor": {"js":[97,98,99],"css":[],"i18n":["editor"]},
+			"fortune": {"js":[100,101,102],"css":[],"i18n":["fortune"]},
+			"media": {"js":[103,104,105],"css":[],"i18n":["media"]},
+			"notes": {"js":[106,107,99],"css":[],"i18n":["notes","kit"]},
+			"terminal": {"js":[108,109,110],"css":[],"i18n":["terminal"]},
+			"todo": {"js":[111,112,99],"css":[],"i18n":["todo","kit"]}
 		},
 		site: {
-			"site/modules/hello/index.js": {"js":[111,112],"css":[113],"i18n":["hello"],"own":"site/modules/hello/locales/"}
+			"site/modules/hello/index.js": {"js":[113,114],"css":[115],"i18n":["hello"],"own":"site/modules/hello/locales/"}
 		},
 		defaults: {"namespace":"jpkdesk","languages":["de","en"],"defaultLang":"en","modules":["reader","viewer","catalog","search","calendar","notify"],"apps":["editor","notes","todo","calc","terminal","media","fortune"],"siteData":"site/apps.js"}
 	};
@@ -62,15 +62,18 @@
 			const url = new URL(path, root);
 			return url.origin === root.origin ? url.href : null;
 		};
-		const hint = (path, style = false) => {
+		/* as: 'module' | 'style' | 'fetch' (JSON data, fetched by main.js with credentials same-origin) */
+		const hint = (path, as = 'module') => {
 			const href = local(path);
 			if (!href || seen.has(href)) return;
 			seen.add(href);
 			const el = document.createElement('link');
-			if (style) {
+			if (as === 'module') el.rel = 'modulepreload';
+			else {
 				el.rel = 'preload';
-				el.as = 'style';
-			} else el.rel = 'modulepreload';
+				el.as = as;
+				if (as === 'fetch') el.crossOrigin = 'anonymous';
+			}
 			el.href = href;
 			document.head.append(el);
 		};
@@ -80,7 +83,7 @@
 		const take = part => {
 			if (!part) return;
 			for (const i of part.js) hint(G.files[i]);
-			for (const i of part.css) hint(G.files[i], true);
+			for (const i of part.css) hint(G.files[i], 'style');
 			for (const ns of part.i18n) {
 				if (part.own) own.push([part.own, ns]);
 				else namespaces.add(ns);
@@ -103,6 +106,14 @@
 		refs(cfg.modules, G.defaults.modules, 'module');
 		refs(cfg.apps, G.defaults.apps, 'app');
 		hint(isObj(cfg.site) && typeof cfg.site.data === 'string' ? cfg.site.data : G.defaults.siteData);
+
+		/* Site icon sets: the rule of src/core/config.js (SET_PATH, unique, at most 8); the boot refuses one below vault.dir */
+		const SET = new RegExp("^(?!\\/)(?!.*\\/\\/)(?!(?:.*\\/)?\\.)[A-Za-z0-9._\\/-]{1,251}\\.json$");
+		const sets = Array.isArray(cfg.iconSets) ? cfg.iconSets : [];
+		for (const p of [...new Set(sets.filter(p => typeof p === 'string' && SET.test(p)))].slice(0, 8)) {
+			const url = new URL(p, root);
+			if (url.href.startsWith(root.href)) hint(p, 'fetch');
+		}
 
 		/* Languages: the start language as src/core/i18n.js detect() finds it, then its chain */
 		const offer = Array.isArray(cfg.languages) && cfg.languages.length && cfg.languages.every(c => typeof c === 'string' && LANG.test(c))

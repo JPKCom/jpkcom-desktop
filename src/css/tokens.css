@@ -103,6 +103,8 @@
 		--font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
 		--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 		--icon-stroke: 1.75;                   /* stroke width of outline icons (Tabler: 24-unit grid) */
+		--icon-duo-opacity: 0.4;               /* secondary layer of two-tone icons (site icon sets, k: 'd') */
+		--icon-duo-color: currentColor;        /* its colour — currentColor = the icon's own colour */
 
 		/* Layout */
 		--mb-h: 28px;

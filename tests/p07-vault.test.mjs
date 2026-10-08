@@ -3,6 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pbkdf2Sync } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
 	derive, seal, open, header, readHeader, sameParams, normUser, effectiveSalt, fileName, isFileId,
 	clean, cleanText, cleanConfig, toCollectionItems, collectionDef, takenIds,
@@ -384,4 +389,46 @@ test('module: logging in again keeps the open Catalog window; lock closes it and
 	assert.deepEqual(closed, ['private']);
 	assert.deepEqual(removed, ['private']);
 	assert.equal(reg.get('private'), null);
+});
+
+/* ---------- tools/seal-vault.mjs and the site icon sets ---------- */
+
+test('seal-vault: vault icons from a site icon set are accepted; a missing set icon refuses sealing', async () => {
+	/* a temporary installation: <web>/site/icon-sets/<set>, sealed into <web>/site/vault/ — config.iconSets is read below
+	   the web root of --out, so nothing is written into the project; the plain text lives in its own temporary folder */
+	const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+	const web = mkdtempSync(join(tmpdir(), 'p07-web-'));
+	const plain = mkdtempSync(join(tmpdir(), 'p07-plain-'));
+	const name = 'seal-test.json';
+	try {
+		mkdirSync(join(web, 'site/icon-sets'), { recursive: true });
+		writeFileSync(join(web, 'site/icon-sets', name), JSON.stringify({ format: 'jpkcom-desktop-icons/1', icons: {
+			'acme-briefcase': { k: 'd', vb: '0 0 512 512', e: ['M0 0h1'], e2: ['M1 1h1'] },
+			'acme-book': { k: 'f', e: ['M0 0h1'] } } }));
+		const config = join(web, 'config.js');
+		writeFileSync(config, `window.DESKTOP_CONFIG = ${JSON.stringify({ iconSets: [`site/icon-sets/${name}`], vault: { salt: 'test-salt', iterations: 10000 } })};`);
+		const out = join(web, 'site/vault');
+		const run = data => {
+			const input = join(plain, 'links.json');
+			writeFileSync(input, JSON.stringify(data));
+			return spawnSync(process.execPath, [join(ROOT, 'tools/seal-vault.mjs'), '--in', input, '--out', out, '--config', config, '--keep'], {
+				cwd: ROOT, encoding: 'utf8', env: { ...process.env, DESKTOP_VAULT_USER: 'tester', DESKTOP_VAULT_PASS: 'a long test password' }
+			});
+		};
+		const group = { id: 'work', name: { en: 'Work', de: 'Arbeit' }, icon: 'acme-briefcase' };
+		const item = { slug: 'wiki', group: 'work', name: 'Wiki', url: 'https://wiki.example/', icon: 'acme-book' };
+		const ok = run({ groups: [group], items: [item] });
+		assert.equal(ok.status, 0, ok.stderr);
+		assert.match(ok.stdout, /1 group\(s\), 1 bookmark\(s\)/);
+		assert.match(ok.stderr, /site icon sets are read below/);
+		assert.equal(readdirSync(out).filter(f => f.endsWith('.bin')).length, 1);
+		const bad = run({ groups: [group], items: [{ ...item, icon: 'acme-snake' }] });
+		assert.notEqual(bad.status, 0);
+		assert.match(bad.stderr, /Not sealed:/);
+		assert.match(bad.stderr, /icon 'acme-snake' is not in the site icon set site\/icon-sets\/seal-test\.json — add it there/);
+		assert.equal(existsSync(join(ROOT, 'site/icon-sets', name)), false, 'nothing in the project');
+	} finally {
+		rmSync(web, { recursive: true, force: true });
+		rmSync(plain, { recursive: true, force: true });
+	}
 });

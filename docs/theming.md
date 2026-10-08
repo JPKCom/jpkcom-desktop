@@ -320,6 +320,8 @@ tints are `--t-<id>`; `tile()` sets `--tint: var(--t-<id>)` on the tile.
 | `--font` | `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif` | `apps/calc/calc.css`, `apps/fortune/fortune.css`, `apps/notes/notes.css`, `apps/todo/todo.css` and 6 more |
 | `--font-mono` | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace` | `apps/editor/editor.css`, `apps/terminal/terminal.css`, `css/components.css`, `modules/reader/reader.css` and 1 more |
 | `--icon-stroke` | `1.75` | `css/base.css` |
+| `--icon-duo-opacity` | `0.4` | `css/base.css` |
+| `--icon-duo-color` | `currentColor` | `css/base.css` |
 
 ### Layout and phones
 

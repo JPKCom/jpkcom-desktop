@@ -944,16 +944,21 @@ export function serialize(win) {
 	}
 }
 
+/* Where a path for acceptUrl comes from */
+const FROM = new Set(['session', 'launch', 'link']);
+
 /**
- * Checks a stored/linked path for an app (session restore, deep links):
- * the kind's acceptUrl(app, path) → path | null. Kinds without it accept none.
+ * Checks a stored/linked path for an app (session restore, deep links, launch with a url):
+ * the kind's acceptUrl(app, path, from) → path | null. Kinds without it accept none.
+ * from: 'session' (written by the visitor's own navigation), 'launch' (code: launch(id, { url })),
+ * 'link' (a deep link: anyone can write it); an unknown value counts as 'link'.
  */
-export function acceptUrl(app, path) {
+export function acceptUrl(app, path, from = 'launch') {
 	if (typeof path !== 'string' || path.length > 500 || !/^\/(?!\/)/.test(path)) return null;
 	const fn = kinds.get(app?.kind)?.acceptUrl;
 	if (typeof fn !== 'function') return null;
 	try {
-		return fn(app, path) ?? null;
+		return fn(app, path, FROM.has(from) ? from : 'link') ?? null;
 	} catch {
 		return null;
 	}
@@ -1065,6 +1070,11 @@ function appHref(app, raw = registry.url(app)) {
 	}
 }
 
+/** Every start page of an app (absolute URLs): one per language for a { lang: url } map */
+const startsOf = app => (typeof app.url === 'string' ? [app.url]
+	: app.url && typeof app.url === 'object' ? Object.values(app.url) : [])
+	.map(raw => appHref(app, raw)).filter(Boolean);
+
 /* Mirror the iframe's location and title once it has loaded */
 function syncFrame(win) {
 	try {
@@ -1084,7 +1094,7 @@ defineKind('web', {
 	mount(win, body, bar, opts) {
 		const start = appHref(win.app);
 		if (!start) throw new Error(`app '${win.app.id}' has no usable url`);
-		const wanted = typeof opts.url === 'string' ? acceptUrl(win.app, opts.url) : null;
+		const wanted = typeof opts.url === 'string' ? acceptUrl(win.app, opts.url, opts.restore ? 'session' : 'launch') : null;
 		const src = wanted ? new URL(wanted, location.href).href : start;
 		const own = v => (typeof v === 'string' && v ? v : null);
 		const loader = h('div', { class: 'win-loading', role: 'status', 'aria-label': t('core.loading') });
@@ -1099,11 +1109,17 @@ defineKind('web', {
 				service('shortcuts')?.watch?.(frame);
 			} catch { /* cross-origin or no shortcuts */ }
 			syncFrame(win);
+			/* What the desktop loaded into the frame (after redirects): reopen() navigates only while it shows that */
+			if (win.state.expect) {
+				win.state.loaded = locationOf(win);
+				win.state.expect = false;
+			}
 			focusFrame(win);
 		});
 		body.classList.add('has-frame');
 		body.append(frame, loader);
 		win.frame = frame;
+		win.state.expect = true;
 		win.state.startPath = new URL(start).pathname;
 		win.state.reloadBtn = win.button({ icon: 'ti-refresh', label: t('core.reload'), onClick: () => reload(win) });
 		win.state.tabBtn = win.button({ icon: 'ti-external-link', label: t('core.openTab'), onClick: () => popOut(win) });
@@ -1125,6 +1141,7 @@ defineKind('web', {
 			const next = appHref(win.app);
 			if (path === win.state.startPath && next) {
 				win.state.startPath = new URL(next).pathname;
+				win.state.expect = true;
 				win.el.querySelector('.win-loading')?.classList.remove('is-done');
 				win.frame.src = next;
 			}
@@ -1150,11 +1167,28 @@ defineKind('web', {
 			return null;
 		}
 	},
-	/* A stored path must stay where the app lives: inside the top folder of its start page,
-	   relative to the installation root (or app.scope) — never the desktop itself */
-	acceptUrl(app, path) {
-		const start = appHref(app);
-		return start ? acceptPath(start, path, typeof app.scope === 'string' ? app.scope : null) : null;
+	/* A deep link or launch(id, { url }) for an open window: show that location — only while the frame still
+	   shows what the desktop loaded or is loading into it (a page the visitor went to may hold unsaved input).
+	   A load the desktop started that has not finished (a window the session just restored) counts as untouched. */
+	reopen(win, opts) {
+		if (opts?.restore || typeof opts?.url !== 'string') return;
+		const wanted = acceptUrl(win.app, opts.url, 'launch');
+		if (!wanted) return;
+		const loading = win.state.expect === true;
+		const now = locationOf(win);
+		if (!loading && (now == null || now !== win.state.loaded)) return;
+		const target = new URL(wanted, location.href);
+		if (loading ? win.frame.src === target.href : target.pathname + target.search === now) return;
+		win.state.expect = true;
+		win.el.querySelector('.win-loading')?.classList.remove('is-done');
+		win.frame.src = target.href;
+	},
+	/* A stored location stays where the app lives (its scope or default folder, ARCHITECTURE §15) — never the
+	   desktop itself; a deep link may carry one only when the site allows it for this app (app.linkPaths) */
+	acceptUrl(app, path, from) {
+		if (from === 'link' && app.linkPaths !== true) return null;
+		const starts = startsOf(app);
+		return starts.length ? acceptPath(starts, path, typeof app.scope === 'string' ? app.scope : null) : null;
 	},
 	menu(win) {
 		return [
@@ -1184,7 +1218,7 @@ const implKind = {
 	restore: (win, state) => win.impl?.restore?.(win, state),
 	locationOf: win => win.impl?.locationOf?.(win) ?? null,
 	/* The only hook that gets the app, not a window: a stored or linked path for an app that is not open yet */
-	acceptUrl: (app, path) => registry.impl(app)?.acceptUrl?.(app, path) ?? null,
+	acceptUrl: (app, path, from) => registry.impl(app)?.acceptUrl?.(app, path, from) ?? null,
 	reload: win => win.impl?.reload?.(win),
 	/* Only when the implementation can open something: its own popOut() or a location — and its
 	   canPopOut(win) does not say no (the window manager's canPopOut() catches a failing check) */

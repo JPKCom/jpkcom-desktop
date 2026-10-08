@@ -179,6 +179,33 @@ test('modules: a failing setup() also withdraws the services it provided and the
 	delete globalThis.__jpkTrack;
 });
 
+test('modules: keyed contributions take the key as id unless the item has its own', async () => {
+	globalThis.__jpkSeen = { atSetup: null, loaded: [] };
+	await quiet(() => modules.loadAll([{ kind: 'module', refs: [
+		ref('u9-keyed', `export default {
+			id: 'u9-keyed',
+			fortuneProviders: { example: { name: 'A' }, other: { id: 'own', name: 'B' } }
+		}`),
+		ref('u9-consumer', `export default {
+			id: 'u9-consumer',
+			setup(desk) {
+				globalThis.__jpkSeen.atSetup = desk.modules.contributions('fortuneProviders').map(c => c.id);
+				desk.on('module:loaded', ({ id }) => {
+					for (const c of desk.modules.contributions('fortuneProviders')) if (c.module === id) globalThis.__jpkSeen.loaded.push(c.id);
+				});
+			}
+		}`),
+		ref('u9-later', `export default { id: 'u9-later', fortuneProviders: [{ id: 'late', name: 'C' }] }`)
+	] }], { on, modules }));
+	const list = modules.contributions('fortuneProviders');
+	assert.deepEqual(list.map(c => c.id), ['example', 'own', 'late']);
+	assert.deepEqual(list.map(c => c.module), ['u9-keyed', 'u9-keyed', 'u9-later']);
+	assert.ok(list.every(Object.isFrozen), 'frozen copies');
+	assert.deepEqual(globalThis.__jpkSeen.atSetup, ['example', 'own'], 'a consumer sees the modules set up before it …');
+	assert.deepEqual(globalThis.__jpkSeen.loaded, ['late'], '… and the later ones through module:loaded');
+	delete globalThis.__jpkSeen;
+});
+
 test('modules: a failing setup() also withdraws the window kinds it defined', async () => {
 	const { defineKind, hasKind } = await import('../src/wm/wm.js');
 	const events = [];

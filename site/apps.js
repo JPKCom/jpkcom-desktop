@@ -11,28 +11,42 @@
    an override record: { id: 'notes', dock: true }. The site's fields win.
 
    apps: [{ id, kind, name, desc, icon, tint, url, size, desktop, dock, hidden, nodock, fixed, logo, mark, allowHttp,
-            allow, sandbox }]
+            allow, sandbox, scope, linkPaths }]
      kind 'page'        a content page in the Reader          url: 'site/content/en/x.html' or { en, de, … }
      kind 'web'         a page in an iframe window            url (same origin, or allowed by frame-src)
                         a same-origin page has full access to the desktop's data: only trusted code,
                         else sandbox: 'allow-scripts' (without 'allow-same-origin') or another origin;
                         allow / sandbox override config.wm.iframe for this app (docs/deploy.md §3)
+                        scope: the folder its in-frame location may stay in (restore, links) —
+                        'demos/clock/' (below the desktop) or '/wiki/' (elsewhere on this site);
+                        default: the start page's first folder below the desktop, or its own folder
+                        when it lies elsewhere ('/wiki/start/' → '/wiki/start/')
+                        linkPaths: true — "Copy link" and #app=<id>&path=/… may open a sub-page
+                        (leave it off for pages you do not control; sandbox those)
      kind 'link'        an external page in a new tab         url: 'https://…'
      kind 'collection'  a Catalog window                      collection: '<collection id>'
      alias: '<app id>'  shows and launches another app
 
    collections: [{ id, prefix, app, name, desc, icon, tint, sort: 'alpha' | 'manual',
                    itemKind: 'auto' | 'link' | 'web' | 'page' | 'image', basePath, urlTemplate, size, allowHttp,
-                   webUrl, allLabel, webLabel,
+                   webApp, webUrl, allLabel, webLabel, man,
                    groups: [{ id, name, desc, icon, tint }],
                    items: [{ slug, group, name, desc, url | app, icon, tint, mark, kind, size,
-                             nodock, hidden, allowHttp, docs, guide, fileName, download }] }]
+                             nodock, hidden, allowHttp, docs, guide, man, fileName, download, scope, linkPaths }] }]
      every item becomes an app '<prefix>-<slug>'
+     webApp    an app the Catalog's "Overview on the web" button launches (wins over webUrl) — a hidden
+               web app { id: 'tools-web', kind: 'web', hidden: true, url: 'tools/' } when the overview
+               page is the collection's basePath (webUrl: 'tools/' routes to the Catalog itself, so the
+               button opens it in a new tab)
      webUrl    the collection's page on the web — a path, an https:// address or { en, de } —
-               the Catalog's "Overview on the web" button
+               the Catalog's "Overview on the web" button; a Reader overview: 'tools/index.html'
      allLabel  the Catalog's "All" entry, webLabel its "… on the web" button (texts)
      docs, guide  the Catalog's "Documentation" / "Guide" buttons: a path, an https:// address or { en, de }
+     man   the terminal's text manual: a .md/.txt path on this site, { en, de } or false; on a collection a
+           template with {slug} (e.g. 'site/content/{lang}/manuals/{slug}.md'); items may override it
+           (placeholders {slug} {id} {collection} {lang}; docs/ARCHITECTURE.md "Manual pages")
      fileName  the name the item is saved under; download: true offers "Download" (image items always do)
+     scope, linkPaths  web items: as on a 'web' app
 
    menus: [{ id, label: { en, de }, items: [appId | '-' | { collection: id } | { label, url } | { label, items: [...] }] }]
    files: { name: 'path' | { en, de } | { url: 'path' | { en, de }, aliases: ['other-name'] } }
@@ -183,6 +197,7 @@ export default {
 					name: { en: 'Desk sketch', de: 'Schreibtisch-Skizze' },
 					desc: { en: 'Image: a picture shipped with the site (SVG)', de: 'Bild: eine mitgelieferte Grafik (SVG)' } },
 				{ slug: 'writing-pages', kind: 'page', icon: 'ti-file-text', tint: 'orange', url: page('docs/pages.html'),
+					man: page('manuals/writing-pages.md'),
 					name: { en: 'Writing pages', de: 'Seiten schreiben' },
 					desc: { en: 'Page: a document in the Reader', de: 'Seite: ein Dokument im Reader' } },
 				{ slug: 'system', app: 'about-desktop',

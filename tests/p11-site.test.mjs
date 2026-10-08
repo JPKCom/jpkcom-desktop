@@ -2,12 +2,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { validateManifest, validateSiteData } from '../tools/validate-manifest.mjs';
+import { validateManifest, validateSiteData, validateIconSets, setPrefixes } from '../tools/validate-manifest.mjs';
+import { readIconSets } from '../tools/icon-set-files.mjs';
 import { cleanFortunes } from '../src/apps/fortune/model.js';
 import { parseFeed } from '../src/modules/notify/core.js';
 import manifest from '../site/apps.js';
@@ -162,7 +163,182 @@ test('validator: collection webUrl, allLabel and webLabel', () => {
 	assert.match(bad.warnings.map(w => w.msg).join('\n'), /webLabel '@notes\.nope': no such key/);
 });
 
+test('validator: man syntax', () => {
+	const it = (slug, man) => ({ slug, name: slug, url: 'https://example.org/', ...(man === undefined ? {} : { man }) });
+	const ok = validateManifest({
+		collections: [
+			{ id: 'tools', name: 'Tools', man: { en: 'help/en/{slug}.md', de: 'help/{slug}.md' },
+				items: [it('a'), it('b', 'help/b.md'), it('c', false), it('d', { en: 'x/{collection}/{id}.md', de: 'y/{lang}/{slug}.md' }), { slug: 'e', app: 'notes', man: 'help/e.md' }] },
+			{ id: 'games', name: 'Games', man: false, items: [it('g')] }
+		]
+	}, ctx({ config: { terminal: { manUrl: 'm/{lang}/{slug}.md' } } }));
+	assert.deepEqual(ok.errors, []);
+	assert.deepEqual(ok.warnings, []);
+
+	const bad = validateManifest({
+		collections: [
+			{ id: 'a', name: 'A', man: 'help/fixed.md', items: [
+				it('scheme', 'https://x.example/a.md'), it('host', '//x.example/a.md'), it('space', 'help/a b.md'),
+				it('ph', 'help/{name}.md'), it('lang', { 'not a lang': 'x.md' }),
+				{ slug: 'al', app: 'notes', man: 'javascript:alert(1)' }
+			] },
+			{ id: 'b', name: 'B', man: { en: 'x/{slug}.html', de: 'x/{slug}.md' }, items: [it('p', 'pages/p/'), it('q', { en: 'q.md' })] }
+		]
+	}, ctx());
+	const errs = bad.errors.map(e => `${e.where}: ${e.msg}`).join('\n');
+	for (const part of [
+		"'a': man 'help/fixed.md' applies to many items and needs {slug} or {id}",
+		"'scheme': man \"https://x.example/a.md\" must be a path on this site",
+		"'host': man \"//x.example/a.md\" must be a path on this site",
+		"'space': man \"help/a b.md\" must be a path on this site",
+		"'ph': man: unknown placeholder {name} — only {slug} {id} {collection} {lang}",
+		"'lang': man: 'not a lang' is not a language tag",
+		"'al': man \"javascript:alert(1)\" must be a path on this site"
+	]) assert.ok(errs.includes(part), `expected: ${part}\n---\n${errs}`);
+	assert.equal(bad.errors.length, 7);
+	const warns = bad.warnings.map(w => `${w.where}: ${w.msg}`).join('\n');
+	for (const part of [
+		"'b': man [en] 'x/{slug}.html' is not a .md/.markdown/.txt file — it is only shown as a link",
+		"'p': man 'pages/p/' is not a .md/.markdown/.txt file",
+		"'q': man has no path for 'de'"
+	]) assert.ok(warns.includes(part), `expected: ${part}\n---\n${warns}`);
+
+	const lonely = validateManifest({ apps: [{ id: 'p', kind: 'page', name: 'P', url: 'p.html' }] },
+		ctx({ config: { terminal: { manUrl: 'm/{name}.md' } } }));
+	assert.match(lonely.errors.map(e => `${e.where}: ${e.msg}`).join('\n'), /config terminal\.manUrl: manUrl: unknown placeholder \{name\}/);
+	assert.match(lonely.warnings.map(w => `${w.where}: ${w.msg}`).join('\n'), /config terminal\.manUrl: is set, but the manifest has no collection/);
+});
+
+test('validator: a relative template with no files gives warnings only, counted per collection and language', () => {
+	const have = new Set(['help/a.md', 'help/en/a.md', 'help/b.md']);
+	const file = p => have.has(p);
+	const items = ['a', 'b', 'c'].map(slug => ({ slug, name: slug, url: 'https://example.org/' }));
+	const r = validateManifest({
+		collections: [
+			{ id: 'tools', name: 'Tools', man: { de: 'help/{slug}.md', en: 'help/en/{slug}.md' }, items: [...items, { slug: 'd', app: 'notes' }, { slug: 'off', name: 'Off', url: 'https://example.org/', man: false }] },
+			{ id: 'root', name: 'Root', man: '/abs/{slug}.md', items: [{ slug: 'z', name: 'Z', url: 'https://example.org/' }] }
+		]
+	}, ctx({ file }));
+	assert.deepEqual(r.errors, []);
+	const warns = r.warnings.map(w => `${w.where}: ${w.msg}`);
+	assert.deepEqual(warns, [
+		"collection 'tools': man has no file for 3 of 4 items in 'en' (e.g. help/en/b.md) — man says \"no manual page\"",
+		"collection 'tools': man has no file for 2 of 4 items in 'de' (e.g. help/c.md) — man says \"no manual page\""
+	], 'the alias item d counts with its own slug; /root paths are not checkable');
+	/* manUrl is the level when the collection sets none; a string without {lang} is counted once */
+	const u = validateManifest({ collections: [{ id: 'games', name: 'Games', items }] }, ctx({ file, config: { terminal: { manUrl: 'help/{slug}.md' } } }));
+	assert.deepEqual(u.warnings.map(w => w.msg), ['config terminal.manUrl has no file for 1 of 3 items (e.g. help/c.md) — man says "no manual page"']);
+});
+
+test('validator: a literal item man to a missing file is one warning, not an error', () => {
+	const r = validateManifest({
+		collections: [{ id: 'tools', name: 'Tools', items: [
+			{ slug: 'a', name: 'A', url: 'https://example.org/', man: 'help/missing.md' },
+			{ slug: 'b', name: 'B', url: 'https://example.org/', man: { en: 'help/en/b.md', de: 'help/de/b.md' } }
+		] }]
+	}, ctx({ file: p => p === 'help/en/b.md' }));
+	assert.deepEqual(r.errors, []);
+	assert.deepEqual(r.warnings.map(w => `${w.where}: ${w.msg}`), [
+		"collections[0] 'tools' items[0] 'a': man 'help/missing.md': no such file in the project — man says \"no manual page\"",
+		"collections[0] 'tools' items[1] 'b': man 'help/de/b.md' [de]: no such file in the project — man says \"no manual page\""
+	]);
+});
+
+test('validator: collection webApp', () => {
+	const item = { slug: 'x', name: 'X', url: 'https://example.org/' };
+	const web = { id: 'tools-web', kind: 'web', hidden: true, url: 'https://example.org/tools/', name: 'Web' };
+	const tools = over => ({ id: 'tools', name: 'T', basePath: '/tools/', webUrl: '/tools/', items: [item], ...over });
+	const run = (over, apps = [], c = ctx()) => validateManifest({ apps: [web, ...apps], collections: [tools(over)] }, c);
+	const msgs = list => list.map(e => `${e.where}: ${e.msg}`).join('\n');
+
+	const ok = run({ webApp: 'tools-web' });
+	assert.deepEqual(ok.errors, []);
+	assert.deepEqual(ok.warnings, [], 'webApp silences the basePath warning');
+	const mod = run({ webApp: 'notes' });
+	assert.deepEqual(mod.errors, []);
+	assert.deepEqual(mod.warnings, []);
+
+	assert.match(msgs(run({ webApp: 'nope' }).errors), /web app 'nope' does not exist/);
+	assert.match(msgs(run({ webApp: 7 }).errors), /webApp must be an app id/);
+	assert.match(msgs(run({ webApp: 'tools' }).errors), /webApp 'tools' is a Catalog of this collection/);
+	assert.match(msgs(run({ webApp: 'browse' }, [{ id: 'browse', kind: 'collection', collection: 'tools', name: 'B' }]).errors),
+		/webApp 'browse' is a Catalog of this collection/);
+	assert.match(msgs(run({ webApp: 'old' }, [{ id: 'old', alias: 'tools' }]).errors), /webApp 'old' is a Catalog of this collection/);
+
+	const unused = run({ app: null, webApp: 'tools-web' });
+	assert.deepEqual(unused.errors, []);
+	assert.match(msgs(unused.warnings), /webApp is unused/);
+	const home = { id: 'tools-home', kind: 'web', url: 'https://example.org/', name: 'H' };
+	assert.match(msgs(run({ app: 'tools-home', webApp: 'tools-web' }, [home]).warnings), /webApp is unused/, 'app is no Catalog');
+	const browse = { id: 'browse', kind: 'collection', collection: 'tools', name: 'B' };
+	const used = run({ app: null, webApp: 'tools-web' }, [browse]);
+	assert.deepEqual(used.errors, []);
+	assert.deepEqual(used.warnings, [], 'another Catalog AppEntry shows the collection');
+	const page = { id: 'tools-page', kind: 'page', hidden: true, url: '/tools/index.html', name: 'P' };
+	const noReader = run({ webApp: 'tools-page' }, [page], ctx({ modules: new Set(['wm', 'shell', 'panels', 'catalog']) }));
+	assert.match(msgs(noReader.warnings), /webApp 'tools-page'.*needs the module 'reader'/);
+	const atBase = run({ webApp: 'tools-page' }, [{ ...page, url: { en: '/tools/', de: '/tools/index.html' } }]);
+	assert.deepEqual(atBase.errors, []);
+	assert.match(msgs(atBase.warnings), /page app at the collection's basePath.*url '\/tools\/index\.html'/);
+	assert.deepEqual(run({ webApp: 'tools-page' }, [page]).warnings, [], 'a page app on <basePath>index.html is fine');
+});
+
+test('validator: webUrl equal to basePath without webApp is a warning', () => {
+	const item = { slug: 'x', name: 'X', url: 'https://example.org/' };
+	const web = { id: 'tools-web', kind: 'web', hidden: true, url: 'https://example.org/tools/', name: 'Web' };
+	const run = (webUrl, { apps = [], config } = {}) => validateManifest({
+		apps: [web, ...apps],
+		collections: [{ id: 'tools', name: 'T', basePath: '/tools/', webUrl, items: [item] }]
+	}, ctx(config ? { config } : {}));
+	const trap = /webUrl '\/tools\/?' is this collection's basePath/;
+	for (const v of ['/tools/', '/tools', { en: '/tools', de: '/tools/' }]) {
+		const r = run(v);
+		assert.deepEqual(r.errors, [], JSON.stringify(v));
+		assert.equal(r.warnings.filter(w => trap.test(w.msg)).length, 1, JSON.stringify(v));
+	}
+	for (const v of ['/tools/index.html', '/en/tools/']) assert.deepEqual(run(v).warnings, [], v);
+	assert.deepEqual(run('/tools/', { apps: [{ id: 'tools', webApp: 'tools-web' }] }).warnings, [], 'webApp on the override record');
+	assert.deepEqual(run('/tools/', { config: { site: { routes: [{ match: '^/tools/?$', app: 'tools-web' }] } } }).warnings, [],
+		'a site route sends it elsewhere');
+	assert.deepEqual(run('/tools/', { config: { site: { routes: [{ prefix: 'tools/', tab: true }] } } }).warnings, []);
+	assert.equal(run('/tools/', { config: { site: { routes: [{ match: '^/tools/?$', app: 'tools' }] } } }).warnings.length, 1,
+		'a route to this Catalog is no way out');
+	/* the router sends basePath to the collection's app only: without a Catalog there, nothing leads back */
+	const runApp = (app, apps = []) => validateManifest({
+		apps: [web, ...apps],
+		collections: [{ id: 'tools', name: 'T', app, basePath: '/tools/', webUrl: '/tools/', items: [item] }]
+	}, ctx());
+	const browse = { id: 'browse', kind: 'collection', collection: 'tools', name: 'B' };
+	assert.deepEqual(runApp(null, [browse]).warnings, [], 'app: null');
+	assert.deepEqual(runApp('tools-home', [{ id: 'tools-home', kind: 'web', url: 'https://example.org/', name: 'H' }]).warnings, [],
+		'app is a web app');
+	assert.equal(runApp('tools-cat').warnings.filter(w => trap.test(w.msg)).length, 1, 'app names a Catalog of its own');
+	assert.equal(runApp('old', [{ id: 'old', alias: 'browse' }, browse]).warnings.filter(w => trap.test(w.msg)).length, 1,
+		'app is an alias of a Catalog of this collection');
+});
+
+test('validator: web button fields on a Catalog app entry and its override record', () => {
+	const item = { slug: 'x', name: 'X', url: 'https://example.org/' };
+	const collections = [{ id: 'tools', name: 'T', items: [item] }];
+	const over = validateManifest({ apps: [{ id: 'tools', webApp: 'nope' }], collections }, ctx());
+	assert.match(over.errors.map(e => `${e.where}: ${e.msg}`).join('\n'), /'tools': web app 'nope' does not exist/);
+	/* fields 1.1.0 did not check on apps: warnings only, so a site that passed still passes */
+	const entry = validateManifest({
+		apps: [{ id: 'browse', kind: 'collection', collection: 'tools', name: 'B', webUrl: 'javascript:x', webLabel: { en: 'X' }, allLabel: '' }],
+		collections
+	}, ctx());
+	assert.deepEqual(entry.errors, []);
+	const warns = entry.warnings.map(w => w.msg).join('\n');
+	assert.match(warns, /webUrl 'javascript:x'/);
+	assert.match(warns, /webLabel has no text for 'de'/);
+	assert.match(warns, /allLabel is empty/);
+	const overWarn = validateManifest({ apps: [{ id: 'tools', webUrl: 42 }], collections }, ctx());
+	assert.deepEqual(overWarn.errors, []);
+	assert.match(overWarn.warnings.map(w => w.msg).join('\n'), /webUrl must be a string or a \{ lang: url \} map/);
+});
+
 test('validator: icons still to build and kinds without their module are warnings', () => {
+
 	const r = validateManifest({
 		apps: [{ id: 'f', kind: 'collection', collection: 'c', name: 'F', icon: 'ti-cookie' }],
 		collections: [{ id: 'c', name: 'C', items: [{ slug: 'i', name: 'I', url: 'pic.png' }] }]
@@ -179,6 +355,126 @@ test('validator: icons still to build and kinds without their module are warning
 	assert.match(warns, /needs the module 'viewer'/);
 });
 
+/* ---------- Site icon sets ---------- */
+
+const SET = (icons, extra = {}) => JSON.stringify({ format: 'jpkcom-desktop-icons/1', name: 'Test', license: 'MIT', icons, ...extra });
+
+/** A temporary installation root with the given files → readIconSets() of it */
+function withSets(files, cfg, fn) {
+	const dir = mkdtempSync(join(tmpdir(), 'p11-sets-'));
+	try {
+		for (const [path, text] of Object.entries(files)) {
+			mkdirSync(dirname(join(dir, path)), { recursive: true });
+			writeFileSync(join(dir, path), text);
+		}
+		return fn(readIconSets(dir, { vault: { dir: 'site/vault/' }, ...cfg }));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+const setIconCtx = sets => ctx({
+	iconSets: sets,
+	icon: id => {
+		if (['ti-book', 'jpk'].includes(id) || sets.ids.has(id)) return 'ok';
+		return setPrefixes(sets.sets).has(id.split('-')[0]) ? 'set' : 'unknown';
+	}
+});
+
+test('validator: icons of a configured site icon set count as known in apps, collections, groups and items', () => {
+	withSets({ 'site/icon-sets/a.json': SET({ 'acme-rocket': { k: 'd', vb: '0 0 512 512', e: ['M0 0h1'], e2: ['M1 1h1'] }, 'acme-star': { k: 'f', e: ['M0 0'] } }) },
+		{ iconSets: ['site/icon-sets/a.json'] }, sets => {
+			assert.deepEqual([...sets.ids], [['acme-rocket', 'site/icon-sets/a.json'], ['acme-star', 'site/icon-sets/a.json']]);
+			const r = validateManifest({
+				apps: [{ id: 'about', kind: 'page', icon: 'acme-rocket', name: 'A', url: 'a.html' }],
+				collections: [{ id: 'c', name: 'C', icon: 'acme-star', defaultIcon: 'acme-rocket', groups: [{ id: 'g', name: 'G', icon: 'acme-star' }],
+					items: [{ slug: 'x', group: 'g', name: 'X', url: 'https://example.org/', icon: 'acme-rocket' }] }]
+			}, setIconCtx(sets));
+			assert.deepEqual(r.errors, []);
+			const v = validateIconSets(sets.sets);
+			assert.deepEqual(v, { errors: [], warnings: [] });
+		});
+});
+
+test("validator: an id with a set's prefix that the set lacks is an error naming the set", () => {
+	withSets({ 'site/icon-sets/a.json': SET({ 'acme-rocket': { k: 'f', e: ['M0 0'] } }) }, { iconSets: ['site/icon-sets/a.json'] }, sets => {
+		const r = validateManifest({ apps: [{ id: 'x', kind: 'page', icon: 'acme-snake', name: 'X', url: 'a.html' }, { id: 'y', kind: 'page', icon: 'other-thing', name: 'Y', url: 'a.html' }] }, setIconCtx(sets));
+		const errs = r.errors.map(e => e.msg).join('\n');
+		assert.match(errs, /icon 'acme-snake' is not in the site icon set\(s\) with prefix 'acme' \(site\/icon-sets\/a\.json\)/);
+		assert.match(errs, /icon 'other-thing' is neither a Tabler id \(ti-…, tif-…\), a custom glyph nor an icon of a site icon set/);
+	});
+});
+
+test('validator: a missing, non-JSON or wrongly formatted set file is an error', () => {
+	withSets({
+		'site/icon-sets/bad.json': '{ nope',
+		'site/icon-sets/fmt.json': JSON.stringify({ format: 'other/1', icons: {} })
+	}, { iconSets: ['site/icon-sets/none.json', 'site/icon-sets/bad.json', 'site/icon-sets/fmt.json'] }, sets => {
+		const { errors } = validateIconSets(sets.sets);
+		const text = errors.map(e => `${e.where}: ${e.msg}`).join('\n');
+		assert.match(text, /site icon set site\/icon-sets\/none\.json does not exist/);
+		assert.match(text, /bad\.json: site icon set refused: invalid JSON/);
+		assert.match(text, /fmt\.json: site icon set refused: format must be "jpkcom-desktop-icons\/1"/);
+		assert.equal(errors.length, 3);
+		assert.equal(sets.ids.size, 0);
+	});
+});
+
+test('validator: reserved prefixes, duplicate ids across sets and dropped allowlist items are errors', () => {
+	withSets({
+		'site/icon-sets/a.json': SET({ 'acme-a': { e: ['M0 0'] }, 'ti-home': { e: ['M0 0'] } }),
+		'icon-sets/b.json': SET({ 'acme-a': { e: ['M0 0'] }, 'acme-b': { e: [['path', { d: 'M0 0', onclick: 'x' }]] } })
+	}, { iconSets: ['site/icon-sets/a.json', 'icon-sets/b.json'] }, sets => {
+		const { errors } = validateIconSets(sets.sets);
+		const text = errors.map(e => `${e.where}: ${e.msg}`).join('\n');
+		assert.match(text, /a\.json: 'ti-home': the prefix 'ti' belongs to the project/);
+		assert.match(text, /b\.json: 'acme-a': an earlier icon set brings this id already/);
+		assert.match(text, /b\.json: 'acme-b': dropped onclick/);
+		assert.equal(sets.ids.get('acme-a'), 'site/icon-sets/a.json', 'the first set wins');
+		assert.equal(sets.ids.get('acme-b'), 'icon-sets/b.json');
+	});
+});
+
+test('validator: a set inside vault.dir is an error', () => {
+	for (const dir of ['site/vault/', '/site/vault/']) {
+		withSets({ 'site/vault/i.json': SET({ 'acme-a': { e: ['M0 0'] } }) }, { iconSets: ['site/vault/i.json'], vault: { dir } }, sets => {
+			assert.equal(sets.sets[0].below, 'vault', dir);
+			assert.match(validateIconSets(sets.sets).errors.map(e => e.msg).join('\n'), /lies inside vault\.dir — the service worker never caches it/);
+		});
+	}
+});
+
+test('validator: a set above 256 KiB is a warning; above 2 MiB an error', () => {
+	const icons = {};
+	for (let i = 0; i < 400; i++) icons[`acme-i${i}`] = { k: 'f', e: [`M0 0${'h1'.repeat(400)}`] };
+	withSets({ 'site/icon-sets/big.json': SET(icons), 'site/icon-sets/huge.json': SET({ 'acme-x': { k: 'f', e: ['M0 0'] } }, { pad: 'x'.repeat(2 * 1024 * 1024) }) },
+		{ iconSets: ['site/icon-sets/big.json', 'site/icon-sets/huge.json'] }, sets => {
+			const r = validateIconSets(sets.sets);
+			assert.match(r.warnings.map(w => w.msg).join('\n'), /site icon set site\/icon-sets\/big\.json is \d+ KiB \(400 icons\) — ship only the icons the site uses/);
+			assert.match(r.errors.map(e => e.msg).join('\n'), /refused: \d+ KiB, larger than 2 MiB/);
+		});
+});
+
+test("validator: a k 'o' set icon on a 512 grid without stroke-width in a is a warning", () => {
+	const icons = { 'acme-ok': { vb: '0 0 512 512', a: { fill: 'none', stroke: 'currentColor', 'stroke-width': 32 }, e: ['M0 0'] }, 'acme-tabler': { e: ['M0 0'] } };
+	for (let i = 0; i < 7; i++) icons[`acme-thin${i}`] = { vb: '0 0 512 512', e: ['M0 0'] };
+	withSets({ 'site/icon-sets/o.json': SET(icons) }, { iconSets: ['site/icon-sets/o.json'] }, sets => {
+		const warns = validateIconSets(sets.sets).warnings.map(w => w.msg);
+		assert.equal(warns.length, 6);
+		assert.match(warns[0], /'acme-thin0' is an outline icon on a 512×512 grid — --icon-stroke \(1\.75\) is in viewBox units/);
+		assert.match(warns[5], /2 more outline icons/);
+	});
+});
+
+test('validator: brand.glyph from a set passes; an unknown brand.glyph warns', () => {
+	withSets({ 'site/icon-sets/a.json': SET({ 'acme-logo': { k: 'f', e: ['M0 0'] } }) }, { iconSets: ['site/icon-sets/a.json'] }, sets => {
+		const ok = validateManifest({ apps: [] }, { ...setIconCtx(sets), config: { brand: { glyph: 'acme-logo' } } });
+		assert.deepEqual(ok.warnings, []);
+		const bad = validateManifest({ apps: [] }, { ...setIconCtx(sets), config: { brand: { glyph: 'acme-gone' } } });
+		assert.match(bad.warnings.map(w => `${w.where}: ${w.msg}`).join('\n'), /config brand\.glyph: config\.brand\.glyph 'acme-gone' is not a known icon — the menu bar shows ti-app-window/);
+	});
+});
+
 test('validator: site data — fortunes and feeds per language', () => {
 	const files = {
 		'd/en.json': { items: ['x'] },
@@ -192,6 +488,40 @@ test('validator: site data — fortunes and feeds per language', () => {
 	assert.match(all, /no sayings for 'fr'/);
 	assert.match(all, /feed\.de\.json does not exist/);
 	assert.match(all, /no feed for fr/);
+});
+
+test('validator: online only skips the fortunes, needs remote and services.fortune', () => {
+	const opts = { languages: ['en'], read: () => undefined, modules: new Set(['fortune']) };
+	const msgs = r => [...r.errors, ...r.warnings].map(e => `${e.where}: ${e.msg}`);
+	let r = validateSiteData({ fortune: { local: false, remote: 'example', dir: 'd/' }, services: { fortune: true } }, opts);
+	assert.deepEqual(msgs(r), [], 'no "no sayings" warning online only');
+	for (const remote of [null, 'Bad Id']) {
+		r = validateSiteData({ fortune: { local: false, remote, dir: 'd/' }, services: { fortune: true } }, opts);
+		const all = msgs(r).join('\n');
+		assert.match(all, /no sayings for 'en'/, 'the fortunes loop runs');
+		assert.equal(r.warnings.filter(w => w.where === 'config fortune').length, 1, String(remote));
+		assert.match(all, /local: false needs remote/);
+	}
+	r = validateSiteData({ fortune: { local: false, remote: 'example', dir: 'd/' } }, opts);
+	assert.match(msgs(r).join('\n'), /needs services\.fortune: true/);
+});
+
+test('validator: fortune texts need every configured language', async () => {
+	const { TEXT_KEYS } = await import('../src/apps/fortune/model.js');
+	const run = texts => validateSiteData({ fortune: { texts } },
+		{ languages: ['en', 'de'], read: () => undefined, textKeys: TEXT_KEYS, modules: new Set(['fortune']) });
+	let r = run({ next: { en: 'N' } });
+	assert.equal(r.errors.length, 1);
+	assert.match(r.errors[0].msg, /no text for 'de'/);
+	r = run({ bogus: 'x' });
+	assert.equal(r.errors.length, 0);
+	assert.equal(r.warnings.length, 1);
+	assert.match(r.warnings[0].msg, /cannot be replaced/);
+	r = run({ next: '@my.next' });
+	assert.deepEqual([...r.errors, ...r.warnings], []);
+	r = run({ next: 3 });
+	assert.match(r.errors[0].msg, /must be a text/);
+	assert.deepEqual(run({ next: { en: 'N', de: 'N' } }).errors, []);
 });
 
 test('validator CLI: the example site has no errors and no warnings', () => {

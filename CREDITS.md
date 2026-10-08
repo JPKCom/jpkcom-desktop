@@ -48,6 +48,9 @@ or logo) and the neutral motifs `waves`, `dunes`, `aurora`, `orbit`, `horizon` a
 
 ## Tabler Icons
 
+Site icon sets (`site/icon-sets/`) are the site operator's own material under their own licence; the
+project ships none.
+
 The icons in `src/icons/tabler.js` are a generated subset of
 [Tabler Icons](https://tabler.io/icons) (`@tabler/icons`, outline and filled), used under the MIT License:
 

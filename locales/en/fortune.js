@@ -28,6 +28,7 @@ export default {
 	localError: 'The sayings could not be loaded.',
 	empty: 'Nothing in this category yet.',
 	offline: 'No internet connection.',
+	noSource: 'No source is available for this app right now.',
 
 	/* The question before an online source is used */
 	askTitle: 'Before anything is fetched',
@@ -36,6 +37,7 @@ export default {
 	askLang: 'The texts are in {language}.',
 	allow: 'Agree and load',
 	deny: 'No, use the built-in sayings',
+	denyOnline: 'No, thanks',
 	toSettings: 'Open settings',
 
 	/* Terminal command `fortune` */

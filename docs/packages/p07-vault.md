@@ -127,8 +127,10 @@ above `--out`), `--out <dir>` (default `config.vault.dir`), `--keep`/`--prune`
 Backspace, Ctrl+U, Ctrl+C), asked twice; `DESKTOP_VAULT_USER`/`DESKTOP_VAULT_PASS` for CI; piped stdin lines
 without a terminal. English output. Warns about passwords under 12 characters, an empty salt, and icons
 that exist in Tabler but not in `src/icons/tabler.js` (→ `site/icons.json`, `npm run icons`; until then the
-browser shows the group's icon or `ti-bookmark` in their place); unknown icons,
-tints, clashing ids, bad URLs refuse sealing. Round trip before writing; refuses files above `maxBytes`.
+browser shows the group's icon or `ti-bookmark` in their place); icons of the site icon sets
+(`config.iconSets`, read below the web root of `--out` — the project by default) count as known — a
+vault-only icon must be in the set, and the set file is public: it shows which icons the vault uses, so
+prefer generic icons for sensitive entries; unknown icons, tints, clashing ids, bad URLs refuse sealing. Round trip before writing; refuses files above `maxBytes`.
 
 ## Deviations from the original
 

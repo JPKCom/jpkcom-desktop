@@ -8,7 +8,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, relative, resolve, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,4 +69,14 @@ test('hygiene: no bidi controls or zero-width characters in the sources', () => 
 		});
 	}
 	assert.deepEqual(found, [], `invisible characters found:\n  ${found.join('\n  ')}`);
+});
+
+/* Site icon sets are often commercially licensed: the public repository ignores site/icon-sets/* (.gitignore),
+   and a file that was force-added anyway fails here (docs/ARCHITECTURE.md §13) */
+test('hygiene: no file in site/icon-sets/ is tracked by git', t => {
+	if (!existsSync(join(ROOT, '.git'))) return t.skip('no .git (an unpacked release)');
+	const run = spawnSync('git', ['ls-files', '--', 'site/icon-sets'], { cwd: ROOT, encoding: 'utf8' });
+	if (run.error || run.status !== 0) return t.skip('git is not available');
+	assert.equal(run.stdout.trim(), '', `tracked: ${run.stdout.trim()}`);
+	assert.match(readFileSync(join(ROOT, '.gitignore'), 'utf8'), /^site\/icon-sets\/\*$/m, '.gitignore ignores site/icon-sets/*');
 });

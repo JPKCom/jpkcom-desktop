@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseKeys, matchKeys, searchShortcut } from '../src/shell/shortcuts.js';
 import { cleanPins, movePin } from '../src/shell/dock.js';
-import { parseHash } from '../src/shell/deeplinks.js';
+import { parseHash, hashOf } from '../src/shell/deeplinks.js';
 import { kindOf, accepts, assign } from '../src/shell/drop.js';
 import { cleanSiteMenus, siteEntries } from '../src/shell/menubar.js';
 import { shortCode, nextLang, switchLabel, items as languageItems } from '../src/shell/lang.js';
@@ -12,11 +12,12 @@ import { filterApps, launcherEntries } from '../src/shell/launcher.js';
 import { reach } from '../src/shell/title-fit.js';
 import { group, windowItems } from '../src/shell/context-menu.js';
 import { labelLang } from '../src/shell/menus.js';
-import { canPopOut, kindDef } from '../src/wm/wm.js';
+import { canPopOut, kindDef, acceptUrl as wmAcceptUrl } from '../src/wm/wm.js';
 import { player } from '../src/apps/media/player.js';
 import { provide } from '../src/core/services.js';
 import { registry, createRegistry } from '../src/core/registry.js';
 import { i18n } from '../src/core/i18n.js';
+import { ROOT } from '../src/core/env.js';
 
 const key = (k, mods = {}) => ({ key: k, code: mods.code ?? '', ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, altKey: !!mods.alt, shiftKey: !!mods.shift });
 
@@ -97,6 +98,91 @@ test('deep links: parseHash', () => {
 	assert.equal(parseHash('#/%252e%252e/etc/passwd'), null, 'double-encoded dot segments');
 	assert.deepEqual(parseHash('#/docs/a:b.html'), { path: '/docs/a:b.html' }, 'a colon further on is a file name');
 	assert.deepEqual(parseHash('#/docs/..x/.well/'), { path: '/docs/..x/.well/' }, 'dots inside a name');
+});
+
+test('deep links: parseHash reads #app=<id>&path= and ignores unknown parameters', () => {
+	assert.deepEqual(parseHash('#app=wiki&path=/wiki/a/b.html?x=1&y=2'), { app: 'wiki', url: '/wiki/a/b.html?x=1&y=2' }, 'path= comes last and keeps its query');
+	assert.deepEqual(parseHash('#app%3Dwiki%26path%3D%2Fwiki%2F'), { app: 'wiki', url: '/wiki/' });
+	assert.deepEqual(parseHash('#app=wiki&path=/wiki/a%2520b/'), { app: 'wiki', url: '/wiki/a%20b/' }, 'one decoding');
+	assert.deepEqual(parseHash('#app=x&foo=1'), { app: 'x' }, 'an unknown parameter still opens the app');
+	assert.deepEqual(parseHash('#app=wiki&foo=1&path=/wiki/a/'), { app: 'wiki', url: '/wiki/a/' });
+	/* a bad path is dropped, the app still opens */
+	for (const bad of ['//evil.example/', '/\\evil.example/', '/%09/x', '/../x', '/%2e%2e/x', '/blob:http://h/0', 'wiki/', '']) {
+		assert.deepEqual(parseHash(`#app=wiki&path=${bad}`), { app: 'wiki' }, JSON.stringify(bad));
+	}
+	for (const bad of ['#app=Bad&path=/x', '#app=&path=/x', '#app=wiki&', '#app=wiki&Foo=1']) assert.equal(parseHash(bad), null, bad);
+});
+
+test('deep links: hashOf — the hash for a window', () => {
+	const w = { id: 'wiki', kind: 'web', startPath: '/wiki/start/' };
+	assert.equal(hashOf({ ...w, transient: true, path: '/wiki/a/' }), '');
+	assert.equal(hashOf({ id: 'about', kind: 'page', path: '/site/content/en/a.html' }), '#/site/content/en/a.html');
+	assert.equal(hashOf({ id: 'demo', kind: 'web', path: '/desk/demos/x/', routedApp: 'demo' }), '#/desk/demos/x/', 'the path leads back to the app');
+	assert.equal(hashOf({ ...w, path: '/wiki/a/', accepted: '/wiki/a/' }), '#app=wiki&path=/wiki/a/');
+	assert.equal(hashOf({ ...w, path: '/wiki/a%20b/', accepted: '/wiki/a%20b/' }), '#app=wiki&path=/wiki/a%2520b/', "'%' written as '%25'");
+	assert.equal(hashOf({ ...w, path: '/wiki/start/', accepted: '/wiki/start/' }), '#app=wiki', 'the start page: the app alone');
+	assert.equal(hashOf({ ...w, path: '/wiki/a/', accepted: null }), '#app=wiki', 'no linkPaths: as in 1.1');
+	assert.equal(hashOf({ ...w }), '#app=wiki', 'no location');
+	/* round trip: one decoding in parseHash gives the exact path back */
+	for (const path of ['/wiki/a/', '/wiki/a%20b/?q=a%26b&x=1', '/wiki/%C3%A4/']) {
+		assert.equal(parseHash(hashOf({ ...w, path, accepted: path })).url, path, path);
+	}
+});
+
+test('window manager: the web kind gates linked paths with linkPaths and navigates only an untouched frame', () => {
+	const web = kindDef('web');
+	assert.equal(typeof web.acceptUrl, 'function');
+	assert.equal(typeof web.reopen, 'function');
+	const rootPath = new URL(ROOT).pathname;
+	const app = { id: 'w', kind: 'web', url: 'demos/clock/' };
+	const p = `${rootPath}demos/other/`;
+	assert.equal(web.acceptUrl(app, p, 'link'), null, 'a link needs linkPaths');
+	assert.equal(web.acceptUrl(app, p, 'session'), p);
+	assert.equal(web.acceptUrl(app, p, 'launch'), p);
+	assert.equal(web.acceptUrl({ ...app, linkPaths: true }, p, 'link'), p);
+	assert.equal(wmAcceptUrl(app, p, 'bogus'), null, 'an unknown origin counts as a link');
+	assert.equal(wmAcceptUrl(app, p), p, 'no origin: launch');
+	assert.equal(wmAcceptUrl({ ...app, linkPaths: true }, p, 'link'), p);
+	assert.equal(web.acceptUrl(app, rootPath, 'session'), null, 'never the desktop itself');
+	/* reopen: only while the frame shows what the desktop loaded or is loading into it; never on restore */
+	const origin = 'https://desk.example';
+	const stub = (now, loaded) => {
+		const frame = { src: 'unchanged', contentWindow: { location: { href: `${origin}${now}` } } };
+		return { kind: 'web', def: web, app, frame, state: { loaded }, el: { querySelector: () => null } };
+	};
+	globalThis.location = new URL(`${origin}${rootPath}`);
+	try {
+		const target = `${rootPath}demos/clock/b.html`;
+		const restored = stub(`${rootPath}demos/clock/`, `${rootPath}demos/clock/`);
+		web.reopen(restored, { restore: true, url: target });
+		assert.equal(restored.frame.src, 'unchanged', 'a restore never navigates');
+		const fresh = stub(`${rootPath}demos/clock/`, `${rootPath}demos/clock/`);
+		web.reopen(fresh, { url: target });
+		assert.equal(fresh.frame.src, `${origin}${target}`, 'an untouched frame follows');
+		assert.equal(fresh.state.expect, true);
+		const touched = stub(`${rootPath}demos/clock/c.html`, `${rootPath}demos/clock/`);
+		web.reopen(touched, { url: target });
+		assert.equal(touched.frame.src, 'unchanged', 'the visitor navigated: only shown');
+		const refused = stub(`${rootPath}demos/clock/`, `${rootPath}demos/clock/`);
+		web.reopen(refused, { url: '/elsewhere/' });
+		assert.equal(refused.frame.src, 'unchanged', 'a location outside the folder is refused');
+		/* a load the desktop started has not finished yet (the session just restored the window): untouched */
+		const loading = stub('', undefined);
+		loading.frame.contentWindow.location.href = 'about:blank';
+		loading.frame.src = `${origin}${rootPath}demos/clock/c.html`;
+		loading.state.expect = true;
+		web.reopen(loading, { url: target });
+		assert.equal(loading.frame.src, `${origin}${target}`, 'a link wins over a restore that is still loading');
+		assert.equal(loading.state.expect, true);
+		const same = stub('', undefined);
+		let sets = 0;
+		same.frame = { contentWindow: { location: { href: 'about:blank' } }, get src() { return `${origin}${target}`; }, set src(v) { sets++; } };
+		same.state.expect = true;
+		web.reopen(same, { url: target });
+		assert.equal(sets, 0, 'already loading that location: not loaded twice');
+	} finally {
+		delete globalThis.location;
+	}
 });
 
 test('drop: kindOf by MIME type, else by extension', () => {

@@ -31,6 +31,11 @@
        "items":  [{ "slug": "wiki", "group": "work", "name": "Wiki", "url": "https://wiki.example/", "desc": "…", "icon": "ti-book" }] }
    (The original desktop's { linkCategories, links: [{ cat }] } is read as well.)
 
+   Icons may be Tabler ids, custom glyphs or icons of the site icon sets (config.iconSets, read
+   with tools/icon-set-files.mjs below the web root --out belongs to — the installation the browser
+   loads them from; the project when that root is a guess): a vault-only icon must be in its set —
+   and the set file is public, so it shows which icons the vault uses.
+
    Zero dependencies (Node ≥ 24: WebCrypto is built in). */
 
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, mkdirSync, existsSync, statSync } from 'node:fs';
@@ -39,6 +44,8 @@ import { randomBytes } from 'node:crypto';
 import { dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
+import { readIconSets } from './icon-set-files.mjs';
+import { iconPrefix } from '../src/core/icon-sets.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_PASS = 12;
@@ -212,6 +219,18 @@ async function iconCheck() {
 	try {
 		for (const id of Object.keys((await import(pathToFileURL(join(ROOT, 'src/icons/custom.js')).href)).symbols)) subset.add(id);
 	} catch { /* ignore */ }
+	/* site icon sets: their ids count as known; an id with a set's prefix that the set lacks stays unknown.
+	   config.iconSets is relative to the installation root: the web root of --out (the project by default) */
+	const setRoot = WEB.guessed ? ROOT : WEB.root;
+	if (setRoot !== ROOT && config.iconSets.length) console.warn(`Note: site icon sets are read below ${show(setRoot)}/ (the web root of ${show(OUT)}/)`);
+	const sets = readIconSets(setRoot, config);
+	for (const id of sets.ids.keys()) subset.add(id);
+	const setOf = new Map();
+	for (const [id, src] of sets.ids) if (!setOf.has(iconPrefix(id))) setOf.set(iconPrefix(id), src);
+	for (const set of sets.sets) {
+		if (set.missing) console.warn(`Note: site icon set ${set.src} does not exist — its icons count as unknown`);
+		else if (set.fatal) console.warn(`Note: site icon set ${set.src} refused (${set.fatal}) — its icons count as unknown`);
+	}
 	let extra = [];
 	try {
 		const v = JSON.parse(readFileSync(join(ROOT, 'site/icons.json'), 'utf8'));
@@ -233,13 +252,20 @@ async function iconCheck() {
 		missing.add(id);
 		return true;
 	};
-	return { known, missing, unverified, extra: new Set(extra) };
+	/* a clearer reason for refused ids that look like a set's icons */
+	const reason = id => (typeof id === 'string' && setOf.has(iconPrefix(id))
+		? `icon '${id}' is not in the site icon set ${setOf.get(iconPrefix(id))} — add it there (your converter), then seal` : null);
+	return { known, missing, unverified, extra: new Set(extra), reason };
 }
 
 const icons = await iconCheck();
 const tintNames = new Set(Object.keys(config.theme.tints ?? {}));
-const content = core.clean(raw, { taken: await taken(), icons: icons.known, tints: n => tintNames.has(n) });
-if (content.problems.length) fail(['Not sealed:', ...content.problems.map(p => `  - ${p}`)].join('\n'));
+const refusedIcons = new Set();
+const content = core.clean(raw, { taken: await taken(), icons: id => icons.known(id) || (refusedIcons.add(id), false), tints: n => tintNames.has(n) });
+if (content.problems.length) {
+	const hints = [...refusedIcons].map(icons.reason).filter(Boolean);
+	fail(['Not sealed:', ...content.problems.map(p => `  - ${p}`), ...hints.map(h => `  ${h}`)].join('\n'));
+}
 const { groups, items } = content;
 
 if (icons.missing.size) {

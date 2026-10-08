@@ -9,16 +9,27 @@
      - references: aliases, override records, menu entries, collections in menus,
        config.site.legal / defaultPageApp / notify.app / vault.collection / about.moreInfo
      - collections: prefix, groups (unknown or duplicate), slugs, item urls and kinds,
-       webUrl / allLabel / webLabel (the Catalog's "… on the web" button)
+       webApp / webUrl / allLabel / webLabel (the Catalog's "… on the web" button,
+       also on a Catalog app or its override record)
      - files (terminal cat): name: path | { lang: path } | { url, aliases: ['name'] }
+     - manual pages (terminal man): man on items and collections, config.terminal.manUrl —
+       the rules of src/core/man.js; files a value names that are missing are warnings
+       (counted per collection and language for templates), never errors
      - urls: relative paths, /paths or https:// — never javascript:, data:, //host;
        link apps https only (http only with allowHttp); local files must exist
+     - scope, linkPaths (web apps and items): scope a folder path (root-relative or
+       '/…' outside the desktop), the start page inside it
      - icons: Tabler ids in src/icons/tabler.js (or at least in @tabler/icons → run
-       `npm run icons`), custom glyphs from src/icons/custom.js
+       `npm run icons`), custom glyphs from src/icons/custom.js, icons of the site icon
+       sets (config.iconSets); config.brand.glyph the same way (a warning)
+     - site icon sets: each file of config.iconSets — exists, below the root and not below
+       vault.dir, JSON in format jpkcom-desktop-icons/1, ids, prefixes, definitions against the
+       allowlist of src/core/icon-sets.js, size
      - tints: a name from config.theme.tints or a ['#top', '#bottom'] pair
      - texts: every language map has a value for each of config.languages;
        '@ns.key' references exist in the locale files
-     - site data the manifest points at: the fortunes per language, the feeds
+     - site data the manifest points at: the fortunes per language, the feeds;
+       the Fortune config (online only, app texts)
 
    Usage
      node tools/validate-manifest.mjs [--manifest site/apps.js] [--config site/config.js]
@@ -35,7 +46,11 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { UNSAFE_URL_CHARS, MAX_URL, safeUrl } from '../src/core/url.js';
+import { UNSAFE_URL_CHARS, MAX_URL, safeUrl, isSafeUrl, isSafeScope } from '../src/core/url.js';
+import { cleanMan, isTextPath, MAN_VARS } from '../src/core/man.js';
+import { expandMan } from '../src/apps/terminal/lib.js';
+import { iconPrefix, safeViewBox, LARGE_SET_BYTES, DEFAULT_VIEWBOX } from '../src/core/icon-sets.js';
+import { readIconSets } from './icon-set-files.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,7 +60,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const ICON_ID = /^tif?-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NS_KEY = /^@([a-z][a-z0-9-]*)\.(.+)$/;
 const IMAGE_EXT = /\.(svg|png|jpe?g|webp|avif|gif)$/i;
-const FLAGS = ['fixed', 'desktop', 'dock', 'hidden', 'nodock', 'transient', 'download', 'logo', 'allowHttp'];
+const FLAGS = ['fixed', 'desktop', 'dock', 'hidden', 'nodock', 'transient', 'download', 'logo', 'allowHttp', 'linkPaths'];
 const TOP_KEYS = new Set(['apps', 'collections', 'menus', 'files']);
 
 /* Window kinds and the module that defines them (wm: built in) */
@@ -80,7 +95,8 @@ const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
  *   moduleApps: Map appId → module     apps that loaded modules bring
  *   modules: Set of loaded module ids  core parts + config.modules + config.apps
  *   authorLinks: ['github', …]         config.author.links ids
- *   icon(id) → 'ok' | 'build' | 'unknown'
+ *   icon(id) → 'ok' | 'build' | 'unknown' | 'set' ('set': the prefix of a site icon set, not in it)
+ *   iconSets: readIconSets() result     the site icon sets (messages name the set)
  *   file(path) → true | false | null   does a local file exist (null: not checkable; 'x/' needs x/index.html)
  *   dir(path) → true | false | null    does a local folder exist
  *   i18n(ns, key, lang) → boolean      does a locale key exist
@@ -106,31 +122,40 @@ export function validateManifest(manifest, ctx) {
 
 	/* ---------- Building blocks ---------- */
 
-	function text(where, v, { required = false, field = 'name' } = {}) {
+	/* soft: report what would be an error as a warning (fields that earlier versions did not check) */
+	function text(where, v, { required = false, field = 'name', soft = false } = {}) {
+		const bad = soft ? warn : err;
 		if (v == null) {
-			if (required) err(where, `${field} is missing`);
+			if (required) bad(where, `${field} is missing`);
 			return;
 		}
 		if (typeof v === 'string') {
-			if (!v) err(where, `${field} is empty`);
+			if (!v) bad(where, `${field} is empty`);
 			const m = NS_KEY.exec(v);
 			if (m) for (const l of langs) if (ctx.i18n && !ctx.i18n(m[1], m[2], l)) warn(where, `${field} '${v}': no such key in locales/${l}/${m[1]}.js`);
 			return;
 		}
 		if (!isObj(v) || !Object.keys(v).length || !Object.values(v).every(x => typeof x === 'string' && x)) {
-			err(where, `${field} must be a text or a { lang: text } map of non-empty texts`);
+			bad(where, `${field} must be a text or a { lang: text } map of non-empty texts`);
 			return;
 		}
 		const missing = langs.filter(l => !(l in v));
-		if (missing.length) err(where, `${field} has no text for ${missing.map(l => `'${l}'`).join(', ')}`);
+		if (missing.length) bad(where, `${field} has no text for ${missing.map(l => `'${l}'`).join(', ')}`);
 	}
 
+	const prefixes = setPrefixes(ctx.iconSets?.sets ?? []);
 	function icon(where, id) {
 		if (id == null) return;
 		if (typeof id !== 'string') return err(where, 'icon must be an icon id');
 		const r = ctx.icon ? ctx.icon(id) : 'ok';
 		if (r === 'build') warn(where, `icon '${id}' is not in src/icons/tabler.js yet — run npm run icons`);
-		else if (r === 'unknown') err(where, ICON_ID.test(id) ? `icon '${id}' does not exist in Tabler Icons` : `icon '${id}' is neither a Tabler id (ti-…, tif-…) nor a custom glyph`);
+		else if (r === 'set') {
+			const p = iconPrefix(id);
+			err(where, `icon '${id}' is not in the site icon set(s) with prefix '${p}' (${(prefixes.get(p) ?? []).join(', ')})`);
+		} else if (r === 'unknown') {
+			err(where, ICON_ID.test(id) ? `icon '${id}' does not exist in Tabler Icons`
+				: `icon '${id}' is neither a Tabler id (ti-…, tif-…), a custom glyph nor an icon of a site icon set (config.iconSets)`);
+		}
 	}
 
 	function tint(where, v) {
@@ -149,36 +174,74 @@ export function validateManifest(manifest, ctx) {
 	   backslash as '/', so 'java<TAB>script:', '/<TAB>/host' or '/<backslash>host' would slip
 	   past a check on the raw text — control characters, DEL and backslashes are refused
 	   outright, scheme and origin are taken from the parsed result. */
-	function oneUrl(where, u, { link = false, allowHttp = false, field = 'url' } = {}) {
-		if (typeof u !== 'string' || !u) return err(where, `${field} must be a non-empty string`);
-		if (/^\s|\s$/.test(u)) return err(where, `${field} '${u}' has spaces at the start or end`);
-		if (UNSAFE_URL_CHARS.test(u)) return err(where, `${field} ${JSON.stringify(u)}: control characters and backslashes are not allowed`);
-		if (u.length > MAX_URL) return err(where, `${field} is longer than ${MAX_URL} characters`);
-		if (u.startsWith('//')) return err(where, `${field} '${u}': protocol-relative addresses are not allowed`);
+	function oneUrl(where, u, { link = false, allowHttp = false, field = 'url', soft = false } = {}) {
+		const bad = soft ? warn : err;
+		if (typeof u !== 'string' || !u) return bad(where, `${field} must be a non-empty string`);
+		if (/^\s|\s$/.test(u)) return bad(where, `${field} '${u}' has spaces at the start or end`);
+		if (UNSAFE_URL_CHARS.test(u)) return bad(where, `${field} ${JSON.stringify(u)}: control characters and backslashes are not allowed`);
+		if (u.length > MAX_URL) return bad(where, `${field} is longer than ${MAX_URL} characters`);
+		if (u.startsWith('//')) return bad(where, `${field} '${u}': protocol-relative addresses are not allowed`);
 		const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(u)?.[1]?.toLowerCase();
-		if (scheme && scheme !== 'http' && scheme !== 'https') return err(where, `${field} '${u}': the protocol ${scheme}: is not allowed`);
+		if (scheme && scheme !== 'http' && scheme !== 'https') return bad(where, `${field} '${u}': the protocol ${scheme}: is not allowed`);
 		const r = safeUrl(u, URL_BASE, URL_ORIGIN);
-		if (!r) return err(where, scheme ? `${field} '${u}' is not a valid address` : `${field} '${u}': a relative address must stay on the desktop's own origin`);
+		if (!r) return bad(where, scheme ? `${field} '${u}' is not a valid address` : `${field} '${u}': a relative address must stay on the desktop's own origin`);
 		if (/\s/.test(u)) warn(where, `${field} '${u}' contains a space — write it as %20`);
 		if (link) {
 			if (scheme === 'https' || (scheme === 'http' && allowHttp)) return;
-			return err(where, `${field} '${u}': a link needs an absolute https:// address${scheme === 'http' ? ' (or allowHttp: true)' : ''}`);
+			return bad(where, `${field} '${u}': a link needs an absolute https:// address${scheme === 'http' ? ' (or allowHttp: true)' : ''}`);
 		}
 		if (scheme === 'http') return warn(where, `${field} '${u}' uses http: — browsers block it on an https site`);
 		/* local files must exist: the normalised path below the page (a /root path is not checkable) */
 		if (!scheme && ctx.file && !u.startsWith('/') && r.pathname.startsWith(URL_BASE_PATH)) {
 			const ok = ctx.file(r.pathname.slice(URL_BASE_PATH.length) || './');
-			if (ok === false) err(where, `${field} '${u}': no such file in the project`);
+			if (ok === false) bad(where, `${field} '${u}': no such file in the project`);
 		}
 	}
 
 	function url(where, v, opts = {}) {
 		if (v == null) return;
 		if (typeof v === 'string') return oneUrl(where, v, opts);
-		if (!isObj(v) || !Object.keys(v).length) return err(where, `${opts.field ?? 'url'} must be a string or a { lang: url } map`);
+		if (!isObj(v) || !Object.keys(v).length) return (opts.soft ? warn : err)(where, `${opts.field ?? 'url'} must be a string or a { lang: url } map`);
 		for (const [l, u] of Object.entries(v)) oneUrl(`${where} [${l}]`, u, opts);
 		const missing = langs.filter(l => !(l in v));
 		if (missing.length) warn(where, `${opts.field ?? 'url'} has no address for ${missing.map(l => `'${l}'`).join(', ')} (the first one is used)`);
+	}
+
+	/* A manual value (man on an item or collection, config.terminal.manUrl) — syntax only, no file
+	   check here (a template names files per item and language; see the file pass below).
+	   → the cleaned value (null when not set or invalid) */
+	function manValue(where, v, { template = false, field = 'man' } = {}) {
+		const r = cleanMan(v, { template });
+		if (r.problem) {
+			const { code, detail, lang } = r.problem;
+			const at = lang ? ` [${lang}]` : '';
+			const vars = MAN_VARS.map(x => `{${x}}`).join(' ');
+			if (code === 'type') err(where, `${field} must be false, a path on this site or a { lang: path } map (${detail})`);
+			else if (code === 'lang') err(where, `${field}: '${detail}' is not a language tag (e.g. 'en', 'de-AT')`);
+			else if (code === 'placeholder') err(where, `${field}${at}: unknown placeholder ${detail} — only ${vars}`);
+			else if (code === 'template') err(where, `${field}${at} '${detail}' applies to many items and needs {slug} or {id}`);
+			else err(where, `${field}${at} ${JSON.stringify(detail)} must be a path on this site: relative or /…, no scheme, no //host, no whitespace (write %20), at most 500 characters`);
+			return null;
+		}
+		if (r.value === null || r.value === false) return r.value;
+		const entries = typeof r.value === 'string' ? [[null, r.value]] : Object.entries(r.value);
+		const sample = { slug: 'x', id: 'x-x', collection: 'x', lang: langs[0] ?? 'en' };
+		let ok = true;
+		for (const [l, p] of entries) {
+			const at = l ? ` [${l}]` : '';
+			const filled = p.replace(/\{([a-z]+)\}/g, (all, k) => sample[k] ?? all);
+			if (!safeUrl(filled, URL_BASE, URL_ORIGIN)) {
+				err(where, `${field}${at} '${p}' must stay on the desktop's own origin`);
+				ok = false;
+			} else if (!isTextPath(p)) {
+				warn(where, `${field}${at} '${p}' is not a .md/.markdown/.txt file — it is only shown as a link (use docs for pages)`);
+			}
+		}
+		if (typeof r.value !== 'string') {
+			const missing = langs.filter(l => !(l in r.value));
+			if (missing.length) warn(where, `${field} has no path for ${missing.map(l => `'${l}'`).join(', ')} (the chain's next language or the first path is used)`);
+		}
+		return ok ? r.value : null;
 	}
 
 	function size(where, v, field = 'size') {
@@ -189,6 +252,29 @@ export function validateManifest(manifest, ctx) {
 	function flags(where, raw) {
 		for (const f of FLAGS) if (raw[f] != null && typeof raw[f] !== 'boolean') warn(where, `${f} should be true or false`);
 		if (raw.mark != null && (typeof raw.mark !== 'string' || !raw.mark || raw.mark.length > 4)) err(where, 'mark must be 1–4 characters');
+	}
+
+	/* scope and linkPaths (web windows, ARCHITECTURE §7/§15). The installation path is unknown here, so
+	   "the root or a parent of it" and "root-absolute inside the root" are left to the desktop (a warning
+	   in the console); only '/' — a parent of every root — is certain. kind: null when unknown. */
+	function scopeCheck(where, raw, kind) {
+		const has = raw.scope != null;
+		if (has && !isSafeScope(raw.scope)) {
+			err(where, `scope ${JSON.stringify(String(raw.scope).slice(0, 80))} must be a folder path ('wiki/' or '/wiki/') without '..', '?', '#', ';', an encoded '/' or a scheme — the desktop ignores it`);
+			return;
+		}
+		if (raw.scope === '/') {
+			err(where, "scope '/' covers the whole site including the desktop — the desktop ignores it (a scope is never the installation folder or a parent of it)");
+			return;
+		}
+		if ((has || raw.linkPaths === true) && kind && kind !== 'web') warn(where, `${has ? 'scope' : 'linkPaths'} is only used by kind 'web'`);
+		if (has && kind === 'web' && typeof raw.url === 'string' && isSafeUrl(raw.url) && !/^https?:/i.test(raw.url)) {
+			try {
+				const folder = new URL(raw.scope.endsWith('/') ? raw.scope : `${raw.scope}/`, raw.scope.startsWith('/') ? URL_ORIGIN : URL_BASE).pathname;
+				const start = new URL(raw.url, URL_BASE).pathname;
+				if (!start.startsWith(folder) && `${start}/` !== folder) warn(where, `the start page '${raw.url}' lies outside scope '${raw.scope}' — restored locations never lead back to it`);
+			} catch { /* reported by url() */ }
+		}
 	}
 
 	function kindNeeds(where, kind) {
@@ -232,7 +318,7 @@ export function validateManifest(manifest, ctx) {
 		siteIds.add(raw.id);
 		const known = ids.get(raw.id);
 		if (known?.source === 'author') err(where, `id '${raw.id}' is also used by an author link (config.author.links)`);
-		ids.set(raw.id, { source: 'site', kind: raw.kind, alias: raw.alias, url: raw.url, module: known?.module });
+		ids.set(raw.id, { source: 'site', kind: raw.kind, alias: raw.alias, url: raw.url, collection: raw.collection, module: known?.module });
 	}
 
 	const colIds = new Set();
@@ -259,6 +345,67 @@ export function validateManifest(manifest, ctx) {
 		for (let i = 0; e?.alias && i < 5; i++) e = ids.get(e.alias);
 		return e?.kind ?? null;
 	};
+	const entryOf = id => {
+		let e = ids.get(id);
+		for (let i = 0; e?.alias && i < 5; i++) e = ids.get(e.alias);
+		return e ?? null;
+	};
+	/* The collection a Catalog app shows (following aliases), else null */
+	const catalogOf = id => {
+		const e = entryOf(id);
+		return e?.kind === 'collection' ? (typeof e.collection === 'string' ? e.collection : id) : null;
+	};
+	const basePathOf = cid => collections.find(c => isObj(c) && c.id === cid)?.basePath;
+	const slash = p => (p.endsWith('/') ? p : `${p}/`);
+	/* exactly the two forms the router sends to the Catalog: basePath with and without the trailing slash */
+	const atBase = (u, base) => typeof u === 'string' && (u === slash(base) || u === slash(base).slice(0, -1));
+	const valuesOf = v => (typeof v === 'string' ? [v] : isObj(v) ? Object.values(v) : []);
+
+	/* The Catalog's web button: webApp must name another launchable app (cid = the collection shown) */
+	function webApp(where, v, cid, basePath) {
+		if (v == null) return;
+		if (typeof v !== 'string' || !ID.test(v)) return err(where, 'webApp must be an app id');
+		if (!isApp(v)) return err(where, `web app '${v}' does not exist`);
+		if (cid && catalogOf(v) === cid) return err(where, `webApp '${v}' is a Catalog of this collection`);
+		const kind = kindOf(v);
+		if (kind) kindNeeds(`${where} webApp '${v}'`, kind);
+		if (kind === 'page' && typeof basePath === 'string' && valuesOf(entryOf(v)?.url).some(u => atBase(u, basePath))) {
+			warn(where, `webApp '${v}' is a page app at the collection's basePath — its deep link opens the Catalog; use a web app, or url '${slash(basePath)}index.html'`);
+		}
+	}
+	/* Does a config.site.routes rule catch the path u first (and send it elsewhere than a Catalog of
+	   cid)? String-based like the rest: rules written against a deeper deployment root are missed */
+	const siteRoutes = Array.isArray(ctx.config?.site?.routes) ? ctx.config.site.routes : [];
+	const rooted = p => `/${p.replace(/^\//, '')}`;
+	function routedElsewhere(u, cid) {
+		for (const r of siteRoutes) {
+			if (!isObj(r) || !(r.app || r.tab || r.page)) continue;
+			let hit = false;
+			if (typeof r.match === 'string') {
+				try {
+					const re = new RegExp(r.match);
+					hit = re.test(u) || re.test(rooted(u));
+				} catch { /* an invalid pattern: the router skips it too */ }
+			} else if (typeof r.prefix === 'string') {
+				hit = rooted(u).startsWith(rooted(r.prefix));
+			}
+			if (!hit) continue;
+			/* as the router: an unknown app falls through to the next rule */
+			if (typeof r.app === 'string' && isApp(r.app)) return catalogOf(r.app) !== cid;
+			if (r.tab === true || r.page === true) return true;
+		}
+		return false;
+	}
+	/* The web button's fields on a Catalog app or its override record: webApp is new (errors), the
+	   others were not checked before (warnings, so a site that passed stays passing) */
+	const withWebApp = new Set();
+	function webFields(where, raw, cid) {
+		webApp(where, raw.webApp, cid, basePathOf(cid));
+		url(where, raw.webUrl, { field: 'webUrl', soft: true });
+		text(where, raw.allLabel, { field: 'allLabel', soft: true });
+		text(where, raw.webLabel, { field: 'webLabel', soft: true });
+		if (raw.webApp != null) withWebApp.add(raw.id);
+	}
 
 	/* ---------- Apps ---------- */
 
@@ -280,6 +427,7 @@ export function validateManifest(manifest, ctx) {
 			text(where, raw.name, { required: true });
 			if (raw.kind === 'collection') {
 				if (typeof raw.collection !== 'string' || !colIds.has(raw.collection)) err(where, `collection '${raw.collection}' is not defined in collections`);
+				webFields(where, raw, typeof raw.collection === 'string' ? raw.collection : null);
 			}
 			if (['page', 'web', 'link', 'image'].includes(raw.kind) && raw.url == null) err(where, `a '${raw.kind}' app needs a url`);
 			if (['app', 'native'].includes(raw.kind) && !ctx.moduleApps?.has(raw.id)) warn(where, `kind '${raw.kind}' needs a module implementation, and no loaded module brings '${raw.id}'`);
@@ -290,6 +438,7 @@ export function validateManifest(manifest, ctx) {
 		size(where, raw.size);
 		flags(where, raw);
 		url(where, raw.url, { link: raw.kind === 'link', allowHttp: raw.allowHttp === true });
+		scopeCheck(where, raw, raw.alias != null ? null : raw.kind);
 		if (raw.dock === true && raw.nodock === true) warn(where, 'dock and nodock contradict each other');
 	}
 
@@ -304,11 +453,15 @@ export function validateManifest(manifest, ctx) {
 		size(where, raw.size);
 		flags(where, raw);
 		if (raw.url != null) url(where, raw.url, { link: kindOf(raw.id) === 'link' });
+		const cid = isApp(raw.id) ? catalogOf(raw.id) : null;
+		if (cid) webFields(where, raw, cid);
+		scopeCheck(where, raw, kindOf(raw.id));
 	}
 
 	/* ---------- Collections ---------- */
 
 	const seenCols = new Set();
+	const manCols = [];             // [{ where, id, prefix, man, items: [{ where, slug, set, man }] }] — the man file pass
 	for (const [ci, c] of collections.entries()) {
 		const where = `collections[${ci}]${typeof c?.id === 'string' ? ` '${c.id}'` : ''}`;
 		if (!isObj(c)) {
@@ -346,6 +499,21 @@ export function validateManifest(manifest, ctx) {
 		url(where, c.webUrl, { field: 'webUrl' });
 		text(where, c.allLabel, { field: 'allLabel' });
 		text(where, c.webLabel, { field: 'webLabel' });
+		/* The terminal's manual for every item (a template) */
+		const manCol = { where, id: c.id, prefix: typeof c.prefix === 'string' && ID.test(c.prefix) ? c.prefix : c.id, man: manValue(where, c.man, { template: true }), items: [] };
+		manCols.push(manCol);
+		const self = c.app === null ? null : typeof c.app === 'string' ? c.app : c.id;
+		webApp(where, c.webApp, c.id, c.basePath);
+		/* any Catalog window of the collection uses it — the collection's own app or another Catalog AppEntry */
+		if (c.webApp != null && ![...ids.keys()].some(id => catalogOf(id) === c.id)) {
+			warn(where, 'no Catalog window shows this collection — webApp is unused');
+		}
+		/* The trap: the router sends basePath to the collection's app only — when that is a Catalog of this
+		   collection, a webUrl equal to basePath leads back to it (unless a site route sends it elsewhere) */
+		if (typeof c.basePath === 'string' && c.webApp == null && self && catalogOf(self) === c.id && !withWebApp.has(self)) {
+			const trap = valuesOf(c.webUrl).find(u => atBase(u, c.basePath) && !routedElsewhere(u, c.id));
+			if (trap) warn(where, `webUrl '${trap}' is this collection's basePath — the button opens it in a new tab; name a web app in webApp to open a window`);
+		}
 
 		const groups = new Map();
 		for (const [gi, g] of (Array.isArray(c.groups) ? c.groups : []).entries()) {
@@ -387,6 +555,8 @@ export function validateManifest(manifest, ctx) {
 			size(iw, it.size);
 			flags(iw, it);
 			text(iw, it.desc, { field: 'desc' });
+			/* checked before the alias branch: an alias item has its own man (never its target's) */
+			manCol.items.push({ where: iw, slug: it.slug, set: it.man != null, man: manValue(iw, it.man) });
 			if (it.app != null) {
 				if (typeof it.app !== 'string' || !ID.test(it.app)) err(iw, 'app must be an app id');
 				else if (!isApp(it.app)) err(iw, `alias target '${it.app}' does not exist`);
@@ -409,6 +579,7 @@ export function validateManifest(manifest, ctx) {
 			}
 			kindNeeds(iw, kind);
 			url(iw, raw, { link: kind === 'link', allowHttp: c.allowHttp === true || it.allowHttp === true });
+			scopeCheck(iw, { ...it, url: raw }, kind);
 			url(iw, it.docs, { field: 'docs' });
 			url(iw, it.guide, { field: 'guide' });
 		}
@@ -517,22 +688,163 @@ export function validateManifest(manifest, ctx) {
 		if (ctx.modules?.has('vault') && cfg.vault?.collection && !colIds.has(cfg.vault.collection)) {
 			err('config vault.collection', `collection '${cfg.vault.collection}' does not exist`);
 		}
+		const glyph = cfg.brand?.glyph;
+		if (typeof glyph === 'string' && glyph && ctx.icon) {
+			const r = ctx.icon(glyph);
+			if (r === 'build') warn('config brand.glyph', `icon '${glyph}' is not in src/icons/tabler.js yet — run npm run icons (until then the menu bar shows ti-app-window)`);
+			else if (r !== 'ok') warn('config brand.glyph', `config.brand.glyph '${glyph}' is not a known icon — the menu bar shows ti-app-window`);
+		}
 		const more = cfg.about?.moreInfo;
 		if (typeof more === 'string' && ID.test(more) && !/[/.]/.test(more) && !isApp(more)) warn('config about.moreInfo', `app '${more}' does not exist`);
 		if (cfg.site?.home != null) url('config site.home', cfg.site.home);
 	}
 
+	/* ---------- Manual pages: config.terminal.manUrl, then the files the values name ---------- */
+
+	const manUrlRaw = cfg?.terminal?.manUrl;
+	const manUrl = manUrlRaw == null || manUrlRaw === false ? null : manValue('config terminal.manUrl', manUrlRaw, { template: true, field: 'manUrl' });
+	if (manUrlRaw != null && manUrlRaw !== false && !colIds.size) warn('config terminal.manUrl', 'is set, but the manifest has no collection — it never applies');
+	if (ctx.file) {
+		/* the path of a value in one language (null: the value does not depend on the language) */
+		const pathIn = (value, vars, lang) => expandMan(value, vars, lang ? [lang] : [])[0];
+		const langsOf = value => (typeof value === 'string' && !value.includes('{lang}') ? [null] : langs);
+		/* true / false (missing) / null (not checkable: /root path, link, outside the project) */
+		const exists = p => {
+			if (typeof p !== 'string' || p.startsWith('/') || !isTextPath(p)) return null;
+			const r = safeUrl(p, URL_BASE, URL_ORIGIN);
+			if (!r || !r.pathname.startsWith(URL_BASE_PATH)) return null;
+			return ctx.file(r.pathname.slice(URL_BASE_PATH.length) || './');
+		};
+		const NOTE = 'man says "no manual page"';
+		for (const col of manCols) {
+			const level = col.man !== null ? col.man : manUrl;
+			const counts = new Map();    // lang → { missing, total, example }
+			for (const it of col.items) {
+				const vars = { slug: it.slug, id: `${col.prefix}-${it.slug}`, collection: col.id };
+				if (it.set) {
+					if (it.man === null || it.man === false) continue;
+					const seen = new Set();
+					for (const l of langsOf(it.man)) {
+						const p = pathIn(it.man, vars, l);
+						if (seen.has(p)) continue;
+						seen.add(p);
+						if (exists(p) === false) warn(it.where, `man '${p}'${l ? ` [${l}]` : ''}: no such file in the project — ${NOTE}`);
+					}
+					continue;
+				}
+				if (level === null || level === false) continue;
+				for (const l of langsOf(level)) {
+					const p = pathIn(level, vars, l);
+					const ok = exists(p);
+					if (ok === null) continue;
+					const n = counts.get(l) ?? { missing: 0, total: 0, example: null };
+					n.total++;
+					if (ok === false) {
+						n.missing++;
+						n.example ??= p;
+					}
+					counts.set(l, n);
+				}
+			}
+			const source = col.man !== null ? 'man' : 'config terminal.manUrl';
+			for (const [l, n] of counts) {
+				if (!n.missing) continue;
+				warn(`collection '${col.id}'`, `${source} has no file for ${n.missing} of ${n.total} items${l ? ` in '${l}'` : ''} (e.g. ${n.example}) — ${NOTE}`);
+			}
+		}
+	}
+
 	return { errors, warnings, stats };
+}
+
+/* A Fortune app text (config.fortune.texts): a non-empty string or a non-empty { lang: text } map */
+const isFortuneText = v => (typeof v === 'string' && v.length > 0)
+	|| (isObj(v) && Object.values(v).length > 0 && Object.values(v).every(x => typeof x === 'string' && x.length > 0));
+
+/** Prefix → sources of the site icon sets that bring icons with it */
+export function setPrefixes(sets) {
+	const out = new Map();
+	for (const set of sets) {
+		for (const id of Object.keys(set.icons ?? {})) {
+			const p = iconPrefix(id);
+			if (!out.has(p)) out.set(p, []);
+			if (!out.get(p).includes(set.src)) out.get(p).push(set.src);
+		}
+	}
+	return out;
+}
+
+/**
+ * Checks the site icon sets (readIconSets() of tools/icon-set-files.mjs → sets): missing files,
+ * refused sets, every problem of a set (ids, prefixes, duplicates, dropped allowlist items), a set
+ * below vault.dir → errors; a large set and outline icons off the 24-unit grid without their own
+ * stroke-width → warnings.
+ */
+export function validateIconSets(sets) {
+	const errors = [];
+	const warnings = [];
+	for (const set of sets ?? []) {
+		const where = set.src;
+		if (set.missing) {
+			errors.push({ where: 'config iconSets', msg: `site icon set ${set.src} does not exist` });
+			continue;
+		}
+		if (set.below === 'vault') errors.push({ where, msg: `site icon set ${set.src} lies inside vault.dir — the service worker never caches it; move it to site/icon-sets/` });
+		if (set.fatal) {
+			errors.push({ where, msg: `site icon set refused: ${set.fatal}` });
+			continue;
+		}
+		for (const p of set.problems ?? []) errors.push({ where, msg: p });
+		if (set.bytes > LARGE_SET_BYTES) {
+			warnings.push({ where, msg: `site icon set ${set.src} is ${Math.round(set.bytes / 1024)} KiB (${set.count} icons) — ship only the icons the site uses` });
+		}
+		const offGrid = [];
+		for (const [id, def] of Object.entries(set.icons ?? {})) {
+			if ((def.k ?? 'o') !== 'o' || (def.a && 'stroke-width' in def.a)) continue;
+			const vb = safeViewBox(def.vb ?? DEFAULT_VIEWBOX) ?? DEFAULT_VIEWBOX;
+			const [, , w, h] = vb.trim().split(/[ ,]+/).map(Number);
+			if (w !== 24 || h !== 24) offGrid.push([id, w, h]);
+		}
+		for (const [id, w, h] of offGrid.slice(0, 5)) {
+			warnings.push({ where, msg: `'${id}' is an outline icon on a ${w}×${h} grid — --icon-stroke (1.75) is in viewBox units; give a: { 'stroke-width': … }` });
+		}
+		if (offGrid.length > 5) warnings.push({ where, msg: `${offGrid.length - 5} more outline icons off the 24-unit grid without their own stroke-width` });
+	}
+	return { errors, warnings };
 }
 
 /**
  * Checks the site data the configuration points at: fortunes per language,
- * feeds per language. check(path) → parsed JSON | undefined (missing) | Error.
+ * feeds per language, the Fortune config (online only, app texts — textKeys:
+ * model.js TEXT_KEYS). read(path) → parsed JSON | undefined (missing) | Error.
  */
-export function validateSiteData(cfg, { languages, read, cleanFortunes = null, modules = new Set() } = {}) {
+export function validateSiteData(cfg, { languages, read, cleanFortunes = null, textKeys = null, modules = new Set() } = {}) {
 	const errors = [];
 	const warnings = [];
-	if (modules.has('fortune') && cfg.fortune?.dir) {
+	/* online only (fortune.local: false) — the same rule as the page and sw.js: remote must be a valid id */
+	const validRemote = typeof cfg.fortune?.remote === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(cfg.fortune.remote);
+	const onlineOnly = cfg.fortune?.local === false && validRemote;
+	if (modules.has('fortune') && isObj(cfg.fortune)) {
+		if (cfg.fortune.local === false && !validRemote) {
+			warnings.push({ where: 'config fortune', msg: 'local: false needs remote — the app uses its built-in sayings' });
+		}
+		if (onlineOnly && cfg.services?.fortune !== true) {
+			warnings.push({ where: 'config fortune', msg: 'local: false needs services.fortune: true — the app has nothing to show' });
+		}
+		const texts = cfg.fortune.texts;
+		if (Array.isArray(textKeys) && isObj(texts)) {
+			for (const [k, v] of Object.entries(texts)) {
+				const where = `config fortune.texts.${k}`;
+				if (!textKeys.includes(k)) warnings.push({ where, msg: `texts.${k} cannot be replaced (keys: ${textKeys.join(', ')})` });
+				else if (!isFortuneText(v)) errors.push({ where, msg: `texts.${k} must be a text, '@ns.key' or { lang: text }` });
+				else if (isObj(v)) {
+					const missing = languages.filter(l => !(l in v));
+					if (missing.length) errors.push({ where, msg: `texts.${k} has no text for ${missing.map(l => `'${l}'`).join(', ')}` });
+				}
+			}
+		}
+	}
+	if (modules.has('fortune') && cfg.fortune?.dir && !onlineOnly) {
 		for (const l of languages) {
 			const path = `${cfg.fortune.dir}${l}.json`;
 			const data = read(path);
@@ -612,7 +924,8 @@ async function moduleApps(cfg) {
 	return { apps, loaded };
 }
 
-function iconChecker() {
+function iconChecker(iconSets = { ids: new Map(), sets: [] }) {
+	const prefixes = setPrefixes(iconSets.sets);
 	let pack = {};
 	let custom = {};
 	try {
@@ -622,7 +935,8 @@ function iconChecker() {
 		custom = readCustom();
 	} catch { /* none */ }
 	return id => {
-		if (pack[id] || custom[id]) return 'ok';
+		if (pack[id] || custom[id] || iconSets.ids.has(id)) return 'ok';
+		if (prefixes.has(iconPrefix(id))) return 'set';
 		const m = /^(tif?)-([a-z0-9-]+)$/.exec(id);
 		if (!m) return 'unknown';
 		const file = join(ROOT, 'node_modules/@tabler/icons/icons', m[1] === 'ti' ? 'outline' : 'filled', `${m[2]}.svg`);
@@ -710,6 +1024,7 @@ async function main() {
 	}
 
 	const { apps: modApps, loaded } = await moduleApps(cfg);
+	const iconSets = readIconSets(ROOT, cfg);
 	const locale = i18nChecker();
 	const keys = new Map();
 	/* preload the namespaces the manifest names, so the pure check stays synchronous */
@@ -722,7 +1037,8 @@ async function main() {
 		moduleApps: modApps,
 		modules: loaded,
 		authorLinks: (cfg.author?.links ?? []).map(l => l?.id).filter(Boolean),
-		icon: iconChecker(),
+		icon: iconChecker(iconSets),
+		iconSets,
 		file: fileChecker(),
 		dir: path => {
 			const abs = resolve(ROOT, path);
@@ -732,13 +1048,15 @@ async function main() {
 		config: cfg
 	});
 	let cleanFortunes = null;
+	let textKeys = null;
 	try {
-		({ cleanFortunes } = await import(pathToFileURL(join(ROOT, 'src/apps/fortune/model.js')).href));
+		({ cleanFortunes, TEXT_KEYS: textKeys } = await import(pathToFileURL(join(ROOT, 'src/apps/fortune/model.js')).href));
 	} catch { /* the Fortune app is not there */ }
-	const data = validateSiteData(cfg, { languages: cfg.languages, read: readJson, cleanFortunes, modules: loaded });
+	const data = validateSiteData(cfg, { languages: cfg.languages, read: readJson, cleanFortunes, textKeys, modules: loaded });
 
-	const errors = [...result.errors, ...data.errors];
-	const warnings = [...configWarnings, ...result.warnings, ...data.warnings];
+	const sets = validateIconSets(iconSets.sets);
+	const errors = [...result.errors, ...data.errors, ...sets.errors];
+	const warnings = [...configWarnings, ...result.warnings, ...data.warnings, ...sets.warnings];
 	const failed = errors.length > 0 || (strict && warnings.length > 0);
 
 	if (asJson) {

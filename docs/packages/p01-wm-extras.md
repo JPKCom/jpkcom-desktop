@@ -97,7 +97,9 @@ reported (`console.error`) and left out; windows keep working.
   topmost kept; `0` keeps none — saving is capped the same way); ids through `V.id`, once each; only apps the registry knows **and** `registry.available()`;
   no `launcher`, `link` or `transient` apps; rectangles with finite coordinates (|v| ≤ 100 000), grown to
   `config.wm.minSize`; layouts from the list, none for fixed apps; `min` only when `true`; `url` must be a
-  same-origin path (`V.path`) **and** accepted by the app's kind (`wm.acceptUrl`); oversized state dropped;
+  same-origin path (`V.path`) **and** accepted by the app's kind (`wm.acceptUrl`, `from: 'session'`; web apps:
+  inside `app.scope` or the default folder — also for start pages outside the installation root, ARCHITECTURE
+  §15); oversized state dropped;
   a throwing lookup/accept never breaks reading.
 - Nothing is written before the restore ran (a `pagehide` during the boot cannot wipe the stored session).
   After a reset of the group `session` (`'storage:reset'`), nothing is written until the windows change
@@ -148,7 +150,8 @@ rounding and round trip.
   launcher and search — they are optional modules now.
 - **Session entries carry `state`** (the kind's `serialize()`) instead of the Reader's scroll position read
   from its internals; the url check goes through the kind (`wm.acceptUrl`) instead of the original's
-  page/web special cases.
+  page/web special cases. Web windows keep locations inside their folder (ARCHITECTURE §15 `acceptPath`), never the
+  desktop itself or a reserved folder.
 - **Storage keys** are `<namespace>-session` / `<namespace>-restore` (the original's `jpkdesk-` prefix is the
   default namespace, so existing values keep working).
 - **Configurable** edge widths, tile menu timings (or off), snapping on/off, overview label height and

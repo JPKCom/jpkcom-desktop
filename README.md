@@ -202,7 +202,7 @@ window.DESKTOP_CONFIG = {
 | Desktop | `wm` (snapping, sizes, iframe policy), `session`, `dock`, `desktop.icons`, `boot`, `power.shutdownUrl`, `ui` |
 | Modules and apps | `modules` (`reader`, `viewer`, `catalog`, `search`, `calendar`, `holidays`, `weather`, `notify`, `vault`, or your own as `{ id, src }`), `apps` (`editor`, `notes`, `todo`, `calc`, `terminal`, `media`, `fortune`). Anything you leave out is not loaded at all. |
 | Online services | `services: { weather, geolocation, fortune, dns }` (all `false` by default) |
-| Per module | `reader.rules`, `search` (`pagefind`, `shortcut`), `notify.feeds`, `holidays.region`, `calendar`, `weather` (`provider`, `units`, `places`), `fortune`, `media`, `editor`, `calc`, `terminal` (`doh`, `manUrl`), `trash`, `backup`, `vault`, `pwa`, `offline` |
+| Per module | `reader.rules`, `search` (`pagefind`, `shortcut`), `notify.feeds`, `holidays.region`, `calendar`, `weather` (`provider`, `units`, `places`), `fortune` (`remote`, `local`, `texts`), `media`, `editor`, `calc`, `terminal` (`doh`, `manUrl`), `trash`, `backup`, `vault`, `pwa`, `offline` |
 
 Weather places are `{ id, name, lat, lon, tz }` entries in `weather.places`. Notification feeds are
 `notify.feeds: { en: 'site/data/feed.en.json', de: 'site/data/feed.de.json' }`. Several desktops on one
@@ -237,7 +237,8 @@ export default {
   (an external page in a new tab, https only), `collection` (a Catalog window), and `alias: '<id>'`
   (shows and launches another app). `desktop`, `dock`, `hidden`, `size` and `tint` place and style an app.
 - **Collections**: each item becomes an app `<prefix>-<slug>`. A collection gets a Catalog window, a search
-  group and menu entries (`{ collection: id }`) without any code.
+  group and menu entries (`{ collection: id }`) without any code. A collection's web overview page can open
+  in a window of its own: name a hidden web app in `webApp`.
 - **Menus** take app ids, `'-'` (a separator), `{ collection }`, `{ label, url }` and submenus `{ label, items }`.
 - **Files**: what the terminal can `cat`. `.md` files are rendered as Markdown.
 - Paths are relative to the desktop's folder, so they work in a sub-folder too.
@@ -305,6 +306,9 @@ has the details.
     "categories": { "tips": "Tips" },
     "items": ["A plain saying.", { "text": "Press F3 to see all windows.", "cat": "tips" }] }
   ```
+
+- **Online only / own source**: `fortune.local: false` runs the app without local sayings; a site module
+  adds its own source with `fortuneProviders` (see docs/packages/p11-fortune-site.md).
 
 - **Notifications**: a [JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/) per language, on the same
   origin (`notify.feeds`). New items show up as banners and in the calendar. Items need a `title`, a past
@@ -462,7 +466,9 @@ Use a new icon? Run `npm run icons` (see below).
 Only the icons that are actually used ship. `npm run icons` scans `src/`, `site/` and `index.html`, then
 writes `src/icons/tabler.js`. Icons that no source file names (for example ones used only in sealed vault
 data) go into `site/icons.json` as a JSON array (`["ti-briefcase"]`). `npm run icons:check` verifies the
-file is up to date.
+file is up to date. A site can bring its own icons (for example a set it holds a licence for) as a *site
+icon set*: a JSON file in `site/icon-sets/`, listed in `iconSets` of `site/config.js`, with two-tone
+support — see [docs/ARCHITECTURE.md §13](docs/ARCHITECTURE.md#13-icons).
 
 The complete contract is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): module descriptor (§8),
 public API (§9), services (§10), events (§11), i18n (§12), storage (§14), CSS (§17), "How to add …"
@@ -481,7 +487,8 @@ public API (§9), services (§10), events (§11), i18n (§12), storage (§14), C
   below does this.
 - **Caching:** `Cache-Control: no-cache` for HTML, JS, CSS, JSON, the manifest and `sw.js`, because the
   file names carry no version. Browsers revalidate their copies (`304`), so an update shows on the next
-  reload (with the service worker's fast start: one reload later, after the desktop offered it). Images, fonts and media get one day.
+  reload (with the service worker's fast start: one reload later, after the desktop offered it — feeds and files under `site/data/` right away).
+  Images, fonts and media get one day.
 - **No directory listings** anywhere, and **no dotfiles** (`.git`, `.env`).
 - **The security headers** below, on every response including errors.
 
@@ -537,6 +544,7 @@ the browser blocks the request.
 | `dig`, `host`, `nslookup` in the terminal (DNS-over-HTTPS) | `services.dns: true`, `terminal.doh: { url: 'https://dns.google/resolve', name: 'dns.google' }` | `connect-src https://dns.google` (the host of `terminal.doh.url`) |
 | Fortune, online jokes | `services.fortune: true`, `fortune.remote: 'jokeapi'` | `connect-src https://v2.jokeapi.dev` |
 | Fortune, online facts | `services.fortune: true`, `fortune.remote: 'uselessfacts'` | `connect-src https://uselessfacts.jsph.pl` |
+| Fortune app, an online source from your own module | `services.fortune: true`, `fortune.remote: '<id>'` | `connect-src https://<its hosts>` |
 | Full-text search (Pagefind) | `search.pagefind: { path: 'pagefind/pagefind.js' }` | `script-src 'wasm-unsafe-eval'` (WebAssembly; nothing else needs it) |
 | `web` apps from another origin (external iframes) | an app with `kind: 'web'` and a foreign `url` | `frame-src https://apps.example.org` |
 

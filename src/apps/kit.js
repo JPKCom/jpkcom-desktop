@@ -88,17 +88,19 @@ export function winButton(win, lb, glyph, key, onClick, cls = null) {
  * Copies text and lets a button say so for a moment: its title becomes
  * doneKey's text and it gets .is-done (the glyph turns green); afterwards the
  * label of key comes back. The live region announces core.copied.
+ * key/doneKey: 'ns.key' or a function returning the text, like labels().bind.
  * Resolves true when the text reached the clipboard.
  */
 export async function copyWithFeedback(btn, text, { key, doneKey = 'core.copied', ms = 1200 } = {}) {
 	const ok = await Desk.dom.copyText(text);
 	if (!ok || !btn) return ok;
+	const label = k => (typeof k === 'function' ? k() : Desk.t(k));
 	clearTimeout(copyTimers.get(btn));
-	btn.title = Desk.t(doneKey);
+	btn.title = label(doneKey);
 	btn.classList.add('is-done');
 	copyTimers.set(btn, setTimeout(() => {
 		btn.classList.remove('is-done');
-		if (key) btn.title = Desk.t(key);
+		if (key) btn.title = label(key);
 	}, ms));
 	return ok;
 }

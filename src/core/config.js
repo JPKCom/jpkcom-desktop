@@ -17,6 +17,8 @@
    descriptor's configKey + validateConfig, see docs/ARCHITECTURE.md §6);
    validateConfig() below covers what the core itself reads. */
 
+import { isSetPath, MAX_SETS } from './icon-sets.js';
+
 const HEX = /^#[0-9a-f]{6}$/i;
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const LANG = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -101,6 +103,9 @@ export const DEFAULTS = {
 		},
 		windowControls: { side: 'left', style: 'classic' }
 	},
+
+	/* Site icon sets (docs/ARCHITECTURE.md §13): JSON files relative to the installation root, loaded before the modules */
+	iconSets: [],
 
 	wallpaper: {
 		default: { type: 'gradient', from: '#3c4955', to: '#0c1925', dir: 'glow' },
@@ -189,7 +194,7 @@ export const DEFAULTS = {
 		maxAgeMs: 10800000,
 		everyMs: 1800000
 	},
-	fortune: { remote: null, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [] },
+	fortune: { remote: null, local: true, dir: 'site/data/fortunes/', langs: ['de', 'en'], block: [], texts: {} },
 	media: { maxItems: 200, seekStep: 5 },
 	editor: { maxTabs: 20, maxFileBytes: 5242880, wrap: false, invisibles: true },
 	calc: { historySize: 50 },
@@ -199,7 +204,7 @@ export const DEFAULTS = {
 	backup: { format: 'jpkcom-desktop-backup', filePrefix: 'jpkcom-desktop', maxBytes: 5242880 },
 	vault: { salt: '', iterations: 600000, dir: 'site/vault/', collection: 'bookmarks', maxBytes: 1048576 },
 	pwa: { enabled: true },
-	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true }
+	offline: { maxPages: 80, timeoutMs: 4000, fastStart: true, legacyCaches: [] }
 };
 
 /* ---------- Pure helpers (exported for tests) ---------- */
@@ -208,7 +213,7 @@ export const isPlainObject = v => v !== null && typeof v === 'object' && Object.
 
 /* Language maps ({ de: …, en: … }) replace as a whole: a site that writes only
    { en } must not keep the default German text next to its own English one */
-const REPLACE = new Set(['site.description', 'site.home', 'notify.feeds', 'about.moreInfo', 'about.rows']);
+const REPLACE = new Set(['site.description', 'site.home', 'notify.feeds', 'about.moreInfo', 'about.rows', 'terminal.manUrl']);
 
 /** Deep merge: plain objects recurse, everything else (arrays, null, primitives) replaces. */
 export function deepMerge(base, over, path = '') {
@@ -238,6 +243,39 @@ export function deepFreeze(v) {
 		for (const x of Object.values(v)) deepFreeze(x);
 	}
 	return v;
+}
+
+/* offline.legacyCaches: caches of a service worker the site used before this desktop. The same rules as
+   sw.js (SCHEME, LEGACY, legacyMatcher; tests/p12-sw.test.mjs keeps them equal) */
+/** A cache name of this project's scheme, any folder and namespace — cacheNames().own in sw.js with '.*' for the folder */
+export const CACHE_SCHEME = /^[a-z][a-z0-9-]{0,23}:\/.*:(?:[0-9][0-9A-Za-z.+-]*-[0-9a-f]{8}(?:-next)?|pages)$/;
+/* An entry: an exact name (1–128 characters), or a prefix of at least 4 characters followed by '*';
+   no control characters, no other '*' */
+const LEGACY_CACHE = /^(?:[^*\u0000-\u001f\u007f]{1,128}|[^*\u0000-\u001f\u007f]{4,127}\*)$/;
+export const MAX_LEGACY_CACHES = 32;
+
+/** Cleans offline.legacyCaches: valid, unique entries in order, at most 32; each rejection → warn(). Pure. */
+export function cleanLegacyCaches(list, warn = () => {}) {
+	if (!Array.isArray(list)) {
+		warn(`config.offline.legacyCaches must be an array (${JSON.stringify(list)}) — using []`);
+		return [];
+	}
+	const out = [];
+	for (const e of list) {
+		if (typeof e !== 'string' || !LEGACY_CACHE.test(e)) warn(`config.offline.legacyCaches: skipped ${JSON.stringify(e)} (an exact cache name, or a prefix of at least 4 characters ending in '*')`);
+		else if (CACHE_SCHEME.test(e)) warn(`config.offline.legacyCaches: skipped ${JSON.stringify(e)} — a cache of this desktop, managed automatically`);
+		else if (!out.includes(e)) out.push(e);
+	}
+	if (out.length > MAX_LEGACY_CACHES) warn(`config.offline.legacyCaches: more than ${MAX_LEGACY_CACHES} entries — the rest is ignored`);
+	return out.slice(0, MAX_LEGACY_CACHES);
+}
+
+/** Is this cache one of an earlier service worker (a cleaned list)? Never a name of this project's
+    scheme, whatever a prefix would match. Same rule as sw.js legacyMatcher(). Pure. */
+export function legacyMatcher(list) {
+	const exact = new Set(list.filter(e => !e.endsWith('*')));
+	const prefixes = list.filter(e => e.endsWith('*')).map(e => e.slice(0, -1));
+	return name => typeof name === 'string' && !CACHE_SCHEME.test(name) && (exact.has(name) || prefixes.some(p => name.startsWith(p)));
 }
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -303,6 +341,17 @@ export function validateConfig(cfg, warn = () => {}) {
 	fix('theme.windowControls.side', v => ['left', 'right'].includes(v));
 	fix('theme.windowControls.style', v => ['classic', 'minimal'].includes(v));
 
+	/* Site icon sets: relative .json paths (src/core/icon-sets.js SET_PATH), unique, at most MAX_SETS.
+	   A set below vault.dir is refused where URLs are known (main.js, sw.js, the validator) */
+	fix('iconSets', v => Array.isArray(v));
+	const seen = new Set();
+	cfg.iconSets = cfg.iconSets.filter((p, i) => {
+		const ok = isSetPath(p) && !seen.has(p) && seen.size < MAX_SETS;
+		if (ok) seen.add(p);
+		else warn(`config.iconSets[${i}] must be a .json path inside the installation root ('site/icon-sets/x.json'; letters, digits, . _ - / only), at most ${MAX_SETS}, no duplicates — skipped ${JSON.stringify(p)}`);
+		return ok;
+	});
+
 	fix('wallpaper.default', v => isPlainObject(v) && (
 		(v.type === 'gradient' && HEX.test(v.from) && HEX.test(v.to) && typeof v.dir === 'string')
 		|| (v.type === 'color' && HEX.test(v.color))
@@ -350,6 +399,8 @@ export function validateConfig(cfg, warn = () => {}) {
 	fix('vault.dir', relDir);
 	fix('vault.collection', v => typeof v === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(v));
 	fix('vault.maxBytes', v => Number.isInteger(v) && v > 0);
+	fix('offline', isPlainObject);
+	cfg.offline.legacyCaches = cleanLegacyCaches(cfg.offline.legacyCaches, warn);
 	fix('trash.days', v => Number.isFinite(v) && v > 0);
 	fix('trash.max', v => Number.isInteger(v) && v > 0);
 	fix('backup.format', str);

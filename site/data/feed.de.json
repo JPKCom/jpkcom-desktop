@@ -6,6 +6,15 @@
 	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
 	"items": [
 		{
+			"id": "jpkcom-desktop-1.2.0",
+			"url": "../content/de/changelog.html?release=1.2.0",
+			"title": "JPKCom Desktop 1.2.0 ist erschienen",
+			"summary": "Feeds und Website-Daten sind beim schnellen Start wieder frisch, Websites können eigene Icon-Sets mitbringen, und das Terminal liest Handbuchseiten je Eintrag und Sprache. Dazu Web-Fenster überall auf der Website und ein Glückskeks, der sich umbenennen lässt.",
+			"content_text": "JPKCom Desktop 1.2.0 hält Daten frisch und bringt mehr für Website-Betreiber. Die Einzelheiten stehen in den Versionshinweisen.",
+			"date_published": "2026-10-08T12:30:00+02:00",
+			"tags": ["release"]
+		},
+		{
 			"id": "jpkcom-desktop-1.1.0",
 			"url": "../content/de/changelog.html?release=1.1.0",
 			"title": "JPKCom Desktop 1.1.0 ist erschienen",

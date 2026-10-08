@@ -216,7 +216,7 @@ window.DESKTOP_CONFIG = {
 | Desktop | `wm` (Andocken, Größen, iframe-Rechte), `session`, `dock`, `desktop.icons`, `boot`, `power.shutdownUrl`, `ui` |
 | Module und Apps | `modules` (`reader`, `viewer`, `catalog`, `search`, `calendar`, `holidays`, `weather`, `notify`, `vault` oder eigene als `{ id, src }`), `apps` (`editor`, `notes`, `todo`, `calc`, `terminal`, `media`, `fortune`). Was du weglässt, wird gar nicht geladen. |
 | Online-Dienste | `services: { weather, geolocation, fortune, dns }` (standardmäßig alle `false`) |
-| Je Modul | `reader.rules`, `search` (`pagefind`, `shortcut`), `notify.feeds`, `holidays.region`, `calendar`, `weather` (`provider`, `units`, `places`), `fortune`, `media`, `editor`, `calc`, `terminal` (`doh`, `manUrl`), `trash`, `backup`, `vault`, `pwa`, `offline` |
+| Je Modul | `reader.rules`, `search` (`pagefind`, `shortcut`), `notify.feeds`, `holidays.region`, `calendar`, `weather` (`provider`, `units`, `places`), `fortune` (`remote`, `local`, `texts`), `media`, `editor`, `calc`, `terminal` (`doh`, `manUrl`), `trash`, `backup`, `vault`, `pwa`, `offline` |
 
 Wetterorte sind Einträge `{ id, name, lat, lon, tz }` in `weather.places`. Mitteilungs-Feeds sind
 `notify.feeds: { en: 'site/data/feed.en.json', de: 'site/data/feed.de.json' }`. Mehrere Desktops auf
@@ -256,7 +256,9 @@ export default {
   eines Moduls; die Felder der Website gewinnen.
 - **Sammlungen**: Jeder Eintrag wird zur App `<prefix>-<slug>`. Eine Sammlung bekommt ohne jeden Code ein
   Katalog-Fenster, eine Gruppe in der Suche und Menüeinträge (`{ collection: id }`). Ob ein Eintrag als
-  Link, Webfenster, Seite oder Bild aufgeht, ergibt sich aus der URL (`itemKind: 'auto'`).
+  Link, Webfenster, Seite oder Bild aufgeht, ergibt sich aus der URL (`itemKind: 'auto'`). Die
+  Web-Übersichtsseite einer Sammlung kann in einem eigenen Fenster aufgehen: eine versteckte Web-App in
+  `webApp` nennen.
 - **Menüs** nehmen App-Ids, `'-'` (ein Trenner), `{ collection }`, `{ label, url }` und Untermenüs `{ label, items }`.
 - **Dateien**: was das Terminal mit `cat` zeigen kann. `.md`-Dateien werden als Markdown dargestellt.
 - Pfade sind relativ zum Ordner des Desktops und funktionieren deshalb auch im Unterordner.
@@ -324,6 +326,9 @@ erklärt die Einzelheiten.
     "categories": { "tipps": "Tipps" },
     "items": ["Ein einfacher Spruch.", { "text": "F3 zeigt alle Fenster.", "cat": "tipps" }] }
   ```
+
+- **Nur online / eigene Quelle**: `fortune.local: false` betreibt die App ohne eingebaute Sprüche; ein
+  Site-Modul bringt mit `fortuneProviders` eine eigene Quelle mit (siehe docs/packages/p11-fortune-site.md).
 
 - **Mitteilungen**: ein [JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/) je Sprache, auf demselben
   Ursprung (`notify.feeds`). Neue Einträge erscheinen als Banner und im Kalender. Einträge brauchen einen
@@ -485,7 +490,10 @@ Ein neues Icon? Führe `npm run icons` aus (siehe unten).
 Ausgeliefert werden nur die Icons, die tatsächlich benutzt werden. `npm run icons` durchsucht `src/`,
 `site/` und `index.html` und schreibt dann `src/icons/tabler.js`. Icons, die in keiner Quelldatei stehen
 (etwa nur in versiegelten Tresor-Daten), kommen als JSON-Liste in `site/icons.json` (`["ti-briefcase"]`).
-`npm run icons:check` prüft, ob die Datei aktuell ist.
+`npm run icons:check` prüft, ob die Datei aktuell ist. Eine Site kann eigene Icons mitbringen (etwa ein
+Set, für das sie eine Lizenz hat) — als *Site-Icon-Set*: eine JSON-Datei in `site/icon-sets/`, eingetragen
+in `iconSets` von `site/config.js`, mit Zweiton-Unterstützung — siehe
+[docs/ARCHITECTURE.md §13](docs/ARCHITECTURE.md#13-icons).
 
 Der vollständige Vertrag steht in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Modul-Deskriptor (§8),
 öffentliche API (§9), Services (§10), Ereignisse (§11), i18n (§12), Speicher (§14), CSS (§17),
@@ -506,7 +514,8 @@ Der vollständige Vertrag steht in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md):
 - **Caching:** `Cache-Control: no-cache` für HTML, JS, CSS, JSON, das Manifest und `sw.js`, weil die
   Dateinamen keine Version tragen. Browser fragen bei ihrer Kopie nach (`304`), ein Update erscheint also
   beim nächsten Neuladen (mit dem Schnellstart des Service Workers ein Neuladen später, nachdem der Desktop
-  es angeboten hat). Bilder, Schriften und Medien bekommen einen Tag.
+  es angeboten hat — Feeds und Dateien unter `site/data/` sofort).
+  Bilder, Schriften und Medien bekommen einen Tag.
 - **Keine Verzeichnislisten**, nirgends, und **keine Dotfiles** (`.git`, `.env`).
 - **Die Sicherheits-Header** unten, bei jeder Antwort, auch bei Fehlern.
 
@@ -563,6 +572,7 @@ der Richtlinie deines Servers. Sonst blockiert der Browser die Anfrage.
 | `dig`, `host`, `nslookup` im Terminal (DNS-over-HTTPS) | `services.dns: true`, `terminal.doh: { url: 'https://dns.google/resolve', name: 'dns.google' }` | `connect-src https://dns.google` (der Host von `terminal.doh.url`) |
 | Glückskeks, Witze online | `services.fortune: true`, `fortune.remote: 'jokeapi'` | `connect-src https://v2.jokeapi.dev` |
 | Glückskeks, Fakten online | `services.fortune: true`, `fortune.remote: 'uselessfacts'` | `connect-src https://uselessfacts.jsph.pl` |
+| Glückskeks, eine Online-Quelle aus deinem eigenen Modul | `services.fortune: true`, `fortune.remote: '<id>'` | `connect-src https://<ihre Hosts>` |
 | Volltextsuche (Pagefind) | `search.pagefind: { path: 'pagefind/pagefind.js' }` | `script-src 'wasm-unsafe-eval'` (WebAssembly; sonst braucht das nichts) |
 | `web`-Apps von einem anderen Ursprung (fremde iframes) | eine App mit `kind: 'web'` und fremder `url` | `frame-src https://apps.example.org` |
 

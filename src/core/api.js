@@ -19,7 +19,7 @@ import { h, s, $, $$, clear, abbr, editable, focusable, trapFocus, markLang, for
 import { fold } from './text.js';
 import { isSafeUrl, safeUrl } from './url.js';
 import { dialog } from './dialog.js';
-import { icon, hasIcon, addIcons, logo, addLogo, brandGlyph, tile, tintValue } from './icons.js';
+import { icon, hasIcon, addIcons, symbolHref, logo, addLogo, brandGlyph, tile, appGlyph, tintValue } from './icons.js';
 import { announce } from './a11y.js';
 import { registry, IMAGE_EXT, initials } from './registry.js';
 import { router, launch, openUrl, download } from './router.js';
@@ -65,7 +65,7 @@ const Desk = {
 	text: Object.freeze({ fold }),
 	icon,
 	tile,
-	icons: Object.freeze({ icon, has: hasIcon, add: addIcons, logo, addLogo, brandGlyph, tile, tintValue }),
+	icons: Object.freeze({ icon, has: hasIcon, add: addIcons, symbolHref, logo, addLogo, brandGlyph, tile, appGlyph, tintValue }),
 	announce,
 	/** Question sheets: sheet(within, opts) → id | null, confirm(within, opts) → boolean, alert(within, opts) */
 	dialog,

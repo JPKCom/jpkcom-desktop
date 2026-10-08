@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	fold, parse, distance, nearest, commonPrefix, resolve, completeLine, cleanState, pushHistory, historyLine,
-	cleanConfig, cleanDoh, fillTemplate, cleanFiles, isSafeHref, inlineParts, markdownRows, human, isRelPath, MAX_LINE
+	cleanConfig, cleanDoh, fillTemplate, cleanFiles, isSafeHref, inlineParts, markdownRows, human, isRelPath, MAX_LINE,
+	MAN_VARS, isTextPath, MAX_MAN_SOURCES, expandMan, manPlan, hasManual, manLookup, manMiss, isHtmlType, manOutcome
 } from '../src/apps/terminal/lib.js';
+import { cleanMan } from '../src/core/man.js';
 import { createCommands, cleanDef, textOf } from '../src/apps/terminal/registry.js';
 import { dnsName, reverseName, isIp, records, readAnswer, digArgs } from '../src/apps/terminal/commands/net.js';
 import { monthGrid, asciiLogo, JPK_LOGO } from '../src/apps/terminal/commands/sys.js';
@@ -141,7 +143,252 @@ test('fillTemplate and isRelPath', () => {
 	assert.ok(!isRelPath('//host/x'));
 	assert.ok(!isRelPath('javascript:alert(1)'));
 	assert.ok(!isRelPath('a b'));
+	assert.ok(!isRelPath('a\u0001b'), 'stricter now: no control character (src/core/url.js isSitePath)');
 });
+
+/* ---------- Manual pages of entries (man, manUrl) ---------- */
+
+test('cleanMan: item values need no {slug}, templates do; unknown placeholders, bad language keys, scheme, //host, whitespace refused; false and null kept', () => {
+	assert.deepEqual(cleanMan(undefined), { value: null, problem: null });
+	assert.deepEqual(cleanMan(null), { value: null, problem: null });
+	assert.deepEqual(cleanMan(false), { value: false, problem: null });
+	assert.equal(cleanMan('help/fixed.md').value, 'help/fixed.md');
+	assert.equal(cleanMan('/help/fixed.md').value, '/help/fixed.md', 'root-absolute is a path on this site');
+	assert.equal(cleanMan('help/fixed.md', { template: true }).problem.code, 'template');
+	assert.equal(cleanMan('help/{id}.md', { template: true }).value, 'help/{id}.md');
+	assert.deepEqual({ ...cleanMan({ en: 'help/en/{slug}.md', 'de-AT': 'help/{slug}.md' }, { template: true }).value },
+		{ en: 'help/en/{slug}.md', 'de-AT': 'help/{slug}.md' });
+	const code = (v, o) => cleanMan(v, o).problem?.code;
+	assert.equal(code('help/{name}.md'), 'placeholder');
+	assert.equal(code('help/{Slug}.md'), 'placeholder');
+	assert.equal(code('https://x.example/a.md'), 'path');
+	assert.equal(code('//x.example/a.md'), 'path');
+	assert.equal(code('javascript:alert(1)'), 'path');
+	assert.equal(code('help/a b.md'), 'path');
+	assert.equal(code('help/a\tb.md'), 'path');
+	assert.equal(code('help\\a.md'), 'path');
+	assert.equal(code(`${'x'.repeat(498)}.md`), 'path', '> 500 characters');
+	assert.equal(code({ 'not a lang': 'x/{slug}.md' }), 'lang');
+	assert.equal(code({}), 'type');
+	assert.equal(code(true), 'type');
+	assert.equal(code(['a.md']), 'type');
+	assert.equal(code({ en: 'ok.md', de: 'https://x/a.md' }), 'path', 'one bad path spoils the whole map');
+	assert.equal(cleanMan({ en: 'ok.md', de: 'x/{slug}' }, { template: true }).problem.code, 'template');
+	assert.equal(cleanMan({ en: 'x/{slug}', de: 'a b' }).value, null);
+});
+
+test('cleanConfig: manUrl as a { lang: template } map', () => {
+	const warns = [];
+	const map = { de: 'help/tools/{slug}.md', en: 'help/en/tools/{slug}.md' };
+	assert.deepEqual({ ...cleanConfig({ manUrl: map }, m => warns.push(m)).manUrl }, map);
+	assert.equal(cleanConfig({ manUrl: 'docs/{collection}/{id}.md' }).manUrl, 'docs/{collection}/{id}.md');
+	assert.deepEqual(warns, []);
+});
+
+test('cleanConfig: a manUrl map with a bad key, path or placeholder is ignored as a whole', () => {
+	for (const bad of [{ en: 'x/{slug}.md', 'not a lang': 'y/{slug}.md' }, { en: 'https://x/{slug}.md' }, { en: 'x/{name}.md' }, { en: 'x/fixed.md' }, 'x/{slug}.md '.trim() + ' y']) {
+		const warns = [];
+		assert.equal(cleanConfig({ manUrl: bad }, m => warns.push(m)).manUrl, null, JSON.stringify(bad));
+		assert.equal(warns.length, 1, JSON.stringify(bad));
+		assert.match(warns[0], /manUrl must be null, a path template on this site or a \{ lang: template \} map/);
+	}
+	const warns = [];
+	assert.equal(cleanConfig({ manUrl: false }, m => warns.push(m)).manUrl, null);
+	assert.deepEqual(warns, [], 'false is null, without a warning');
+});
+
+const VARS = { slug: 'a', id: 'tool-a', collection: 'tools' };
+
+test('expandMan: a string with {lang} follows the chain; without {lang} one path', () => {
+	assert.deepEqual(expandMan('m/{lang}/{slug}.md', VARS, ['de', 'en']), ['m/de/a.md', 'm/en/a.md']);
+	assert.deepEqual(expandMan('m/{collection}/{id}.md', VARS, ['de', 'en']), ['m/tools/tool-a.md']);
+	assert.deepEqual(expandMan(null, VARS, ['en']), []);
+	assert.deepEqual(expandMan(false, VARS, ['en']), []);
+});
+
+test('expandMan: a map in chain order, base-language match (de-AT ↔ de), first value last, each path once', () => {
+	const map = { fr: 'fr/{slug}.md', de: 'de/{slug}.md', en: 'en/{slug}.md' };
+	assert.deepEqual(expandMan(map, VARS, ['en', 'de']), ['en/a.md', 'de/a.md', 'fr/a.md']);
+	assert.deepEqual(expandMan(map, VARS, ['de-AT', 'de', 'en']), ['de/a.md', 'en/a.md', 'fr/a.md']);
+	assert.deepEqual(expandMan({ 'de-AT': 'at/{lang}/{slug}.md', en: 'en/{slug}.md' }, VARS, ['de', 'en']), ['at/de-AT/a.md', 'en/a.md'],
+		'{lang} in a map is the map key');
+	assert.deepEqual(expandMan({ en: 'same.md', de: 'same.md' }, VARS, ['de', 'en']), ['same.md']);
+});
+
+test('expandMan: asymmetric layouts — de without, en with a language folder', () => {
+	const map = { de: 'help/tools/{slug}.md', en: 'help/en/tools/{slug}.md' };
+	assert.deepEqual(expandMan(map, VARS, ['en', 'de']), ['help/en/tools/a.md', 'help/tools/a.md']);
+	assert.deepEqual(expandMan(map, VARS, ['de', 'en']), ['help/tools/a.md', 'help/en/tools/a.md']);
+});
+
+test('expandMan: placeholders are URL-encoded and fill exactly MAN_VARS', () => {
+	assert.deepEqual([...MAN_VARS], ['slug', 'id', 'collection', 'lang']);
+	const all = MAN_VARS.map(v => `{${v}}`).join('/');
+	assert.deepEqual(expandMan(all, { slug: 'a b', id: 'x/y', collection: 'c?' }, ['de-AT']), ['a%20b/x%2Fy/c%3F/de-AT']);
+	for (const v of MAN_VARS) assert.doesNotMatch(expandMan(`p/{${v}}.md`, VARS, ['en'])[0], /\{/, v);
+	assert.ok(isTextPath('a/b.MD?x=1#y') && isTextPath('a.markdown') && isTextPath('a.txt') && !isTextPath('a/') && !isTextPath('a.html'));
+});
+
+/* A collection item as catalog.js targets() gives it */
+const item = (slug, app = {}, kind = 'tools') => ({
+	kind, key: slug, id: `tool-${slug}`, name: slug,
+	app: { id: `tool-${slug}`, slug, collection: kind, source: 'site', ...app }
+});
+const SITE = { man: null, source: 'site' };
+const plan = (entry, { collection = SITE, manUrl = null, chain = ['de', 'en'] } = {}) => manPlan({ entry, collection, manUrl, chain });
+
+test('manPlan: the item\'s man wins over docs text, the collection\'s man and manUrl', () => {
+	const p = plan(item('a', { man: 'own/a.md', docs: 'docs/a.md' }), { collection: { man: 'coll/{slug}.md', source: 'site' }, manUrl: 'cfg/{slug}.md' });
+	assert.deepEqual(p, { texts: ['own/a.md'], page: 'docs/a.md', off: false }, 'docs that is not printed is the link');
+	const c = plan(item('a'), { collection: { man: 'coll/{lang}/{slug}.md', source: 'site' }, manUrl: 'cfg/{slug}.md' });
+	assert.deepEqual(c.texts, ['coll/de/a.md', 'coll/en/a.md']);
+	const u = plan(item('a'), { manUrl: { en: 'cfg/en/{slug}.md' } });
+	assert.deepEqual(u.texts, ['cfg/en/a.md']);
+	assert.equal(hasManual(plan(item('a'))), false, 'nothing set → no manual');
+});
+
+test('manPlan: the collection\'s man applies to its items only; another collection falls back to manUrl', () => {
+	const tools = { man: 'tools/{slug}.md', source: 'site' };
+	const games = { man: null, source: 'site' };
+	assert.deepEqual(plan(item('a'), { collection: tools, manUrl: 'all/{collection}/{slug}.md' }).texts, ['tools/a.md']);
+	assert.deepEqual(plan(item('snake', {}, 'games'), { collection: games, manUrl: 'all/{collection}/{slug}.md' }).texts, ['all/games/snake.md']);
+	const off = plan(item('snake', {}, 'games'), { collection: { man: false, source: 'site' }, manUrl: 'all/{slug}.md' });
+	assert.deepEqual(off, { texts: [], page: null, off: true }, 'false stops here; manUrl is not used');
+	assert.equal(hasManual(off), false);
+});
+
+test('manPlan: templates skip items of another source (vault) — their own man still counts', () => {
+	const coll = { man: 'links/{slug}.md', source: 'site' };
+	const secret = item('private-bank', { source: 'vault' }, 'links');
+	assert.deepEqual(plan(secret, { collection: coll, manUrl: 'all/{slug}.md' }), { texts: [], page: null, off: false });
+	const own = item('private-bank', { source: 'vault', man: 'vault-help/bank.md' }, 'links');
+	assert.deepEqual(plan(own, { collection: coll }).texts, ['vault-help/bank.md']);
+	/* a collection the vault brings itself: its template applies to its own items */
+	assert.deepEqual(plan(secret, { collection: { man: 'v/{slug}.md', source: 'vault' } }).texts, ['v/private-bank.md']);
+});
+
+test('manPlan: manUrl never applies to a collection another source brought (the vault\'s own one)', () => {
+	/* the vault creates config.vault.collection itself (no man) when the site has none of that id */
+	const vaultColl = { man: null, source: 'vault' };
+	const secret = item('my-secret-bank', { source: 'vault' }, 'bookmarks');
+	const p = plan(secret, { collection: vaultColl, manUrl: 'docs/{lang}/{slug}.md' });
+	assert.deepEqual(p, { texts: [], page: null, off: false }, 'no request carries the private slug');
+	assert.equal(hasManual(p), false, 'Tab completion does not list it');
+	assert.deepEqual(plan(secret, { collection: vaultColl, manUrl: { en: 'docs/{slug}/' } }).page, null, 'nor a page link');
+	/* the site's own items keep manUrl */
+	assert.deepEqual(plan(item('a'), { manUrl: 'docs/{slug}.md' }).texts, ['docs/a.md']);
+});
+
+test('manPlan: an alias item uses its own man or its collection\'s template with its own slug', () => {
+	const coll = { man: 'm/{slug}.md', source: 'site' };
+	/* the registry's alias view carries no man of its target: only the alias's own */
+	const alias = item('system', { alias: 'about-desktop', id: 'tool-system', docs: 'docs/about/' });
+	assert.deepEqual(plan(alias, { collection: coll }), { texts: ['m/system.md'], page: 'docs/about/', off: false });
+	assert.deepEqual(plan(item('system', { alias: 'about-desktop', man: 'x.md' }), { collection: coll }).texts, ['x.md']);
+});
+
+test('manPlan: man false keeps a docs page as the link; a docs text file not printed becomes the link', () => {
+	assert.deepEqual(plan(item('a', { man: false, docs: 'docs/a/' })), { texts: [], page: 'docs/a/', off: true });
+	assert.deepEqual(plan(item('a', { man: false, docs: 'docs/a.md' })), { texts: [], page: 'docs/a.md', off: true });
+	assert.deepEqual(plan(item('a', { docs: 'docs/a.md' }), { collection: { man: false, source: 'site' } }), { texts: [], page: 'docs/a.md', off: true });
+});
+
+test('manPlan: ~/apps entries: docs only, no templates (1.1.0 behaviour)', () => {
+	const app = (docs, extra = {}) => ({ kind: 'apps', key: 'notes', id: 'notes', name: 'Notes', app: { id: 'notes', docs, ...extra } });
+	assert.deepEqual(plan(app('help/notes.md', { man: 'ignored.md' }), { collection: null, manUrl: 'all/{slug}.md' }), { texts: ['help/notes.md'], page: null, off: false });
+	assert.deepEqual(plan(app('https://example.org/notes'), { collection: null, manUrl: 'all/{slug}.md' }), { texts: [], page: 'https://example.org/notes', off: false });
+	assert.deepEqual(plan(app(undefined), { collection: null, manUrl: 'all/{slug}.md' }), { texts: [], page: null, off: false });
+});
+
+test('manPlan: compatibility — a docs text file is printed first when there is no man; a non-text manUrl becomes the page link', () => {
+	assert.deepEqual(plan(item('a', { docs: 'docs/a.md' }), { manUrl: 'cfg/{lang}/{slug}.md' }).texts, ['docs/a.md', 'cfg/de/a.md', 'cfg/en/a.md']);
+	assert.deepEqual(plan(item('a'), { manUrl: 'cfg/{slug}/' }), { texts: [], page: 'cfg/a/', off: false });
+	/* a { lang: url } docs is resolved by L */
+	const p = manPlan({ entry: item('a', { docs: { en: 'en/a.md', de: 'de/a.md' } }), collection: SITE, chain: ['de'], L: v => v.de });
+	assert.deepEqual(p.texts, ['de/a.md']);
+	/* isText decides: an external .md is no text to read but a link */
+	const ext = manPlan({ entry: item('a', { docs: 'https://x.example/a.md' }), collection: SITE, chain: ['en'], isText: x => isTextPath(x) && !/^https:/.test(x) });
+	assert.deepEqual(ext, { texts: [], page: 'https://x.example/a.md', off: false });
+});
+
+test('manPlan: at most MAX_MAN_SOURCES text paths', () => {
+	assert.equal(MAX_MAN_SOURCES, 6);
+	const chain = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+	const p = plan(item('x', { docs: 'docs/x.md' }), { manUrl: 'm/{lang}/{slug}.md', chain });
+	assert.equal(p.texts.length, 6);
+	assert.equal(p.texts[0], 'docs/x.md');
+});
+
+test('manLookup: an exact name without a manual beats a unique prefix with one', () => {
+	const list = [item('snake'), item('snake-solver', { man: 's.md' })];
+	const has = x => hasManual(plan(x));
+	const r = manLookup('snake', list, has);
+	assert.equal(r.hit.key, 'snake');
+	assert.equal(r.manual, false);
+	assert.equal(manLookup('SNAKE-solver', list, has).manual, true);
+});
+
+test('manLookup: prefix/part among entries with a manual first, then a prefix among all; several → many', () => {
+	const list = [item('json-tool', { man: 'j.md' }), item('json-old'), item('yaml', { man: 'y.md' }), item('yak'), item('yeti')];
+	const has = x => hasManual(plan(x));
+	const r = manLookup('json', list, has);
+	assert.equal(r.hit.key, 'json-tool', 'the one with a manual among two prefixes');
+	assert.equal(r.manual, true);
+	const old = manLookup('json-o', list, has);
+	assert.equal(old.hit.key, 'json-old');
+	assert.equal(old.manual, false, 'a unique hit among all: no manual');
+	assert.equal(manLookup('ya', list, has).hit.key, 'yaml');
+	assert.deepEqual(manLookup('ye', [item('yeti'), item('yes')], has).many.map(x => x.key), ['yeti', 'yes']);
+	assert.deepEqual(manLookup('zzz', list, has), {});
+	assert.deepEqual(manLookup('  ', list, has), {});
+});
+
+test('manLookup: no part match among entries without a manual; exact only for a hidden command name', () => {
+	const entry = (key, name) => ({ kind: 'apps', key, id: key, name, app: { id: key } });
+	const list = [entry('terminal', 'Terminal'), entry('calc', 'Calculator'), entry('notes', 'Notes'), entry('writing-pages', 'Writing pages')];
+	const has = x => x.key === 'writing-pages';
+	/* `rm` (an undocumented egg) is a part of "Terminal" — it must not name it */
+	assert.deepEqual(manLookup('rm', list, has), {});
+	assert.deepEqual(manLookup('rm', list, has, { exact: true }), {});
+	/* part matches still count among entries with a manual; prefixes among all */
+	assert.equal(manLookup('pages', list, has).hit.key, 'writing-pages');
+	assert.equal(manLookup('term', list, has).hit.key, 'terminal');
+	/* the query names a hidden command: only an entry of exactly that name answers */
+	assert.deepEqual(manLookup('term', list, has, { exact: true }), {});
+	assert.equal(manLookup('Notes', list, has, { exact: true }).hit.key, 'notes');
+});
+
+test('manMiss: 404/410 missing, network/timeout stop, aborted aborted, 500/size/parse failed; isHtmlType', () => {
+	const e = (code, status = 0) => Object.assign(new Error(code), { code, status });
+	assert.equal(manMiss(e('http', 404)), 'missing');
+	assert.equal(manMiss(e('http', 410)), 'missing');
+	assert.equal(manMiss(e('http', 500)), 'failed');
+	assert.equal(manMiss(e('http', 403)), 'failed');
+	assert.equal(manMiss(e('size')), 'failed');
+	assert.equal(manMiss(e('parse')), 'failed');
+	assert.equal(manMiss(e('network')), 'stop');
+	assert.equal(manMiss(e('timeout')), 'stop');
+	assert.equal(manMiss(e('aborted')), 'aborted');
+	assert.equal(manMiss(Object.assign(new Error('x'), { name: 'AbortError' })), 'aborted');
+	assert.equal(manMiss(null), 'failed');
+	assert.ok(isHtmlType('text/html; charset=utf-8') && isHtmlType('TEXT/HTML'));
+	assert.ok(!isHtmlType('text/markdown') && !isHtmlType('text/plain') && !isHtmlType(null) && !isHtmlType('application/xhtml+xml'));
+});
+
+test('manOutcome: print, link, error, none, aborted — every row of the outcome table, including off with a page', () => {
+	assert.equal(manOutcome({ texts: ['a.md'], aborted: true, loaded: true }), 'aborted');
+	assert.equal(manOutcome({ texts: ['a.md'], loaded: true }), 'print');
+	assert.equal(manOutcome({ texts: ['a.md'], page: 'p/', loaded: true }), 'print');
+	assert.equal(manOutcome({ texts: [], page: 'p/' }), 'link');
+	assert.equal(manOutcome({ texts: ['a.md', 'b.md'], missing: 1, failed: 1 }), 'error');
+	assert.equal(manOutcome({ texts: ['a.md'], page: 'p/', failed: 1 }), 'error');
+	assert.equal(manOutcome({ texts: ['a.md', 'b.md'], missing: 2 }), 'none', 'every file missing is no error');
+	assert.equal(manOutcome({ texts: ['a.md'], page: 'p/', missing: 1 }), 'none');
+	assert.equal(manOutcome({ texts: [], page: null }), 'none');
+	assert.equal(manOutcome({ texts: [], page: 'p/', off: true }), 'none', 'off with a page: the note plus the link');
+	assert.equal(manOutcome(), 'none');
+});
+
 
 test('cleanFiles: paths, language maps, aliases; invalid entries skipped', () => {
 	const warns = [];
@@ -414,7 +661,8 @@ test('descriptor: loads neither the window nor the built-in commands', () => {
 	/* the boot part: index.js and what it imports — never the window, lib.js, catalog.js or commands/ */
 	assert.deepEqual(imports('index.js'), ['../../core/api.js', './config.js', './registry.js']);
 	assert.deepEqual(imports('registry.js'), ['./config.js']);
-	assert.deepEqual(imports('config.js'), ['../../core/is.js']);
+	/* the rules of manual values (src/core/man.js, pure) come with the boot: manUrl is checked there */
+	assert.deepEqual(imports('config.js'), ['../../core/is.js', '../../core/man.js']);
 	assert.match(read('index.js'), /load: \(\) => import\('\.\/window\.js'\)/);
 });
 

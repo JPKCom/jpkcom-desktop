@@ -17,7 +17,7 @@
    Everything read back is untrusted: only known apps that can open now
    (no launcher, link or transient apps), at most config.session.maxWindows,
    rectangles at least config.wm.minSize, layouts from the list, the url only
-   when the app's kind accepts it (wm.acceptUrl).
+   when the app's kind accepts it (wm.acceptUrl, from 'session').
 
    The user switch 'restore' ('on'/'off', default config.session.restore)
    lives in the settings (P3: Desk.session.setKeeping(on)).
@@ -199,7 +199,7 @@ export function initSession() {
 				const app = registry.get(id);
 				return app && registry.available(app) ? app : null;
 			},
-			accept: (app, url) => wm.acceptUrl(app, url)
+			accept: (app, url) => wm.acceptUrl(app, url, 'session')
 		});
 	}
 
