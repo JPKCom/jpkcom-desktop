@@ -1413,7 +1413,7 @@ Two gates per service: `config.services[id] === true` (site offers it; default a
 user's consent (`consent.set(id, true)`, stored `consent-<id>`). Services are declared in
 descriptors (`consent: [{ id, hosts, label, hint }]`); the settings section "Online services" lists
 `consent.list()`; `consent.hosts()` gives the hosts for the CSP `connect-src`. A module asks before
-the first request with **`consent.ask(id, { within })` → Promise<boolean>**: true at once when granted,
+the first request with **`consent.ask(id, { within })` → `Promise<boolean>`**: true at once when granted,
 false at once when the site does not offer the service, otherwise a question sheet (`Desk.dialog`,
 texts `core.consentTitle`/`consentText`/`consentAllow`/`consentDeny` with `{host}`) — "Allow" stores the
 consent, "Not now"/Esc stores nothing. Concurrent asks for the same id share one question.
@@ -1804,7 +1804,7 @@ via `L()`/`t()`; entries for apps that cannot open now are left out):
 | window | 80, `fold` | `wm.menu.window()` |
 | help | 90, `fold` | How it works, — the author's profiles (`config.author.links` → `author-<id>` apps) |
 
-`{ collection: id }` expands to "Open <collection>" plus its groups as submenus (the items directly when
+`{ collection: id }` expands to `Open <collection>` plus its groups as submenus (the items directly when
 it has no groups); **inside a submenu** (`{ label, items }`) a grouped collection is listed flat (its
 groups' items separated by `-`), so a menu never nests deeper than one submenu. Details: `docs/packages/p02-shell.md`.
 

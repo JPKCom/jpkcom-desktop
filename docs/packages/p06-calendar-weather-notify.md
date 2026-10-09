@@ -137,7 +137,7 @@ Sections reuse `.cal-head`, `.cal-btn`, `.cal-sub` from `calendar.css`.
   `site.defaultPageApp` is no home; then — and with the bell — the summary opens the newest article through
   the router.
 - **Meta line**: the app name (shell default); with `config.notify.label` (a text or `{ lang: text }` map,
-  at most 60 characters, resolved with `Desk.L`) `t('notify.meta', { site, app })` — "<label> · <app name>" —
+  at most 60 characters, resolved with `Desk.L`) `t('notify.meta', { site, app })` — `<label> · <app name>` —
   or the label alone when the banner has no app (`metaFor()`/`metaOf()`). A label equal to the app name is
   shown once.
 - Opening the calendar dismisses the banners (`'calendar:open'`); a language switch dismisses them and loads the

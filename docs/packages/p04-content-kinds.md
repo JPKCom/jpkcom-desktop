@@ -233,7 +233,7 @@ kind `collection`, `app.collection = id`).
   web button, e.g. "Arcade hall") — text, `'@ns.key'` or `{ lang: text }` — on the collection or its
   Catalog app; otherwise "All" / "Overview on the web".
 - **Grid** `ul.catalog-grid` (`aria-label` = section or "Search"): `button.catalog-item[data-app]` with
-  tile and label, `title` = description, link items named "<name> (opens in new tab)". Order from the
+  tile and label, `title` = description, link items named `<name> (opens in new tab)`. Order from the
   registry (`sort: 'alpha'` → group order, then name in the current language; `'manual'` → manifest
   order). Only items that can open now are listed.
 - **Interaction** (as in the original): mouse click selects, double click opens; keyboard (Enter/Space)
@@ -255,7 +255,7 @@ kind `collection`, `app.collection = id`).
 Contribution `contextMenu: [{ selector: '.catalog-item', label(el), select(el), items(el, ctx) }]` →
 `ctx.appItems(app, actions)`: the shell's app menu (Open / Open in new tab, Copy link, Add to / Keep in
 Dock) with the item's actions in between (an action labelled like a base entry is not listed twice); the
-menu is named "<name>: actions" and `select` selects the item first, as in the original.
+menu is named `<name>: actions` and `select` selects the item first, as in the original.
 
 Service `catalog`: `open(collectionId) → boolean`, `actions(app) → [{ id, label, icon, run }]`.
 

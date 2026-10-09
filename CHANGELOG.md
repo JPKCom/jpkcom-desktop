@@ -154,7 +154,7 @@ worker that no longer holds back an update for 30 s. Updating a site: see the up
   "App texts"). A replaced `askText` must keep naming who receives the request (`{host}` or the host
   written out), or a warning is shown.
 - Notifications: sites with a fixed `notify.app` look the same. Sites with `notify.app: null` get app
-  tiles in the banners automatically; set `notify.label` for a "<label> · <app name>" meta line (a site
+  tiles in the banners automatically; set `notify.label` for a `<label> · <app name>` meta line (a site
   that fixed `notify.app` only to name its news section there can now keep `app: null`).
 - Reader: code blocks with highlighting written as `style="color:…"` now show their colours; set
   `reader.keepStyles: false` for the old look. A dual-theme highlighter's custom properties need
@@ -422,7 +422,7 @@ below.
   backslash (CSS escape) or a CSS function other than the transform and colour functions — so no
   `url()`, `src()`, `var()` or `env()` — with a console warning; an invalid viewBox becomes `0 0 24 24`.
 - `man <entry>` without a manual — or whose manual file is missing (404/410, or an HTML page answered
-  with 200) — says "<name> has no manual page." and offers the documentation or the entry itself,
+  with 200) — says `<name> has no manual page.` and offers the documentation or the entry itself,
   instead of an error. A failed request (offline, timeout, server error) is still reported as an
   error; a long manual is still cut short and printed, as `cat` does. An exact entry name always means that entry (no longer a prefix sibling's manual); `man <name>`
   matches a part of a name only among entries that have a manual.

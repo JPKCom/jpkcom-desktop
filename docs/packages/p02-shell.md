@@ -72,7 +72,7 @@ menus: [{ id: 'pages', label: { en: 'Pages', de: 'Seiten' },
                   { label: 'More', items: ['imprint', 'privacy'] }] }]
 ```
 
-`{ collection: id }` expands to "Open <collection>" (its Catalog app) and the groups as submenus
+`{ collection: id }` expands to `Open <collection>` (its Catalog app) and the groups as submenus
 (or the items directly when the collection has no groups). `{ label, items }` is one level of
 submenu; a grouped collection inside it is listed flat (its groups' items separated by `-`), because
 the engine opens one submenu level (`siteEntries(list, depth)`). Invalid entries are warned and skipped (`cleanSiteMenus`).
