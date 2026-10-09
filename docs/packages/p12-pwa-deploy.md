@@ -74,18 +74,30 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
 - **Precache** (install): a crawl, not a hand-kept list. Roots: `index.html` (`<script src>`, `<link href>`),
   a small safety list (boot scripts, core CSS, manifest, icons), `src/<core part>/index.js`, every configured
   module/app, `site.data`, data files, the files of `iconSets`. It follows static/dynamic imports with literal specifiers,
-  descriptor `styles: [...]` and `i18n: [...]`, CSS `@import`/`url()`, then adds `_meta`, `core` and every
+  descriptor `styles: [...]`, `windowStyles: [...]`, `precache: [...]` (files a module imports with a
+  computed specifier — the holidays region files, ARCHITECTURE §8) and `i18n: [...]`, CSS `@import`/`url()`, then adds `_meta`, `core` and every
   found namespace for the language chain — from `locales/<lang>/<ns>.js`, or, for a file whose descriptor
   declares `locales: '<folder>/'` (same rule as `src/core/modules.js`: relative, ends in `/`, stays inside
   the module's folder; anything else is ignored), from `<folder><lang>/<ns>.js` next to it instead (a site
   app like Hello keeps its texts offline; no request for a core `locales/<lang>/<ns>.js` that does not
   exist). Each file is fetched once with `cache: 'no-cache'`, put under its
   path (query dropped) and scanned from a clone; `Promise.allSettled` per level, 20 s per file, at most 800
-  files. Against this project with the shipped config: 219 files (exactly the configured modules; the
+  files. Against this project with the shipped config: 221 files (exactly the configured modules; the
   disabled holidays/weather/vault are left out), 4 of them data files (the two feeds, two fortune files —
-  a prepared update crawls the other 215); no misses. The crawl does not skip comments, so a
-  descriptor example in a comment must not quote file names (that is why the one in `modules.js` writes
-  `styles: [<own .css files>]`).
+  a prepared update crawls the other 217); no misses. JavaScript is read without its comments
+  (`stripComments()`: a small scanner that keeps strings, template literals with their `${…}` parts and
+  regular expression literals — a `/` after an operand (a name, a number, `)`, `]`) divides, anywhere
+  else, also after `}`, it starts a regular expression; a `/*` glued to a `/` read as division and not
+  closed on its line starts no comment, so a regular expression after `)` that holds `/*` loses nothing
+  past its line — and keeps the line breaks of a block comment); 1.3.0 followed the
+  `import('./window.js')` of a comment in `src/core/modules.js` and asked for the missing
+  `src/core/window.js` in every crawl. `tools/build-preload.mjs` carries the same function
+  (`tests/p12-sw.test.mjs` compares the source).
+  The install first deletes `-next` of its cache name, then crawls; it writes the list of the code files
+  it kept (`sw.js?files`, JSON) into the shell cache only when no file failed without a final answer
+  (network, timeout, or a transient status: 5xx, `408`, `429` — `transient()`) — else it deletes an older
+  list, and the first update check crawls again (*Repair* below). An answer with `no-store`/`private` or a
+  final HTTP error (`404`, `410`, `403` …) is no such failure (`precacheOne()` gives its error the status).
 - **Routing** (`classify`): only same-origin `GET` without `Range`; `pwa.enabled` false → nothing.
   - top-level navigation to `<base>` or `<base>index.html` → shell, one copy under `<base>` (any query);
   - any other navigation in scope (iframes of web apps, other pages of the site at a root install) → the
@@ -142,15 +154,51 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   shell cache, `-next` deleted; without the marker `-next` is only deleted), then schedules
   `checkForUpdate` (`CHECK_DELAY_MS` 3 s after the start, at most every `CHECK_GAP_MS` 60 s, inside
   `waitUntil` — the exception to ARCHITECTURE §14's rule that no `waitUntil` spans a wait of its own: the
-  browser keeps the worker alive for it. Because a newer worker cannot activate while it runs,
-  `superseded()` — `self.registration.installing` or `.waiting` set — ends it after the delay, before each
-  batch of compares and before the crawl, with nothing kept; the newer worker brings its own copy and the
-  next start checks again. A crawl already running is not interrupted): every shell file except data files is fetched with `cache: 'no-cache'` (index.html from the navigation
+  browser keeps the worker alive for it. Because a newer worker cannot activate while it runs, the check
+  ends as soon as `superseded()` is true — a worker other than this one is `installing` or `waiting` on
+  `self.registration`, or this one was replaced (`self.serviceWorker.state` is not `activating`/`activated`,
+  or the registration's `active` worker is another one; where `self.serviceWorker` is missing, the worker
+  knows itself as the `active` worker it saw in `activate` or a fetch event). It runs with an
+  `AbortController` (`checkCtl`): `updatefound` on the registration, a watch every `CHECK_WATCH_MS`
+  (250 ms) and every look between steps abort it; the delay ends early (`pause()`), the runtime refreshes,
+  the compare batches and every level of the crawl (`precache(…, { signal, stop })`) look first, and the
+  requests in flight get the signal (`withTimeout(ms, fn, outer, use)`: the signal reaches the request
+  until `use` has read its answer — the crawl's `cache.put()`, the compare's bytes — so the body of an
+  aborted request ends too; the timeout covers the answer, not its body). Bodies the check compares are
+  read by `readBytes(res, signal)`, which cancels the read on abort. The navigation preload answer of
+  `index.html` (`fresh`) has no request of the worker's: the check waits for it only until the abort
+  (`untilAbort()`) or `INSTALL_TIMEOUT_MS` (then it fetches `index.html` itself), reads it with
+  `readBytes()`, and cancels the body of an answer nobody reads (`discard()`; also when the delay ended
+  for a newer worker). An aborted crawl waits for its level to settle and rejects; `-next` is deleted, the
+  marker never written, no `desk:update` posted. The newer worker brings its own copy and the next start
+  checks again. When the compare found a change, `recheckWorker()` lets the browser compare `sw.js` and
+  its imported scripts (`registration.update()`, at most `INSTALL_TIMEOUT_MS`, failures ignored) before
+  the crawl and again before the marker: a changed worker — a release, or a rollback to an earlier worker
+  at the same URL — installs at once and the check ends instead of crawling (in 1.3.0 a newer worker
+  could wait about a minute for a running crawl on a slow server, and a reload in that time could hang)):
+  every shell file except data files is fetched with `cache: 'no-cache'` (index.html from the navigation
   preload answer) in batches of `CHECK_BATCH` and compared byte for byte with the copy (or the prepared
   one). A difference → the install crawl into `-next` (without data files: neither roots nor URLs met on the
-  way); a crawl with network failures (not HTTP errors) is
-  dropped, else the marker is written last and every window client gets `{ type: 'desk:update' }`. A new
-  worker generation that deleted older shell caches on activation posts the same message.
+  way); a crawl with network failures (or a transient HTTP status: 5xx, `408`, `429`; not a final one such
+  as `404`) is dropped, else the marker (its body: the crawl's
+  list of code files, `listOf(result.kept)`) is written last and every window client gets
+  `{ type: 'desk:update' }`; `applyUpdate` copies that list into the shell cache as `sw.js?files`. A new
+  worker generation that deleted older shell caches on activation posts the same message, and so does
+  a new worker with the **same** cache name whose install changed a copy of code the pages run
+  (`installCopy()`: with an active worker on the registration, `precache(…, { compare: true })`
+  notes every existing copy — not data, not a runtime copy — whose bytes the crawl replaces, and writes
+  `sw.js?changed` before the first of them is replaced, so an install that dies halfway still leaves it;
+  activation deletes and announces it; 1.3.0 announced only when the old worker's check happened to
+  prepare `-next` first). `applyUpdate()` moves nothing while a check runs or while a newer worker
+  supersedes this one (`superseded()`), and the install has deleted the old `-next` anyway. **Repair**: no change found, no prepared update, but the copy
+  is incomplete (`incomplete()`: a file listed in `sw.js?files` is missing, or the list is) → the same crawl
+  into `-next`, with the data files this time (`data: !changed`); when no crawled file differs from a copy
+  of code in the shell (`differs()`, data and runtime copies do not count), `fillIn()` adds the files the
+  shell lacks (or holds only as runtime copies; a data file only when missing), renews the list and
+  deletes `-next` — no message; else the data files leave `-next` and it goes on as an update. When
+  another service worker of the origin deletes every cache it does not know, the starts refill only what
+  the pages ask for (windows not opened since stay unavailable offline); the next check now restores the
+  rest. The markers are never compared with the server (`isMarker()`).
   Files the crawl does not produce but the desktop reads at runtime and that are no data files (`man`/`cat`
   text outside `site/data/` and `site/content/`, images) answer from the copy as well; `cacheFirst` stores
   them with `X-Desk-Copy: runtime` — except code: the page's request `destination` is `script`, `style`,
@@ -168,8 +216,10 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   redirected responses are re-wrapped so they may answer a navigation); after
   the timeout a cached copy answers while the late network answer still refreshes it; without a copy the
   request waits for the network. Pages: re-inserted on refresh, trimmed oldest-first to `maxPages`.
-- **Lifecycle**: `skipWaiting()` after the precache; activation deletes own older caches and the legacy
-  caches (`offline.legacyCaches`), enables navigation preload, `clients.claim()`.
+- **Lifecycle**: `skipWaiting()` after the precache (and its list, `sw.js?files`, when the crawl had no
+  network failure); activation deletes own
+  older caches and the legacy caches (`offline.legacyCaches`), enables navigation preload,
+  `clients.claim()`, and posts `desk:update` when it replaced an older generation or found `sw.js?changed`.
 - **Legacy caches** (only with a non-empty `offline.legacyCaches`): besides activation, they are deleted
   once more `LEGACY_FOLLOW_UP_MS` (30 s) after it — requests the earlier worker received before the
   hand-over finish later and re-create its cache. Activation arms the follow-up (`armLegacyFollowUp()`:
@@ -179,11 +229,19 @@ to an exact entry or starting with a prefix entry. Deleting a legacy cache does 
   for a switched-off worker that still controls its pages). **No `waitUntil` spans the 30 s**: an
   extended event keeps the worker busy, and a following worker that called `skipWaiting()` activates
   only once the active one has no extended events — in 1.2.0 the follow-up held every update (and a
-  rollback) for 30 s after an activation. A worker that is no longer the active one
-  (`self.serviceWorker.state` is `redundant`: a newer worker replaced it) drops the follow-up; its
-  successor sweeps with its own list. Where `self.serviceWorker` does not exist the sweep runs. Every
-  top-level start (`shell-nav`) deletes them as well (once per event: not again when the follow-up ran in
-  the same event). The worker imports the current `site/config.js` when it installs, so it always has the
+  rollback) for 30 s after an activation. **Every sweep** — activation, follow-up, start, a page's
+  request — runs only while `inCharge()` (`!superseded()`, see the update check): a worker with a newer
+  one installing, waiting or active drops the follow-up (not postponed) and skips the others, and
+  `sweepLegacy()` looks again right before each `caches.delete()`. In a rollback the newer worker is the
+  earlier one, back at the same URL, and the listed caches are its own again (1.3.0 deleted them while it
+  waited: at a start of the desktop, and from the follow-up). A successor of this project sweeps with its
+  own list. Every top-level start (`shell-nav`) deletes them as well (once per event: not again when the
+  follow-up ran in the same event). A message `{ type: 'desk:legacy-sweep' }` from a page runs the same
+  guarded sweep (inside the message event's `waitUntil`; ignored without a list): `install.js` sends it
+  ~30 s after `controllerchange`, and at each start when it does not register the worker, whenever a
+  worker at this installation's `sw.js` URL controls the page — it cannot tell this worker from an earlier
+  one at the same URL, which ignores the message (1.3.0 deleted the caches from the page itself, 30 s
+  after the rolled-back worker took over). Only an uncontrolled page deletes them itself. The worker imports the current `site/config.js` when it installs, so it always has the
   current list, whereas the page may still run the previous config from the offline copy. The follow-up
   is not part of the activate `waitUntil` either, because fetch events wait until the worker is
   `activated`. A worker the browser stops before the timer fires loses the timer; the next request of a
@@ -284,7 +342,9 @@ Applied at integration:
   (`ownCaches(root)`) — and unregisters only the registration whose scope is exactly `Desk.env.root`.
   It also deletes the legacy caches of `config.offline.legacyCaches`. `install.js` additionally sweeps
   them ~30 s after `controllerchange` and, when it does not register the worker (`pwa.enabled: false`),
-  3 s after each start (`scheduleSweep()`; never while a worker at another script URL controls the page).
+  3 s after each start (`scheduleSweep()`; never while a worker at another script URL controls the page;
+  while a worker at `sw.js`'s URL controls it, it posts `{ type: 'desk:legacy-sweep' }` to that worker
+  instead of deleting — only an uncontrolled page deletes them itself).
 - `docs/ARCHITECTURE.md` §14 documents the cache names; `site/config.js` comments the `offline` keys;
   the README's Deployment section has short per-server instructions (where each file goes, what to
   replace, modules / `AllowOverride`, how to switch on the commented lines for online services, a

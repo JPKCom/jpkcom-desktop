@@ -1,4 +1,4 @@
-/* JPKCom Desktop — tests: storage registry (reset groups shown or hidden through visible(), reset of hidden groups) — © Jean Pierre Kolb — MIT License */
+/* JPKCom Desktop — tests: storage registry (reset groups shown or hidden through visible(), reset of hidden groups, keys of another installation) — © Jean Pierre Kolb — MIT License */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -94,4 +94,107 @@ test('reset groups: removeModule withdraws hidden groups as well', () => {
 	assert.ok(ids(storage.resetGroups({ all: true })).includes('gone-pred'));
 	storage.removeModule('gone');
 	assert.equal(ids(storage.resetGroups({ all: true })).includes('gone-pred'), false);
+});
+
+/* ---------- Another installation whose namespace starts with this one ('jpkdesk-next' next to 'jpkdesk', §14) ---------- */
+
+test('another installation: names(), usage(), backup, revokeAll and "everything" leave its keys alone', async () => {
+	const { revokeAll } = await import('../src/core/consent.js');
+	assert.equal(store.prefix, 'jpkdesk-');
+	for (const k of [...memory.keys()]) memory.delete(k);
+	try {
+		/* this desktop: core 'lang', a module key, a consent, a leftover of a module no longer there */
+		storage.registerKey('foreign-test', { type: 'json' }, 'foreign-demo');
+		store.set('lang', 'en');
+		store.setJson('foreign-test', { a: 1 });
+		store.set('consent-weather', 'on');
+		store.set('removed-mod', 'x');
+		/* the other installation 'jpkdesk-next': names declared here, a consent, a module unknown here */
+		const theirs = {
+			'jpkdesk-next-lang': 'de', 'jpkdesk-next-foreign-test': '{"a":2}', 'jpkdesk-next-consent-weather': 'on',
+			'jpkdesk-next-hello': '{"n":1}'
+		};
+		for (const [k, v] of Object.entries(theirs)) memory.set(k, v);
+
+		assert.deepEqual(store.names().sort(), ['consent-weather', 'foreign-test', 'lang', 'removed-mod']);
+		assert.equal(store.owns('jpkdesk-next-hello'), false);
+		assert.equal(store.owns('jpkdesk-consent-weather'), true);
+		const u = store.usage();
+		const theirSize = Object.entries(theirs).reduce((n, [k, v]) => n + (k.length + v.length) * 2, 0);
+		assert.equal(u.all - u.own, theirSize);
+
+		/* backup: names only, never their keys; a file with their names knows none of them */
+		const doc = storage.snapshot();
+		assert.deepEqual(Object.keys(doc.data).sort(), ['foreign-test', 'lang']);
+		const res = storage.inspect({ format: doc.format, data: { 'next-lang': 'de', 'next-foreign-test': { a: 2 }, lang: 'en' } });
+		assert.deepEqual(res.entries.map(e => e.name), ['lang']);
+		assert.deepEqual(res.unknown.sort(), ['next-foreign-test', 'next-lang']);
+
+		/* revoking every consent leaves theirs */
+		revokeAll();
+		assert.equal(store.get('consent-weather'), null);
+		assert.equal(memory.get('jpkdesk-next-consent-weather'), 'on');
+
+		/* Settings → Reset with everything picked removes every name of store.names() (settings-window.js runReset) */
+		for (const name of store.names()) store.remove(name);
+		assert.deepEqual([...memory.keys()].sort(), Object.keys(theirs).sort());
+	} finally {
+		storage.removeModule('foreign-demo');
+		for (const k of [...memory.keys()]) memory.delete(k);
+	}
+});
+
+test('another installation named \'<ns>-consent\': consent declares only its registered services\' keys holding \'on\'', async () => {
+	const { revokeAll, register, unregister } = await import('../src/core/consent.js');
+	for (const k of [...memory.keys()]) memory.delete(k);
+	try {
+		register({ id: 'weather', hosts: 'api.example.org' }, 'consent-demo');
+		store.set('lang', 'en');
+		store.set('consent-weather', 'on');
+		store.set('consent-gone', 'on');        // a service no longer here: a leftover of this desktop
+		/* the other installation 'jpkdesk-consent' (a valid namespace): core names, a module key, its consent */
+		const theirs = {
+			'jpkdesk-consent-lang': 'de', 'jpkdesk-consent-session': '{}', 'jpkdesk-consent-notes': '{"notes":[1]}',
+			'jpkdesk-consent-consent-weather': 'on'
+		};
+		for (const [k, v] of Object.entries(theirs)) memory.set(k, v);
+
+		/* it shows: its keys are not this desktop's; the registered consent stays this desktop's */
+		assert.equal(store.owns('jpkdesk-consent-notes'), false);
+		assert.equal(store.owns('jpkdesk-consent-lang'), false);
+		assert.equal(store.owns('jpkdesk-consent-consent-weather'), false);
+		assert.equal(store.owns('jpkdesk-consent-weather'), true);
+		/* a leftover consent under '<ns>-consent-' now looks like its key (§14 limits): kept, not deleted */
+		assert.deepEqual(store.names().sort(), ['consent-weather', 'lang']);
+
+		/* Settings → Reset with only "Settings" picked revokes this desktop's consents only */
+		revokeAll();
+		assert.equal(store.get('consent-weather'), null);
+		for (const [k, v] of Object.entries(theirs)) assert.equal(memory.get(k), v, k);
+		/* the key of a revoked consent (a 'storage' event in another tab) is still judged this desktop's */
+		assert.equal(store.owns('jpkdesk-consent-weather'), true);
+
+		/* "everything" */
+		for (const name of store.names()) store.remove(name);
+		assert.deepEqual([...memory.keys()].sort(), ['jpkdesk-consent-gone', ...Object.keys(theirs)].sort());
+	} finally {
+		unregister('weather');
+		for (const k of [...memory.keys()]) memory.delete(k);
+	}
+});
+
+test('revokeAll removes consent keys only: a \'consent-…\' key that holds something else stays', async () => {
+	const { revokeAll } = await import('../src/core/consent.js');
+	for (const k of [...memory.keys()]) memory.delete(k);
+	try {
+		/* an installation 'jpkdesk-consent' that has written only names not declared here cannot be told
+		   apart (§14 limits), so its keys count as this desktop's — a partial reset still leaves them */
+		memory.set('jpkdesk-consent-hello', '{"n":1}');
+		store.set('consent-old', 'on');
+		assert.deepEqual(store.names().sort(), ['consent-hello', 'consent-old']);
+		revokeAll();
+		assert.deepEqual([...memory.keys()], ['jpkdesk-consent-hello']);
+	} finally {
+		for (const k of [...memory.keys()]) memory.delete(k);
+	}
 });

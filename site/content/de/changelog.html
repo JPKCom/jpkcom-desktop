@@ -13,6 +13,15 @@
 <article>
 <h1>Versionshinweise</h1>
 <p class="lead">Was sich in welcher Version von JPKCom Desktop geändert hat.</p>
+<h2 id="v1-4-0">1.4.0</h2>
+<p>Korrekturen für die Offline-Kopie und für mehrere Desktops auf einer Website.</p>
+<ul>
+<li>Eine neue Version wartet nicht mehr, während die alte noch ein Update lädt, und der Weg zurück zu einem früheren Service Worker lässt dessen Caches in Ruhe.</li>
+<li>Die Feiertage erscheinen jetzt auch offline, und ein geändertes <code>sw.js</code> oder <code>site/config.js</code> mit gleichem Cache-Namen bietet ein Neuladen an, sobald es Code geändert hat, den der offene Desktop ausführt.</li>
+<li>Mit dem schnellen Start aus der Offline-Kopie (Standard) vervollständigt die nächste Update-Prüfung eine Kopie, der Dateien fehlen oder die nicht alle laden konnte — ein Serverfehler oder eine Ratenbegrenzung lässt kein Update mit einer alten Datei mehr zurück.</li>
+<li>Zwei Desktops auf einer Website mit überlappenden Namensräumen (<code>jpkdesk</code> und <code>jpkdesk-next</code>) halten ihre Einstellungen getrennt — das Zurücksetzen des einen löscht nichts mehr beim anderen.</li>
+</ul>
+
 <h2 id="v1-3-0">1.3.0</h2>
 <p>Feinschliff aus dem Umzug einer echten Website auf den Desktop.</p>
 <ul>

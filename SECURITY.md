@@ -28,10 +28,11 @@ reasonable time to release a fix before you publish details.
 
 | Version | Supported |
 |---|---|
-| 1.3.x | yes |
-| 1.2.x | no — please update to 1.3 |
-| 1.1.x | no — please update to 1.3 |
-| 1.0.x | no — please update to 1.3 |
+| 1.4.x | yes |
+| 1.3.x | no — please update to 1.4 |
+| 1.2.x | no — please update to 1.4 |
+| 1.1.x | no — please update to 1.4 |
+| 1.0.x | no — please update to 1.4 |
 | < 1.0 | no (never released) |
 
 Only the latest release of the latest minor version receives security fixes.

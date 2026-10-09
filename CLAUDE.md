@@ -61,7 +61,8 @@ Default-Export von `src/modules/<id>/index.js` bzw. `src/apps/<id>/index.js`:
 
 - `id`, `kind` (`'core' | 'module' | 'app'`), `requires: []`, `i18n: ['<ns>']`, `locales: 'locales/'`
   (gedacht für Site-Module: Texte im eigenen Ordner), `styles: ['<id>.css']`, `windowStyles: [...]`
-  (CSS nur fürs Fenster, kommt mit dessen Code)
+  (CSS nur fürs Fenster, kommt mit dessen Code), `precache: [...]` (Dateien, die das Modul mit berechnetem
+  Namen importiert — `` import(`./regions/${id}.js`) `` —, damit der Service Worker sie offline hält; §8)
 - `app: {…}` oder `apps: [...]` (Manifest-Felder: `icon`, `tint`, `size`, `name: '@ns.key'` …;
   `load: () => import('./window.js')` = Fenster-Code erst beim ersten Öffnen, §8 „Window code on demand“ —
   der Deskriptor importiert die Fenster-Datei nie statisch; Fensterarten analog `defineKind(kind, { load })`)

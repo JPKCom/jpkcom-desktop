@@ -56,7 +56,7 @@ function basic(body, { status = 200, type = 'text/plain', headers = {} } = {}) {
  */
 function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false, delay = 0, online = true, origin = ORIGIN, timer = setTimeout, clear = clearTimeout } = {}) {
 	const handlers = {};
-	const state = { online, delay, fetched: [], unregistered: false, claimed: false, skipped: false, preload: false, messages: [] };
+	const state = { online, delay, fetched: [], unregistered: false, claimed: false, skipped: false, preload: false, messages: [], regListeners: {} };
 	const serve = async url => {
 		const u = new URL(url);
 		if (u.origin !== ORIGIN) throw new TypeError(`cross-origin fetch in test: ${url}`);
@@ -84,7 +84,9 @@ function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false,
 		caches: new FakeCaches(),
 		registration: {
 			navigationPreload: { enable: async () => { state.preload = true; } },
-			unregister: async () => { state.unregistered = true; return true; }
+			unregister: async () => { state.unregistered = true; return true; },
+			/* events the worker listens to on its registration (updatefound); fire with sw.regEvent(type) */
+			addEventListener: (type, fn) => { (state.regListeners[type] ??= []).push(fn); }
 		},
 		clients: {
 			claim: async () => { state.claimed = true; },
@@ -119,6 +121,16 @@ function loadSW({ base = '/desk/', files = {}, config = null, serveDisk = false,
 	return {
 		sandbox, state, run, handlers,
 		caches: sandbox.caches,
+		/** Fires an event of the registration in the worker (as the browser does when a newer worker installs) */
+		regEvent(type) { for (const fn of state.regListeners[type] ?? []) fn({ type }); },
+		/** Dispatches a message event from a page; resolves once its waitUntil settled */
+		async message(data) {
+			const e = extendable();
+			e.data = data;
+			handlers.message?.(e);
+			await settle(e.waits);
+			return e.waits.length;
+		},
 		async install() { const e = extendable(); handlers.install(e); await Promise.all(e.waits); },
 		async activate() { const e = extendable(); handlers.activate(e); await Promise.all(e.waits); },
 		/** Dispatches a fetch event; resolves { handled, response } once every waitUntil settled */
@@ -1440,4 +1452,736 @@ test('legacyMatcher and SCHEME of sw.js and src/core/config.js agree', () => {
 		for (const n of names) assert.equal(a(n), b(n), `${JSON.stringify(list)} / ${String(n)}`);
 	}
 	for (const n of names.filter(x => typeof x === 'string')) assert.equal(sw.run('SCHEME').test(n), CACHE_SCHEME.test(n), n);
+});
+
+/* ---------- A newer worker: the check ends at once, the legacy sweeps stop (a rollback to an earlier worker) ---------- */
+
+/** A worker after its install whose next check finds a change and crawls into '-next'; crawl.started turns
+    true when the check opens '-next', crawl.fetched lists the requests from then on */
+async function crawlingWorker() {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	files['/desk/src/core/api.js'] = "export const x = 2; const later = () => import('./lazy.js');";
+	const names = sw.run('NAMES');
+	const crawl = { started: false, fetched: [] };
+	const open = sw.caches.open.bind(sw.caches);
+	sw.caches.open = async name => {
+		if (name === names.next) crawl.started = true;
+		return open(name);
+	};
+	const fetch = sw.sandbox.fetch;
+	sw.sandbox.fetch = async (input, init) => {
+		if (crawl.started) crawl.fetched.push((input instanceof Request ? input : new Request(input, init)).url);
+		return fetch(input, init);
+	};
+	return { sw, names, crawl, check: () => sw.run('checkForUpdate')(sw.run('CONFIG'), names) };
+}
+
+/** A fetch that never answers on its own (a server that hangs): only an abort of its signal ends it */
+const hangingFetch = (sw, when, count = { n: 0 }) => {
+	const fetch = sw.sandbox.fetch;
+	sw.sandbox.fetch = (input, init) => {
+		const r = input instanceof Request ? input : new Request(input, init);
+		if (!when()) return fetch(input, init);
+		count.n++;
+		return new Promise((_, fail) => r.signal.addEventListener('abort', () => fail(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }));
+	};
+	return count;
+};
+
+test('update check: a newer worker during the crawl ends it after the level in flight — no complete \'-next\', no message', async () => {
+	const { sw, names, crawl, check } = await crawlingWorker();
+	const reg = sw.sandbox.registration;
+	const fetch = sw.sandbox.fetch;
+	/* the newer worker appears while the first level of the crawl is fetched */
+	sw.sandbox.fetch = async (input, init) => {
+		if (crawl.started) reg.installing = { state: 'installing' };
+		return fetch(input, init);
+	};
+	assert.equal(await check(), false);
+	assert.equal(await sw.caches.has(names.next), false, "the half-written '-next' is deleted");
+	assert.deepEqual(sw.state.messages, [], 'no desk:update');
+	const rel = crawl.fetched.map(u => u.slice(`${ORIGIN}/desk/`.length));
+	assert.ok(rel.includes('src/boot/main.js'), 'the first level was under way');
+	assert.ok(!rel.includes('src/core/api.js'), `no request of the next level: ${rel.join(' ')}`);
+	/* alone again: the same change is prepared and announced */
+	reg.installing = null;
+	sw.sandbox.fetch = fetch;
+	assert.equal(await check(), true);
+	assert.ok(await (await sw.caches.open(names.next)).match(`${ORIGIN}/desk/sw.js?complete`));
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+});
+
+test('update check: a newer worker aborts the requests in flight — the check ends at once, not after their timeout', async () => {
+	/* updatefound: at once */
+	let w = await crawlingWorker();
+	let count = hangingFetch(w.sw, () => w.crawl.started);
+	let running = w.check();
+	while (!count.n) await flush();
+	w.sw.sandbox.registration.installing = { state: 'installing' };
+	w.sw.regEvent('updatefound');
+	assert.ok(await settlesWithin(running, 100), 'ended at once (the requests would wait INSTALL_TIMEOUT_MS)');
+	assert.equal(await running, false);
+	assert.equal(await w.sw.caches.has(w.names.next), false);
+	assert.deepEqual(w.sw.state.messages, []);
+
+	/* no updatefound reaches the worker (other engines): the watch sees the newer worker within CHECK_WATCH_MS */
+	w = await crawlingWorker();
+	assert.equal(w.sw.run('CHECK_WATCH_MS'), 250);
+	count = hangingFetch(w.sw, () => w.crawl.started);
+	running = w.check();
+	while (!count.n) await flush();
+	w.sw.sandbox.registration.waiting = { state: 'installed' };
+	assert.ok(await settlesWithin(running, 1000), 'ended by the watch');
+	assert.equal(await running, false);
+	assert.equal(await w.sw.caches.has(w.names.next), false);
+
+	/* the compare is cut short the same way */
+	const sw = loadSW({ files: { ...MINI } });
+	await sw.install();
+	count = hangingFetch(sw, () => true);
+	running = sw.run('checkForUpdate')(sw.run('CONFIG'), sw.run('NAMES'));
+	while (!count.n) await flush();
+	sw.sandbox.registration.installing = { state: 'installing' };
+	sw.regEvent('updatefound');
+	assert.ok(await settlesWithin(running, 100), 'the compare ended at once');
+	assert.equal(await running, false);
+});
+
+test('update check: a newer worker ends the start-up delay early (the delay would hold it CHECK_DELAY_MS)', async () => {
+	const sw = loadSW({ files: MINI });
+	await sw.install();
+	const before = sw.state.fetched.length;
+	const start = sw.fetchEvent(nav('/desk/'), { preload: basic(MINI['/desk/'], { type: 'text/html' }) });
+	await flush();
+	assert.notEqual(sw.run('checking'), null, 'the check waits for its delay');
+	sw.sandbox.registration.waiting = { state: 'installed' };
+	sw.regEvent('updatefound');
+	assert.ok(await settlesWithin(start, 500), 'the start\'s event ended long before CHECK_DELAY_MS');
+	assert.equal(sw.run('checking'), null);
+	assert.equal(sw.state.fetched.length, before, 'nothing compared');
+});
+
+test('update check: files changed — the browser looks at sw.js first and again before the marker; a changed worker takes over', async () => {
+	const { sw, names, crawl, check } = await crawlingWorker();
+	const reg = sw.sandbox.registration;
+	/* sw.js changed as well (a new release, a rollback to an earlier worker at the same URL): no crawl at all */
+	let asked = 0;
+	reg.update = async () => {
+		asked++;
+		reg.installing = { state: 'installing' };
+	};
+	assert.equal(await check(), false);
+	assert.equal(asked, 1);
+	assert.equal(crawl.started, false, 'no crawl for a copy nobody would use');
+	assert.deepEqual(sw.state.messages, []);
+	/* sw.js changed while the crawl ran: '-next' is dropped, never marked */
+	reg.installing = null;
+	asked = 0;
+	reg.update = async () => {
+		if (++asked === 2) reg.installing = { state: 'installing' };
+	};
+	assert.equal(await check(), false);
+	assert.equal(asked, 2);
+	assert.ok(crawl.started);
+	assert.equal(await sw.caches.has(names.next), false);
+	assert.deepEqual(sw.state.messages, []);
+	/* sw.js unchanged (or update() fails): the update is prepared as before */
+	reg.installing = null;
+	asked = 0;
+	reg.update = async () => {
+		if (++asked === 2) throw new TypeError('Failed to fetch');
+	};
+	assert.equal(await check(), true);
+	assert.equal(asked, 2);
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+	/* nothing changed since: sw.js is not asked for */
+	asked = 0;
+	assert.equal(await check(), false);
+	assert.equal(asked, 0);
+});
+
+test('legacy caches: only the worker in charge sweeps — not while a newer one installs or waits, not once another is active', async () => {
+	const t = heldTimer();
+	const sw = loadSW({ files: MINI, config: LEGACY_CONFIG, timer: t.timer, clear: t.clear });
+	const reg = sw.sandbox.registration;
+	/* no self.serviceWorker here: the worker knows itself as the registration's active worker on activation */
+	const mine = { state: 'activated' };
+	reg.active = mine;
+	await sw.install();
+	await sw.activate();
+	sw.run('lastCheck = Date.now()');   // no update check in this test
+	const has = async name => (await sw.caches.keys()).includes(name);
+
+	/* a rollback: the earlier worker (same URL) installs and waits — the listed caches are its own again */
+	reg.waiting = { state: 'installed' };
+	await sw.caches.open('oldsite-pages');
+	assert.equal(t.fire(), 1);
+	await flush();
+	assert.ok(await has('oldsite-pages'), 'the follow-up leaves them');
+	assert.equal(sw.run('legacyDue'), 0, 'dropped, not postponed');
+	await sw.fetchEvent(nav('/desk/'));
+	assert.ok(await has('oldsite-pages'), 'a start of the desktop leaves them');
+	await sw.message({ type: 'desk:legacy-sweep' });
+	assert.ok(await has('oldsite-pages'), 'a page asking leaves them');
+
+	/* it took over: the registration's active worker is another one */
+	reg.waiting = null;
+	reg.active = { state: 'activated' };
+	sw.run('armLegacyFollowUp()');
+	assert.equal(t.fire(), 1);
+	await flush();
+	assert.ok(await has('oldsite-pages'), 'a replaced worker leaves them');
+	await sw.message({ type: 'desk:legacy-sweep' });
+	assert.ok(await has('oldsite-pages'));
+
+	/* in charge: a page's request sweeps — and the worker looks again right before each delete */
+	reg.active = mine;
+	await sw.caches.open('oldsite-shell-v4');
+	const del = sw.caches.delete.bind(sw.caches);
+	sw.caches.delete = async name => {
+		const done = await del(name);
+		reg.installing = { state: 'installing' };   // a newer worker appears after the first delete
+		return done;
+	};
+	assert.equal(await sw.message({ type: 'desk:legacy-sweep' }), 1, 'the sweep extends the message event');
+	const left = (await sw.caches.keys()).filter(n => n.startsWith('oldsite-'));
+	assert.equal(left.length, 1, `one deleted, the other kept once the newer worker appeared: ${left}`);
+	sw.caches.delete = del;
+	reg.installing = null;
+	await sw.message({ type: 'desk:legacy-sweep' });
+	assert.deepEqual((await sw.caches.keys()).filter(n => n.startsWith('oldsite-')), []);
+	assert.equal(await sw.message({ type: 'desk:something-else' }), 0, 'other messages are ignored');
+	assert.equal(await sw.message(null), 0);
+});
+
+test('legacy caches: without a list a page\'s request does nothing', async () => {
+	const sw = loadSW({ files: MINI });
+	await sw.caches.open('oldsite-pages');
+	let listed = 0;
+	const keys = sw.caches.keys.bind(sw.caches);
+	sw.caches.keys = async () => { listed++; return keys(); };
+	assert.equal(await sw.message({ type: 'desk:legacy-sweep' }), 0);
+	assert.equal(listed, 0);
+});
+
+/** An answer whose body sends a first chunk and then never ends — unless signal (its request's) aborts, as a
+    browser errors the body of an aborted fetch. info.cancelled: a reader cancelled the body. */
+function endless(type, signal = null) {
+	const info = { cancelled: false };
+	const body = new ReadableStream({
+		start(c) {
+			c.enqueue(new TextEncoder().encode('<!doctype html>'));
+			signal?.addEventListener('abort', () => c.error(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+		},
+		cancel() { info.cancelled = true; }
+	});
+	return { res: basic(body, { type }), info };
+}
+
+/** sw.js after its install, a check started with fresh (the navigation preload answer) and, once it waits,
+    a newer worker that starts installing (updatefound) → whether the check settled within 100 ms, its result */
+async function newerWorkerDuring(fresh) {
+	const sw = loadSW({ files: { ...MINI } });
+	await sw.install();
+	const running = sw.run('checkForUpdate')(sw.run('CONFIG'), sw.run('NAMES'), fresh);
+	await flush();
+	sw.sandbox.registration.installing = { state: 'installing' };
+	sw.regEvent('updatefound');
+	const settled = await settlesWithin(running, 100);
+	return { sw, settled, result: settled ? await running : undefined };
+}
+
+test('update check: a newer worker also ends the wait for the navigation preload answer and its body', async () => {
+	/* the preload answer has not arrived */
+	let r = await newerWorkerDuring(new Promise(() => {}));
+	assert.ok(r.settled, 'a pending preload answer does not hold the check');
+	assert.equal(r.result, false);
+	assert.deepEqual(r.sw.state.messages, []);
+	/* the preload answer arrived, its body has not ended: the read is cancelled */
+	const slow = endless('text/html');
+	r = await newerWorkerDuring(Promise.resolve(slow.res));
+	assert.ok(r.settled, 'an endless preload body does not hold the check');
+	assert.equal(r.result, false);
+	assert.ok(slow.info.cancelled, 'the preload body is cancelled');
+	/* the preload answer arrives after the abort: its body is cancelled, nobody reads it */
+	const late = endless('text/html');
+	let answer = null;
+	r = await newerWorkerDuring(new Promise(ok => { answer = ok; }));
+	assert.ok(r.settled);
+	answer(late.res);
+	await flush();
+	assert.ok(late.info.cancelled, 'a late preload body is cancelled');
+});
+
+test('update check: a newer worker ends a body still arriving — in the compare and in the crawl', async () => {
+	/* the compare: the headers of a code file are there, its body is not (the server sends slowly) */
+	const sw = loadSW({ files: { ...MINI } });
+	await sw.install();
+	const fetch = sw.sandbox.fetch;
+	const bodies = [];
+	sw.sandbox.fetch = async (input, init) => {
+		const r = input instanceof Request ? input : new Request(input, init);
+		if (!r.url.endsWith('/src/boot/main.js')) return fetch(input, init);
+		const slow = endless('text/javascript');   // ignores its request's signal: the read itself must end
+		bodies.push(slow.info);
+		return slow.res;
+	};
+	const running = sw.run('checkForUpdate')(sw.run('CONFIG'), sw.run('NAMES'));
+	while (!bodies.length) await flush();
+	await flush();
+	sw.sandbox.registration.installing = { state: 'installing' };
+	sw.regEvent('updatefound');
+	assert.ok(await settlesWithin(running, 100), 'the compare ended at once');
+	assert.equal(await running, false);
+	assert.ok(bodies[0].cancelled, 'its body is cancelled');
+
+	/* the crawl: a file's body is still arriving — the abort reaches its request (a browser then errors the body) */
+	const w = await crawlingWorker();
+	const crawlFetch = w.sw.sandbox.fetch;
+	let slowOnes = 0;
+	w.sw.sandbox.fetch = async (input, init) => {
+		const r = input instanceof Request ? input : new Request(input, init);
+		if (!w.crawl.started || !r.url.endsWith('/src/boot/main.js')) return crawlFetch(input, init);
+		slowOnes++;
+		return endless('text/javascript', r.signal).res;
+	};
+	const crawling = w.check();
+	while (!slowOnes) await flush();
+	await flush();
+	w.sw.sandbox.registration.installing = { state: 'installing' };
+	w.sw.regEvent('updatefound');
+	assert.ok(await settlesWithin(crawling, 100), 'the crawl ended at once');
+	assert.equal(await crawling, false);
+	assert.equal(await w.sw.caches.has(w.names.next), false);
+	assert.deepEqual(w.sw.state.messages, []);
+});
+
+test('update check: a preload answer that does not come within INSTALL_TIMEOUT_MS — index.html is fetched instead', async () => {
+	/* INSTALL_TIMEOUT_MS (20 s) runs as 20 ms here */
+	const timer = (fn, ms, ...args) => setTimeout(fn, ms === 20000 ? 20 : ms, ...args);
+	const files = { ...MINI };
+	const sw = loadSW({ files, timer });
+	await sw.install();
+	files['/desk/'] = `${MINI['/desk/']}<!-- changed -->`;
+	const before = sw.state.fetched.length;
+	const running = sw.run('checkForUpdate')(sw.run('CONFIG'), sw.run('NAMES'), new Promise(() => {}));
+	assert.ok(await settlesWithin(running, 1000), 'the check did not wait for the preload answer');
+	assert.equal(await running, true, 'the changed index.html was seen');
+	assert.ok(sw.state.fetched.slice(before).includes(`${ORIGIN}/desk/`), 'index.html fetched by the check');
+});
+
+/* ---------- Comments, computed imports, an unchanged cache name, a copy that lost files (1.4.0) ---------- */
+
+test('scanJs: an import or a descriptor field inside a comment is no file to fetch; strings, templates and regexes stay', () => {
+	const scanJs = loadSW().run('scanJs');
+	const src = `/* An app with load: () => import('./window.js') keeps its code out of the boot.
+		   import Desk from '../../core/api.js'; styles: ['old.css'] */
+		// import { gone } from './gone.js';
+		const url = 'https://cdn.example/x/';   // a '//' inside a string is no comment: import('./after-string.js') is
+		import a from './a.js'; /* import('./inline.js') */ import b from './b.js';
+		const re = /\\/\\*[^*]*/g; const cls = /[/*]/;
+		import c from './c.js';
+		const t = \`/* \${ 1 / 2 } */ \${ { x: '//' }.x }\`;
+		import d from './d.js';
+		const half = (2) / 2; const r2 = half /2/ 1;
+		import e from './e.js'; // trailing
+		export default { styles: ['real.css'], precache: ['regions/x.js'] };`;
+	const { urls } = scanJs(src, `${ORIGIN}/desk/src/modules/m/index.js`);
+	const got = [...urls].map(u => u.slice(`${ORIGIN}/desk/src/modules/m/`.length)).sort();
+	assert.deepEqual(got, ['a.js', 'b.js', 'c.js', 'd.js', 'e.js', 'real.css', 'regions/x.js']);
+});
+
+test('stripComments: sw.js and tools/build-preload.mjs use the same function; line breaks stay', async () => {
+	const sw = loadSW();
+	const { stripComments } = await import('../tools/build-preload.mjs');
+	assert.equal(sw.run('stripComments.toString()'), stripComments.toString(), 'copy the function from sw.js into the tool (or back)');
+	const strip = sw.run('stripComments');
+	assert.equal(strip('a /* x\ny */ b // c\nd'), 'a \n b \nd');
+	assert.equal(strip("s = '/* no */'; t = \"// no\";"), "s = '/* no */'; t = \"// no\";");
+	assert.equal(strip('x = a / b / c; // d'), 'x = a / b / c; ');
+	assert.equal(strip('if (ok) return /\\/\\/x/.test(y); /* z */'), 'if (ok) return /\\/\\/x/.test(y);  ');
+	assert.equal(strip('`a ${ `b ${ c /* d */ } e` } f` // g'), '`a ${ `b ${ c   } e` } f` ');
+	/* sources of this project: the same line count, and stripping twice changes nothing */
+	const lines = t => t.split('\n').length;
+	for (const file of ['sw.js', 'src/core/modules.js', 'src/modules/holidays/index.js', 'tools/build-preload.mjs', 'src/core/i18n.js']) {
+		const text = readFileSync(resolve(PROJECT, file), 'utf8');
+		assert.equal(lines(strip(text)), lines(text), file);
+		assert.equal(strip(strip(text)), strip(text), `${file}: stripping twice changes nothing`);
+	}
+});
+
+test('install against this project: no request for a file of src/ that does not exist (an import in a comment)', async () => {
+	const config = readFileSync(resolve(PROJECT, 'site/config.js'), 'utf8');
+	const sw = loadSW({ base: '/desk/', serveDisk: true, config });
+	await sw.install();
+	const missing = [...new Set(sw.state.fetched.map(u => new URL(u).pathname.slice('/desk/'.length)))]
+		.filter(p => p.startsWith('src/') && !existsSync(resolve(PROJECT, p)));
+	assert.deepEqual(missing, []);
+});
+
+test('install: the holidays region files come along (descriptor precache) — offline the calendar keeps its holidays', async () => {
+	const config = CONFIG({ modules: ['calendar', 'holidays'], apps: [], holidays: { region: 'de-by' } });
+	const sw = loadSW({ base: '/desk/', serveDisk: true, config });
+	await sw.install();
+	const cache = await sw.caches.open(sw.run('NAMES.shell'));
+	assert.ok(await cache.match(`${ORIGIN}/desk/src/modules/holidays/regions/de-by.js`), 'src/modules/holidays/regions/de-by.js precached');
+	assert.ok(await cache.match(`${ORIGIN}/desk/src/modules/holidays/core.js`), 'its imports too');
+	/* … and offline, fast start answers it from the copy */
+	sw.state.online = false;
+	const r = await sw.fetchEvent(req('/desk/src/modules/holidays/regions/de-by.js', { destination: 'script' }));
+	assert.ok(r.response?.ok);
+});
+
+/** Two workers of one installation with the same cache name: A installed and active, then B (the same
+    config with another comment, say) installs while A's pages are open. One Cache Storage for both. */
+async function sameNameSuccessor(change) {
+	const config = CONFIG({ apps: ['notes'] });
+	const files = { ...MINI, '/desk/site/config.js': config, '/desk/site/data/feed.en.json': '[]' };
+	const a = loadSW({ files, config });
+	await a.install();
+	await a.activate();
+	change(files);
+	const b = loadSW({ files, config: `${config}\n/* only a comment */` });
+	b.sandbox.caches = a.caches;
+	b.sandbox.registration.active = { state: 'activated' };
+	assert.equal(b.run('NAMES.shell'), a.run('NAMES.shell'), 'the same cache name');
+	return { a, b, files };
+}
+
+test('a new worker under the same cache name tells the open pages when its install changed their code', async () => {
+	/* site/config.js got a comment: the copy the pages run changed */
+	let { a, b } = await sameNameSuccessor(files => { files['/desk/site/config.js'] += '\n// a comment'; });
+	await b.install();
+	assert.ok(await (await a.caches.open(b.run('NAMES.shell'))).match(b.run('CHANGED()')), 'install → activate: the marker');
+	await b.activate();
+	assert.deepEqual(JSON.parse(JSON.stringify(b.state.messages)), [{ type: 'desk:update' }]);
+	assert.equal(await (await a.caches.open(b.run('NAMES.shell'))).match(b.run('CHANGED()')), undefined, 'the marker is gone');
+
+	/* the browser stopped the worker between install and activate: the marker still tells */
+	({ a, b } = await sameNameSuccessor(files => { files['/desk/src/core/api.js'] = 'export const x = 3;'; }));
+	await b.install();
+	const later = loadSW({ files: {}, config: `${CONFIG({ apps: ['notes'] })}\n/* only a comment */` });
+	later.sandbox.caches = a.caches;
+	await later.activate();
+	assert.deepEqual(JSON.parse(JSON.stringify(later.state.messages)), [{ type: 'desk:update' }], 'announced after a restart');
+});
+
+test('a new worker under the same cache name stays quiet when its install changed no code (only data, or nothing)', async () => {
+	for (const change of [() => {}, files => { files['/desk/site/data/feed.en.json'] = '[{"new":1}]'; }]) {
+		const { b } = await sameNameSuccessor(change);
+		await b.install();
+		await b.activate();
+		assert.deepEqual(b.state.messages, []);
+	}
+	/* a first install never announces, even into a cache that exists */
+	const first = loadSW({ files: MINI });
+	await first.caches.open(first.run('NAMES.shell')).then(c => c.put(`${ORIGIN}/desk/src/core/api.js`, basic('other')));
+	await first.install();
+	await first.activate();
+	assert.deepEqual(first.state.messages, []);
+});
+
+/** sw.js after its install (with a feed: a data file), then another worker deletes every cache, and a start
+    refills only what the page asked for (index.html, main.js) */
+async function wipedCopy() {
+	const files = { ...MINI, [FEED]: '[]' };
+	const sw = loadSW({ files });
+	await sw.install();
+	const names = sw.run('NAMES');
+	const complete = [...(await sw.caches.open(names.shell)).map.keys()].sort();
+	for (const name of await sw.caches.keys()) await sw.caches.delete(name);
+	sw.run('lastCheck = Date.now()');
+	await sw.fetchEvent(nav('/desk/'));
+	await sw.fetchEvent(req('/desk/src/boot/main.js', { destination: 'script' }));
+	const shell = await sw.caches.open(names.shell);
+	assert.ok(shell.map.size < complete.length - 5, 'the starts refilled only a few files');
+	return { sw, files, names, shell, complete, check: () => sw.run('checkForUpdate')(sw.run('CONFIG'), names) };
+}
+
+test('update check: a copy that lost its files is crawled again — the same code joins in place, nothing announced', async () => {
+	const { sw, names, shell, complete, check } = await wipedCopy();
+	assert.equal(await check(), false, 'no new version');
+	assert.deepEqual([...shell.map.keys()].sort(), complete, 'every file of the install is back — the feed too — and its list');
+	assert.ok(complete.includes(FEED_URL));
+	assert.deepEqual(sw.state.messages, []);
+	assert.equal(await sw.caches.has(names.next), false);
+	/* complete again: the next check only compares */
+	const before = sw.state.fetched.length;
+	assert.equal(await check(), false);
+	const requests = sw.state.fetched.length - before;
+	assert.equal(requests, [...shell.map.keys()].filter(k => !k.includes('sw.js?') && k !== FEED_URL).length, 'one request per code file: no crawl');
+});
+
+test('update check: a copy that lost files while the server changed — an update as usual (prepared, announced)', async () => {
+	/* a file the copy still has changed: the compare sees it */
+	let { sw, files, names, shell, check } = await wipedCopy();
+	files['/desk/src/boot/main.js'] = "import { x } from '../core/api.js'; import '../apps/notes/model.js';";
+	assert.equal(await check(), true);
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+	assert.doesNotMatch(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /model/, 'the running pages keep their copy until the reload');
+	assert.equal(await (await sw.caches.open(names.next)).match(FEED_URL), undefined, 'no data file in a prepared update');
+	/* the next start moves it in place, with the list of the crawl */
+	sw.run('lastCheck = Date.now()');
+	await sw.fetchEvent(nav('/desk/'));
+	assert.equal(await sw.caches.has(names.next), false);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /model/);
+	assert.equal(await sw.run('incomplete')(shell), false, 'complete again');
+
+	/* it changes on the server between the compare and the crawl: the crawl sees it (differs) */
+	({ sw, files, names, shell, check } = await wipedCopy());
+	const fetch = sw.sandbox.fetch;
+	sw.sandbox.fetch = async (input, init) => {
+		const url = (input instanceof Request ? input : new Request(input, init)).url;
+		if (!(await shell.match(url))) files['/desk/src/boot/main.js'] = 'export const later = true;';
+		return fetch(input, init);
+	};
+	assert.equal(await check(), true);
+	assert.deepEqual(JSON.parse(JSON.stringify(sw.state.messages)), [{ type: 'desk:update' }]);
+	assert.doesNotMatch(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /later/);
+	assert.equal(await (await sw.caches.open(names.next)).match(FEED_URL), undefined, 'the repair crawl fetched the feed; the prepared update leaves it out');
+	assert.ok(await (await sw.caches.open(names.next)).match(sw.run('COMPLETE()')));
+
+	/* a changed data file is no reason for an update (and a copy of it the shell has stays) */
+	({ sw, files, names, shell, check } = await wipedCopy());
+	await shell.put(FEED_URL, basic('[1]', { type: 'application/json' }));
+	files[FEED] = '[2]';
+	assert.equal(await check(), false);
+	assert.deepEqual(sw.state.messages, []);
+
+	/* only a file the copy lost changed: the copy is the server's version once it is back — nothing to announce
+	   (the open pages fetched every file they lack from the server anyway) */
+	({ sw, files, names, shell, check } = await wipedCopy());
+	files['/desk/src/apps/notes/model.js'] = 'export const changed = true;';
+	assert.equal(await check(), false);
+	assert.deepEqual(sw.state.messages, []);
+	assert.equal(await (await shell.match(`${ORIGIN}/desk/src/apps/notes/model.js`)).text(), 'export const changed = true;');
+});
+
+test('update check: one listed file gone, or no list at all — crawled again; a complete copy is not', async () => {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	const names = sw.run('NAMES');
+	const shell = await sw.caches.open(names.shell);
+	const incomplete = sw.run('incomplete');
+	const check = () => sw.run('checkForUpdate')(sw.run('CONFIG'), names);
+	assert.equal(await incomplete(shell), false);
+	await shell.delete(`${ORIGIN}/desk/src/core/lazy.js`);
+	assert.equal(await incomplete(shell), true, 'a listed file is gone');
+	assert.equal(await check(), false);
+	assert.ok(await shell.match(`${ORIGIN}/desk/src/core/lazy.js`), 'back');
+	await shell.delete(sw.run('FILES()'));
+	assert.equal(await incomplete(shell), true, 'no list');
+	/* the markers are never compared with the server (they would always differ) */
+	const all = sw.state.fetched.length;
+	assert.equal(await check(), false);
+	assert.ok(!sw.state.fetched.slice(all).some(u => u.includes('sw.js')), 'sw.js is never fetched by the check');
+	assert.equal(await incomplete(shell), false);
+	/* offline: nothing changes, the next start tries again */
+	await shell.delete(`${ORIGIN}/desk/src/core/lazy.js`);
+	sw.state.online = false;
+	assert.equal(await check(), false);
+	assert.equal(await incomplete(shell), true);
+});
+
+/** fetch of a worker in the test, with fn(url) running first (it may throw: a network failure) */
+function beforeFetch(sw, fn) {
+	const fetch = sw.sandbox.fetch;
+	sw.sandbox.fetch = async (input, init) => {
+		await fn((input instanceof Request ? input : new Request(input, init)).url);
+		return fetch(input, init);
+	};
+	return () => { sw.sandbox.fetch = fetch; };
+}
+
+/** Another worker with the same cache name as sameNameSuccessor()'s A, in the same Cache Storage */
+function sameNameWorker(a, files) {
+	const w = loadSW({ files, config: `${CONFIG({ apps: ['notes'] })}\n/* only a comment */` });
+	w.sandbox.caches = a.caches;
+	w.sandbox.registration.active = { state: 'activated' };
+	return w;
+}
+
+test('same cache name: the install deletes a \'-next\' the old worker prepared — a start during the install mixes nothing', async () => {
+	/* A prepared an update (S1); the server changed again (S2), and B — same cache name — installs. A start of
+	   A's (a new tab) while B crawls must not move A's older '-next' over B's newer copies. */
+	const { a, files } = await sameNameSuccessor(() => {});
+	const names = a.run('NAMES');
+	const set = tag => {
+		files['/desk/src/boot/main.js'] = `import { x } from '../core/api.js'; // ${tag}`;
+		files['/desk/src/core/api.js'] = `export const x = 1; const later = () => import('./lazy.js'); // ${tag}`;
+	};
+	set('S1');
+	assert.equal(await a.run('checkForUpdate')(a.run('CONFIG'), names), true, 'A prepared S1');
+	set('S2');
+	const b = sameNameWorker(a, files);
+	a.run('lastCheck = Date.now()');
+	let started = false;
+	/* main.js (level 1) is stored, api.js (level 2) is on its way: a new tab of A's starts */
+	beforeFetch(b, async url => {
+		if (!url.endsWith('/src/core/api.js') || started) return;
+		started = true;
+		await a.fetchEvent(nav('/desk/'));
+	});
+	await b.install();
+	await b.activate();
+	assert.ok(started);
+	const shell = await a.caches.open(names.shell);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /S2/);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /S2/);
+	assert.equal(await a.caches.has(names.next), false);
+	assert.deepEqual(JSON.parse(JSON.stringify(b.state.messages)), [{ type: 'desk:update' }]);
+});
+
+test('applyUpdate: a worker that a newer one supersedes never moves its \'-next\' in place', async () => {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	await sw.activate();
+	const names = sw.run('NAMES');
+	files['/desk/src/core/api.js'] = 'export const x = 2;';
+	assert.equal(await sw.run('checkForUpdate')(sw.run('CONFIG'), names), true);
+	sw.sandbox.registration.installing = { state: 'installing' };
+	assert.equal(await sw.run('applyUpdate')(names), false);
+	const shell = await sw.caches.open(names.shell);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 1/);
+});
+
+test('same cache name: an install that fails after changing a copy is still announced by the next worker', async () => {
+	const { a, files } = await sameNameSuccessor(f => { f['/desk/src/core/api.js'] = 'export const x = 3;'; });
+	const shell = await a.caches.open(a.run('NAMES.shell'));
+	const put = shell.put;
+	const b = sameNameWorker(a, files);
+	/* the install changed api.js, then fails before its end (here: the list cannot be stored) */
+	shell.put = async function (k, res) {
+		if (FakeCache.key(k) === b.run('FILES()')) throw new Error('QuotaExceededError');
+		return put.call(this, k, res);
+	};
+	await assert.rejects(b.install());
+	shell.put = put;
+	assert.equal(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), 'export const x = 3;', 'the copy already changed');
+	/* the browser installs the same script again: nothing differs any more, yet the open pages run old code */
+	const c = sameNameWorker(a, files);
+	await c.install();
+	await c.activate();
+	assert.deepEqual(JSON.parse(JSON.stringify(c.state.messages)), [{ type: 'desk:update' }]);
+});
+
+test('install: a crawl with network failures writes no list — the first check fetches the rest', async () => {
+	const sw = loadSW({ files: { ...MINI } });
+	const restore = beforeFetch(sw, url => {
+		if (url.endsWith('/src/core/lazy.js')) throw new TypeError('Failed to fetch');
+	});
+	await sw.install();
+	restore();
+	const names = sw.run('NAMES');
+	const shell = await sw.caches.open(names.shell);
+	assert.equal(await shell.match(sw.run('FILES()')), undefined, 'no list of an incomplete crawl');
+	assert.equal(await sw.run('incomplete')(shell), true);
+	assert.equal(await sw.run('checkForUpdate')(sw.run('CONFIG'), names), false);
+	assert.ok(await shell.match(`${ORIGIN}/desk/src/core/lazy.js`), 'fetched by the check');
+	assert.equal(await sw.run('incomplete')(shell), false);
+	assert.deepEqual(sw.state.messages, []);
+
+	/* a replacing install (same cache name) with a failure drops the older list as well */
+	const { b } = await sameNameSuccessor(() => {});
+	beforeFetch(b, url => {
+		if (url.endsWith('/src/apps/notes/model.js')) throw new TypeError('Failed to fetch');
+	});
+	await b.install();
+	assert.equal(await (await b.caches.open(b.run('NAMES.shell'))).match(b.run('FILES()')), undefined);
+});
+
+test('install and update crawl: a file the server marks no-store is no network failure — the copy is complete without it', async () => {
+	const files = { ...MINI, '/desk/src/core/lazy.js': { body: '', headers: { 'Cache-Control': 'no-store' } } };
+	const sw = loadSW({ files });
+	await sw.install();
+	const names = sw.run('NAMES');
+	const shell = await sw.caches.open(names.shell);
+	assert.ok(await shell.match(sw.run('FILES()')), 'the list is written');
+	assert.equal(await shell.match(`${ORIGIN}/desk/src/core/lazy.js`), undefined);
+	assert.equal(await sw.run('incomplete')(shell), false);
+	/* an update crawl meets it as well: the update is still kept */
+	files['/desk/src/core/api.js'] = "export const x = 2; const later = () => import('./lazy.js');";
+	assert.equal(await sw.run('checkForUpdate')(sw.run('CONFIG'), names), true);
+	assert.ok(await (await sw.caches.open(names.next)).match(sw.run('COMPLETE()')));
+});
+
+test('install: a server error or rate limit (5xx, 408, 429) counts like a network failure — no list, the next check fills in; a 404 does not', async () => {
+	for (const status of [500, 502, 503, 504, 408, 429]) {
+		const files = { ...MINI, '/desk/src/core/lazy.js': { body: 'busy', status } };
+		const sw = loadSW({ files });
+		await sw.install();
+		const names = sw.run('NAMES');
+		const shell = await sw.caches.open(names.shell);
+		assert.equal(await shell.match(sw.run('FILES()')), undefined, `${status}: no list`);
+		assert.equal(await sw.run('incomplete')(shell), true, `${status}: incomplete`);
+		/* the server answers again: the check repairs in place, nothing announced */
+		files['/desk/src/core/lazy.js'] = '';
+		assert.equal(await sw.run('checkForUpdate')(sw.run('CONFIG'), names), false);
+		assert.ok(await shell.match(`${ORIGIN}/desk/src/core/lazy.js`), `${status}: fetched by the check`);
+		assert.equal(await sw.run('incomplete')(shell), false);
+		assert.deepEqual(sw.state.messages, []);
+	}
+	/* a 404 is a final answer: the copy is complete without that file */
+	const sw = loadSW({ files: { ...MINI, '/desk/src/core/lazy.js': { body: 'gone', status: 404 } } });
+	await sw.install();
+	const shell = await sw.caches.open(sw.run('NAMES.shell'));
+	assert.ok(await shell.match(sw.run('FILES()')), '404: the list is written');
+	assert.equal(await sw.run('incomplete')(shell), false);
+});
+
+test('update check: a server error on a changed file during the crawl keeps no \'-next\' — a start never mixes old and new code', async () => {
+	const files = { ...MINI };
+	const sw = loadSW({ files });
+	await sw.install();
+	await sw.activate();
+	const names = sw.run('NAMES');
+	const check = () => sw.run('checkForUpdate')(sw.run('CONFIG'), names);
+	files['/desk/src/boot/main.js'] = "import { x } from '../core/api.js'; // v2";
+	files['/desk/src/core/api.js'] = "export const x = 2; const later = () => import('./lazy.js');";
+	/* the compare sees both changes; the crawl into '-next' meets a 503 for api.js */
+	let crawling = false;
+	const open = sw.caches.open.bind(sw.caches);
+	sw.caches.open = async name => {
+		if (name === names.next) crawling = true;
+		return open(name);
+	};
+	const restore = beforeFetch(sw, url => {
+		if (crawling && url.endsWith('/src/core/api.js')) files['/desk/src/core/api.js'] = { body: 'busy', status: 503 };
+	});
+	assert.equal(await check(), false);
+	assert.equal(await sw.caches.has(names.next), false, 'no incomplete update is kept');
+	assert.deepEqual(sw.state.messages, []);
+	restore();
+	sw.caches.open = open;
+	sw.run('lastCheck = Date.now()');
+	await sw.fetchEvent(nav('/desk/'));
+	const shell = await sw.caches.open(names.shell);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /^import \{ x \} from '..\/core\/api.js';$/, 'old main.js');
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 1/, 'old api.js');
+	/* the server answers again: the next check prepares the whole update */
+	files['/desk/src/core/api.js'] = "export const x = 2; const later = () => import('./lazy.js');";
+	assert.equal(await check(), true);
+	sw.run('lastCheck = Date.now()');
+	await sw.fetchEvent(nav('/desk/'));
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/boot/main.js`)).text(), /v2/);
+	assert.match(await (await shell.match(`${ORIGIN}/desk/src/core/api.js`)).text(), /x = 2/);
+});
+
+test('stripComments: a regex after \'}\' starts a statement; one after \')\' (a known limit) never swallows later lines', () => {
+	const sw = loadSW();
+	const strip = sw.run('stripComments');
+	const scanJs = sw.run('scanJs');
+	assert.equal(strip("function f() {}\n/[/*]/.test(s);\nimport('./z.js');\n"), "function f() {}\n/[/*]/.test(s);\nimport('./z.js');\n");
+	/* ')' then '/' is read as division: a '/*' glued to it whose line has no '*' + '/' starts no comment */
+	assert.equal(strip("if (ok) /[/*]/.test(s);\nimport('./z.js');\n"), "if (ok) /[/*]/.test(s);\nimport('./z.js');\n");
+	const { urls } = scanJs("if (ok) /[/*]/.test(s);\nimport('./z.js');\nfunction g() {}\n/[/*]/.test(t);\nimport('./y.js');\n", `${ORIGIN}/desk/src/m.js`);
+	assert.deepEqual([...urls].sort(), [`${ORIGIN}/desk/src/y.js`, `${ORIGIN}/desk/src/z.js`]);
+	/* a real block comment after a division still is one — on one line or over several */
+	assert.equal(strip('x = a / b; /* one */ y'), 'x = a / b;   y');
+	assert.equal(strip('x = a / b /* two\nlines */ + c'), 'x = a / b \n + c');
+	assert.equal(strip('x = a / b;/* two\nlines */ + c'), 'x = a / b;\n + c');
 });

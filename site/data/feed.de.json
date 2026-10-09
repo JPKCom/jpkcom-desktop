@@ -6,6 +6,15 @@
 	"authors": [{ "name": "Jean Pierre Kolb", "url": "https://www.jpkc.com/" }],
 	"items": [
 		{
+			"id": "jpkcom-desktop-1.4.0",
+			"url": "../content/de/changelog.html?release=1.4.0",
+			"title": "JPKCom Desktop 1.4.0 ist erschienen",
+			"summary": "Updates der Offline-Kopie halten keine neue Version mehr auf, die Feiertage funktionieren offline, und die Offline-Kopie repariert sich selbst. Dazu behalten zwei Desktops auf einer Website, deren Namen sich überschneiden, ihre Einstellungen getrennt.",
+			"content_text": "JPKCom Desktop 1.4.0 behebt Fehler im Service Worker und beim Speichern mehrerer Desktops auf einer Website. Die Einzelheiten stehen in den Versionshinweisen.",
+			"date_published": "2026-10-09T08:45:00+02:00",
+			"tags": ["release"]
+		},
+		{
 			"id": "jpkcom-desktop-1.3.0",
 			"url": "../content/de/changelog.html?release=1.3.0",
 			"title": "JPKCom Desktop 1.3.0 ist erschienen",

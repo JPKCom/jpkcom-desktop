@@ -28,6 +28,10 @@ const groups = new Map();
 const trashTypes = new Map();
 const brokenPredicates = new Set();   // groups whose visible() threw (reported once)
 
+/* Every registered key is a name of this desktop: the store tells its keys from those of another
+   installation whose namespace starts with this one (store.js ownKeys(), §14) */
+store.claim(name => keys.has(name));
+
 /** Declares a stored key (name without the namespace prefix). */
 export function registerKey(name, def = {}, module = null) {
 	if (!NAME.test(name)) {

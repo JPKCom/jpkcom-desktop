@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { easter, cleanRegion, holidaysOf, byDay, dayKey, nthWeekday } from '../src/modules/holidays/core.js';
 import deBy from '../src/modules/holidays/regions/de-by.js';
+import holidays from '../src/modules/holidays/index.js';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -73,4 +75,12 @@ test('cleanRegion: invalid rules are skipped and reported, leap days only in lea
 test('no region, no holidays', () => {
 	assert.deepEqual(holidaysOf(null, 2026), []);
 	assert.deepEqual(holidaysOf(cleanRegion(deBy), 2026.5), []);
+});
+
+test('every region file is in the descriptor precache list (the import is computed; the offline copy reads the list)', () => {
+	const dir = new URL('../src/modules/holidays/', import.meta.url);
+	const shipped = readdirSync(new URL('regions/', dir)).filter(f => f.endsWith('.js')).sort();
+	assert.deepEqual([...holidays.precache].sort(), shipped.map(f => `regions/${f}`));
+	const listed = readFileSync(new URL('index.js', dir), 'utf8').match(/const REGION_FILES = \[([^\]]*)\]/)[1];
+	assert.deepEqual([...listed.matchAll(/'([^']+)'/g)].map(m => `${m[1]}.js`).sort(), shipped, 'REGION_FILES names the same files');
 });

@@ -57,7 +57,7 @@ lang theme accent credits echo exit`. Hidden: `nslookup` (= `host`) and the eggs
 | `neofetch` | `config.brand.asciiLogo` (≤ 16 lines × 40 chars) or the JPK monogram; user@host, OS (`brand.name` + version), kernel, shell, uptime, resolution, language, app and per-collection counts, windows, theme (accent + mode from the settings service), **credit** "JPKCom Desktop by <config.author.name>" (unless `config.credit === false`), the configured tints as swatches. |
 | `uname [-a]`, `whoami`, `date` | host = `config.brand.host` or `location.hostname`; user = vault user or `config.terminal.user`. |
 | `browser [section …]` | as the original (agent, system, screen, hardware, network, locale, prefs, privacy, page, features); labels from i18n; ✓/✗ cells also carry a visually hidden yes/no. |
-| `df`, `du [-s] [word …]` | own keys = `Desk.store.key('')` (config.namespace); the original's "tools and DB" bucket is now "other". |
+| `df`, `du [-s] [word …]` | own keys = `Desk.store.names()` (config.namespace, without the keys of another installation whose namespace starts with this one, ARCHITECTURE §14); the original's "tools and DB" bucket is now "other". |
 | `history [-c]`, `clear`, `echo`, `exit` | `history -c` is new (the menu item did it before). |
 | `lang [code\|name]`, `theme [dark\|light\|auto]`, `accent [id]` | new (blueprint §9): `i18n.setLang()` (`lang` lists each language under its own name and takes the code, that name or the name in the current language — `lang englisch`), `settings.set('theme' \| 'accent', v)`; only offered while possible (2+ languages / settings service). |
 | `credits` | product, author (link `config.author.url`), source repository, licence, Tabler Icons. |

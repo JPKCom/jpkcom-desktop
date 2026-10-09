@@ -1,9 +1,10 @@
 /* JPKCom Desktop — terminal: storage use (df, du) — © Jean Pierre Kolb — MIT License
 
    df: local storage, session storage and the origin's quota in df -h's
-   layout, split into this desktop's keys (config.namespace prefix) and other
-   keys of the same origin. du: every local storage key by size. Sizes are
-   characters of key + value (1K = 1024 characters) — what the browsers limit. */
+   layout, split into this desktop's keys (store.names(): the config.namespace
+   prefix, without another installation's keys, §14) and other keys of the
+   same origin. du: every local storage key by size. Sizes are characters of
+   key + value (1K = 1024 characters) — what the browsers limit. */
 
 import Desk from '../../../core/api.js';
 import { fold, human as humanRaw } from '../lib.js';
@@ -82,9 +83,10 @@ async function df(args, io) {
 	for (const l of lines) io.say(l, 'term-pre');
 	io.blank();
 	if (loc) {
-		const prefix = Desk.store.key('');
-		const own = loc.filter(x => x.key.startsWith(prefix));
-		const other = loc.filter(x => !x.key.startsWith(prefix));
+		/* This desktop's keys, not those of an installation whose namespace starts with this one (§14) */
+		const mine = new Set(Desk.store.names().map(name => Desk.store.key(name)));
+		const own = loc.filter(x => mine.has(x.key));
+		const other = loc.filter(x => !mine.has(x.key));
 		const params = {
 			size: human(total(own)), keys: t('dfKeys', { n: own.length }),
 			otherSize: human(total(other)), otherKeys: t('dfKeys', { n: other.length })

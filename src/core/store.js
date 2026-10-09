@@ -1,9 +1,12 @@
 /* JPKCom Desktop — namespaced localStorage / sessionStorage with validation helpers — © Jean Pierre Kolb — MIT License
 
    Every key is '<namespace>-<name>' (config.namespace, default 'jpkdesk'),
-   so several deployments can share one origin. Storage may be unavailable
-   (private mode, blocked cookies, full quota): reads then return null and
-   writes return false — nothing ever throws.
+   so several deployments can share one origin. A namespace may itself be
+   another one plus '-…' ('jpkdesk-next' next to 'jpkdesk'), so the prefix
+   alone does not decide which keys are this desktop's: ownKeys() does
+   (names(), usage(), owns() and the 'storage' event use it; §14 "Whose
+   keys"). Storage may be unavailable (private mode, blocked cookies, full
+   quota): reads then return null and writes return false — nothing ever throws.
 
    Everything read back is untrusted: getJson() takes a validate function, and
    V holds small pure validators to build one. A validator returns the cleaned
@@ -47,7 +50,7 @@ export const V = Object.freeze({
 	path: (v, max = 500) => (typeof v === 'string' && v.length <= max && /^\/(?!\/)/.test(v) ? v : null)
 });
 
-/* ---------- Store ---------- */
+/* ---------- Which keys are this desktop's ---------- */
 
 function safe(fn, fallback) {
 	try {
@@ -56,6 +59,44 @@ function safe(fn, fallback) {
 		return fallback;
 	}
 }
+
+/* A namespace (config.namespace; the same rule as theme.js and the boot preload) */
+const NS = /^[a-z][a-z0-9-]{0,23}$/;
+
+/**
+ * The keys of `keys` (all keys of a Storage) that belong to namespace ns, in their order (pure;
+ * exported for tests). known(name) answers whether this desktop declares a name (without prefix).
+ *
+ * A key '<ns>-<name>' is this desktop's when
+ *   1. name is declared here (known), or
+ *   2. no other installation shows in the keys whose namespace is '<ns>-<p>' with name = '<p>-<rest>'.
+ * An installation '<ns>-<p>' shows when a key '<ns>-<p>-<d>' exists whose d is declared here while the
+ * whole name '<p>-<d>' is not, and '<ns>-<p>' is a valid namespace. Every undeclared name under such
+ * a '<p>-' is left to it (it may have modules this desktop lacks); other undeclared names are this
+ * desktop's (leftovers of a module no longer there). When in doubt a key is kept: a leftover named
+ * '<x>-<declared name>' makes '<ns>-<x>' look like another installation (§14 "Whose keys", limits).
+ */
+export function ownKeys(keys, ns, known = () => false) {
+	const prefix = `${ns}-`;
+	const isKnown = name => safe(() => known(name) === true, false);
+	const names = [];
+	for (const k of keys) if (typeof k === 'string' && k.startsWith(prefix)) names.push(k.slice(prefix.length));
+	const declared = new Set(names.filter(isKnown));
+	/* '<p>' of every other installation whose keys show here */
+	const others = new Set();
+	for (const name of names) {
+		if (declared.has(name)) continue;
+		for (let i = 1; i < name.length - 1; i++) {
+			if (name[i] !== '-') continue;
+			const p = name.slice(0, i);
+			if (!others.has(p) && NS.test(prefix + p) && isKnown(name.slice(i + 1))) others.add(p);
+		}
+	}
+	const elsewhere = name => [...others].some(p => name.startsWith(`${p}-`));
+	return names.filter(name => declared.has(name) || !elsewhere(name)).map(name => prefix + name);
+}
+
+/* ---------- Store ---------- */
 
 /**
  * Creates a store over Storage-like objects (exported for tests).
@@ -67,6 +108,14 @@ export function createStore({ ns, local, session, notify = () => {} }) {
 	const area = a => safe(() => (typeof a === 'function' ? a() : a), null);
 	const L = () => area(local);
 	const S = () => area(session);
+	/* Tests of the names this desktop declares (claim()); a throwing one answers no */
+	const claims = new Set();
+	const known = name => [...claims].some(fn => safe(() => fn(name) === true, false));
+	const allKeys = s => {
+		const out = [];
+		for (let i = 0; i < (s?.length ?? 0); i++) out.push(s.key(i));
+		return out;
+	};
 
 	const api = {
 		prefix,
@@ -131,30 +180,43 @@ export function createStore({ ns, local, session, notify = () => {} }) {
 
 		setFlag: (name, on) => api.set(name, on ? 'on' : 'off'),
 
-		/** Names (without prefix) of every key this desktop owns */
+		/**
+		 * Declares names of this desktop: test(name) → true, or one name. The storage registry claims
+		 * every registered key, consent the 'consent-<id>' keys of its registered services. Returns a
+		 * function that withdraws it.
+		 */
+		claim(test) {
+			const fn = typeof test === 'string' ? name => name === test : test;
+			if (typeof fn !== 'function') return () => false;
+			claims.add(fn);
+			return () => claims.delete(fn);
+		},
+
+		/** Whether a full storage key is this desktop's (ownKeys(); a key just removed counts as well) */
+		owns(key) {
+			if (typeof key !== 'string' || !key.startsWith(prefix)) return false;
+			const keys = safe(() => allKeys(L()), []);
+			if (!keys.includes(key)) keys.push(key);
+			return ownKeys(keys, ns, known).includes(key);
+		},
+
+		/** Names (without prefix) of every key this desktop owns (ownKeys(): not another installation's) */
 		names() {
-			return safe(() => {
-				const s = L();
-				const out = [];
-				for (let i = 0; i < s.length; i++) {
-					const k = s.key(i);
-					if (k?.startsWith(prefix)) out.push(k.slice(prefix.length));
-				}
-				return out;
-			}, []);
+			return safe(() => ownKeys(allKeys(L()), ns, known).map(k => k.slice(prefix.length)), []);
 		},
 
 		/** Approximate bytes used (UTF-16: 2 bytes per character): { own, all } */
 		usage() {
 			return safe(() => {
 				const s = L();
+				const keys = allKeys(s);
+				const mine = new Set(ownKeys(keys, ns, known));
 				let own = 0;
 				let all = 0;
-				for (let i = 0; i < s.length; i++) {
-					const k = s.key(i);
+				for (const k of keys) {
 					const n = (k.length + (s.getItem(k) || '').length) * 2;
 					all += n;
-					if (k.startsWith(prefix)) own += n;
+					if (mine.has(k)) own += n;
 				}
 				return { own, all };
 			}, { own: 0, all: 0 });
@@ -182,6 +244,6 @@ export const store = createStore({
    (notes, tasks) listen to 'store:change' with external: true */
 if (typeof window !== 'undefined') {
 	window.addEventListener('storage', e => {
-		if (e.key?.startsWith(store.prefix)) emit('store:change', { name: e.key.slice(store.prefix.length), external: true });
+		if (store.owns(e.key)) emit('store:change', { name: e.key.slice(store.prefix.length), external: true });
 	});
 }

@@ -14,8 +14,8 @@
    A module that fails at any step is reported and skipped; the rest load.
    A descriptor with `locales` (a folder inside its own folder) has its namespaces read from
    there (i18n addSource), unless the core or another module already uses the namespace.
-   An app definition with `load: () => import('./window.js')` keeps its window code out of the
-   boot: the hooks (the module's default export) and the descriptor's `windowStyles` are loaded
+   An app definition with `load` (a function that imports the app's window file) keeps its window
+   code out of the boot: the hooks (the module's default export) and the descriptor's `windowStyles` are loaded
    when the first window of the app opens (registry loadImpl, wm open → win.ready).
    When setup() throws, what the loader registered for it is withdrawn (apps,
    storage keys, reset groups, trash types, consent services, contributions,
@@ -42,8 +42,9 @@ const KINDS = new Set(['core', 'module', 'app']);
    render: panels (kind 'native'); acceptUrl(app, path, from) is the only hook that gets the app, not the window */
 export const HOOKS = ['mount', 'render', 'focus', 'relabel', 'menu', 'unmount', 'reopen', 'serialize', 'restore',
 	'locationOf', 'acceptUrl', 'reload', 'popOut', 'canPopOut', 'canLink', 'beforeClose'];
-/* Descriptor fields the loader handles itself; any other array/object field is a contribution */
-const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'locales', 'styles', 'windowStyles', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
+/* Descriptor fields the loader handles itself (precache: read by the service worker only); any other
+   array/object field is a contribution */
+const RESERVED = new Set(['id', 'kind', 'requires', 'i18n', 'locales', 'styles', 'windowStyles', 'precache', 'app', 'apps', 'storage', 'resetGroups', 'trash', 'consent',
 	'setup', 'stub', 'version', 'description', 'configKey', 'validateConfig', ...HOOKS]);
 
 const loaded = new Map();       // id → descriptor (frozen view)

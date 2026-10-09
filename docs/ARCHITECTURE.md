@@ -322,7 +322,7 @@ not offered). Invalid values → `console.warn` + default.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `namespace` | `'jpkdesk'` | prefix of storage keys, IndexedDB/Cache names, DOM events |
+| `namespace` | `'jpkdesk'` | prefix of storage keys, IndexedDB/Cache names, DOM events — one per desktop on an origin; best when neither is the other plus `-…` (`desk-a`, `desk-b`). A namespace that is (`jpkdesk-next` or `jpkdesk-consent` next to `jpkdesk`) works within the limits of §14 "Whose keys", which decides whose storage keys are whose; cache names and events have `:` after the namespace |
 | `debug` | `false` | extra console output (missing i18n keys, stub modules) |
 | `brand` | `{ name: 'JPKCom Desktop', shortName: 'JPK Desktop', menuLabel: 'JPKCom', glyph: 'jpk', logo: 'jpkcom', asciiLogo: null, host: null, themeColor: '#1c2935' }` | product naming, brand glyph/logo |
 | `author` | `{ name: 'Jean Pierre Kolb', brand: 'JPKCom', url: 'https://www.jpkc.com/', links: [github, mastodon] }` | credit; each link → app `author-<id>` (kind `link`) |
@@ -359,7 +359,7 @@ not offered). Invalid values → `console.warn` + default.
 | `trash` | `{ days: 30, max: 200 }` | |
 | `backup` | `{ format: 'jpkcom-desktop-backup', filePrefix: 'jpkcom-desktop', maxBytes: 5242880 }` | |
 | `vault` | `{ salt: '', iterations: 600000, dir: 'site/vault/', collection: 'bookmarks', maxBytes: 1048576 }` | `collection`: the collection (`site/apps.js`) unlocked bookmarks join; `maxBytes`: largest sealed file accepted |
-| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000, fastStart: true, legacyCaches: [] }` — `fastStart`: the service worker answers the desktop's code (§14) from the offline copy and looks for a new version in the background (the open pages get `{ type: 'desk:update' }`, the `install` service offers a reload); data files (feeds, fortunes, `site/data/`, `site/content/`, §14) are always network first and never count as a new version; `false` = network first for everything. `legacyCaches`: cache names of a service worker the site used **before** this desktop — exact names, or a prefix ending in `*` (at least 4 characters before it), at most 32; deleted on activation, again shortly after the hand-over, at every start and by the `offline` reset group (§14). A name of this project's cache scheme (any folder, any namespace) is never deleted this way | P12 |
+| `pwa`, `offline` | `{ enabled: true }`, `{ maxPages: 80, timeoutMs: 4000, fastStart: true, legacyCaches: [] }` — `fastStart`: the service worker answers the desktop's code (§14) from the offline copy and looks for a new version in the background (the open pages get `{ type: 'desk:update' }`, the `install` service offers a reload); data files (feeds, fortunes, `site/data/`, `site/content/`, §14) are always network first and never count as a new version; `false` = network first for everything. `legacyCaches`: cache names of a service worker the site used **before** this desktop — exact names, or a prefix ending in `*` (at least 4 characters before it), at most 32; deleted on activation, again shortly after the hand-over, at every start and by the `offline` reset group (§14) — never by a worker that a newer one supersedes (after a rollback they may be in use again). A name of this project's cache scheme (any folder, any namespace) is never deleted this way | P12 |
 
 The Fortune descriptor's `validateConfig()` cleans `fortune.local` and `fortune.texts` like its other keys
 (except `dir`); warnings are prefixed by the loader with `[desktop] config.fortune: `:
@@ -555,6 +555,8 @@ export default {
 	styles: ['notes.css'],             // relative to this file; injected as <link>, awaited before setup()
 	windowStyles: ['window.css'],      // relative to this file; loaded with the first window of one of its apps or of a
 	                                   //   window kind it defined with load() (awaited before mount) — CSS only windows use
+	precache: ['regions/de-by.js'],    // relative to this file: code it imports with a computed specifier
+	                                   //   (import(`./regions/${id}.js`)) — read by the service worker only (§14)
 
 	/* Apps: one (app + top-level hooks) or several (apps: [...], hooks inside each) */
 	app: { icon: 'ti-notes', tint: 'orange', size: [780, 520], fixed: false, name: '@notes.appName',
@@ -640,6 +642,15 @@ to the implementation (`registry.impl(app)`, `win.impl`), every other field is m
   (that would put it back into the boot). It reaches an open window through `wm.get(id)?.state.<x>`
   (set by `mount()`), hands data over through `wm.open(id, opts)` (`mount`/`reopen` read `opts`), or waits
   for `await win.ready`. The window file may import the descriptor file (it is loaded already).
+
+**Computed imports** (`precache`). The service worker builds the offline copy by reading the source
+(§14): it follows imports whose specifier is a string literal (`import('./x.js')`, never one in a comment)
+and the descriptor's `styles`, `windowStyles` and `precache`. A file the module imports with a computed
+specifier — the holidays module loads `` import(`./regions/${id}.js`) `` — is in no literal, so the
+descriptor lists it in `precache: [...]` (string literals, relative to the descriptor file, `.js`/`.mjs`,
+`.css` or `.json`; every file the computed import can reach). Without it the file is not in the offline copy
+and fails offline. The loader ignores the field (no contribution point); `tools/build-preload.mjs` does
+not hint it (it is not part of the static boot graph).
 
 `locales` is checked when the module is imported: only a relative path that ends in `/` and stays inside
 the module's own folder (no scheme, no leading `/`, no `\` or control character, no `..` out of the
@@ -727,7 +738,7 @@ Loader behaviour:
 `import Desk from 'src/core/api.js'` (frozen) — also `window.JPKDesk`.
 
 ```ts
-Desk.version: string                          // '1.3.0'
+Desk.version: string                          // '1.4.0'
 Desk.project: { name, author, url, repo, license }
 Desk.config                                   // deep-frozen effective config
 
@@ -1105,7 +1116,10 @@ store.getJson(name, validate?, fallback = null)     // validate(v) → cleaned |
 store.setJson(name, value) → boolean
 store.choice(name, allowed[], fallback)  store.flag(name, fallback) → boolean   store.setFlag(name, on)
 store.names() → own names               store.usage() → { own, all } (bytes, UTF-16)
+store.owns(key) → boolean               // a full localStorage key is this desktop's (see "Whose keys")
+store.claim(name | test) → undo         // declares names of this desktop (registry and consent do; see below)
 store.sget/sset/sremove(name)           // sessionStorage, same prefix
+ownKeys(keys, ns, known) → keys         // (store.js, pure) the rule below — names/usage/owns use it
 V.isObj V.str(v, max) V.int(v, min, max) V.num V.bool V.oneOf(v, list) V.hex V.id V.list(v, fn, max) V.path(v, max)
 
 storage.registerKey(name, { type, backup, reset, validate, count, label }, module)
@@ -1135,6 +1149,47 @@ Backup document: `{ format: config.backup.format, version, created: ISO, data: {
 Device-bound keys (`session`, feed state, cached weather) declare `backup: false` and reset group
 `session`. Core declares key `lang` (group `settings`) and the groups `settings` (order 10, also
 revokes all consents) and `session` (order 90). Consent keys: `consent-<id>` (group `settings`).
+
+**Whose keys.** A namespace may itself be another one plus `-…` (`jpkdesk-next` next to `jpkdesk` on one
+origin, §6), so `<ns>-` alone does not tell this desktop's keys from the other installation's
+(`jpkdesk-next-lang` starts with `jpkdesk-`). The rule (`ownKeys()` in `store.js`), for a localStorage key
+`<ns>-<name>`:
+
+1. **A declared name is this desktop's.** Declared = claimed through `store.claim()`: the storage registry
+   claims every registered key (`storage` in the descriptors, core `lang`), consent claims `consent-<id>`
+   of every service registered here while the key holds `'on'` (what `consent.set()` stores; a key just
+   removed counts too) — not every valid id, so an installation named `<ns>-consent` (`jpkdesk-consent-lang`,
+   `-notes` …) shows like any other. A module with keys outside `storage` (a family of names) claims them
+   itself.
+2. **Another installation shows** as `<ns>-<p>` when a key `<ns>-<p>-<d>` exists whose `d` is declared here
+   while the whole name `<p>-<d>` is not, and `<ns>-<p>` is a valid namespace (`[a-z][a-z0-9-]`, at most 24
+   characters). Every name `<p>-…` that is not declared here is then that installation's.
+3. **Everything else is this desktop's** — also undeclared keys (a module that is no longer part of the
+   site, a consent of a service no longer there), so "Reset everything" still clears them — unless such a
+   leftover looks like a key of another installation (limit 4).
+
+`store.names()` (and with it Settings → Reset with everything picked and `consent.revokeAll()`, which
+removes only the names among them that are consent keys: `consent-<valid id>` holding `'on'`),
+`store.usage().own`, `store.owns(key)` (the `storage` event that becomes `'store:change'` with
+`external: true`) and the terminal's `df` follow this rule; backups list registered keys only
+(`snapshot()`, `inspect()`), so they never carried the other installation's keys, and a file of the
+original with full keys loses `<ns>-` only where the rest is a registered name (`jpkdesk-next-notes` stays
+unknown, P3). Limits:
+
+1. A name declared here is this desktop's even when the other installation wrote it (`<ns>-<p>-<d>` = a
+   declared `<p>-<d>`; for consent: `<ns>-consent` stored `'on'` under a name that is the id of a service
+   registered here).
+2. An installation that has written only names this desktop does not declare cannot be told apart: its
+   keys count as undeclared leftovers here (rule 3), so "Reset everything" removes them. A partial reset
+   does not: groups remove registered names only, `revokeAll()` consent keys only.
+3. Desktops before 1.4.0 still use the bare prefix.
+4. A leftover of this desktop named `<x>-<declared name>` (a module no longer on the site that stored
+   `reader-lang`, `mymod-theme`) makes `<ns>-<x>` look like another installation; it and every other
+   `<x>-…` leftover (`reader-pos`) are then kept by "Reset everything" and left out of the storage figures.
+   The same holds for a leftover consent `consent-<id>` once `<ns>-consent` shows. The rule errs this way
+   on purpose: a key is kept rather than another installation's deleted.
+
+Namespaces of which neither is the other plus `-…` (`desk-a`, `desk-b`) avoid all of it.
 
 **Key ownership** (localStorage, `<namespace>-<name>`; declared in the descriptors' `storage`, so backup
 and reset follow them without a hand-kept list — the original's key names are kept):
@@ -1173,7 +1228,13 @@ Other storage:
   installation path, `<hash>` over the precache-relevant config and `offline.fastStart`), `<namespace>:<base>:<version>-<hash>-next`
   (a prepared update, `config.offline.fastStart`: complete only with its marker entry `sw.js?complete`; the
   next start of the desktop moves it into the shell cache) and `<namespace>:<base>:pages` (Reader
-  pages). Activation and the `offline` reset delete **every cache of this naming scheme for their own
+  pages). Besides files, the shell cache holds two entries of the worker's own under its URL with a
+  query (`sw.js` itself is never cached, so they name no file): `sw.js?files`, the JSON list of the code
+  files of the last complete crawl (written by an install whose crawl had no network failure — a transient
+  HTTP answer, 5xx/408/429, counts as one; after one
+  there is no list, an older one is deleted —, and by the start that moves a prepared update in place from
+  the list in its `sw.js?complete`), and `sw.js?changed`, from install to activate only (see
+  *Same cache name* below). The update check never compares them with the server. Activation and the `offline` reset delete **every cache of this naming scheme for their own
   base**, whatever the namespace; other installations and other apps of the origin keep theirs. Answers
   with `Cache-Control: no-store` or `private` are never stored; `config.vault.dir` is never cached.
   **Code and data.** The shell cache holds the desktop's **code** — `index.html`, the manifest,
@@ -1196,19 +1257,69 @@ Other storage:
   a module belongs under `site/data/` (e.g. `site/data/<module id>/`) and is fetched (`Desk.net.getJson`),
   never imported; code never lives under `site/data/` or `site/content/` except inside a module's or app's
   own folder (a generated bundle such as Pagefind's is code as well — keep it outside `site/`).
+  **Same cache name.** A new `sw.js` or `site/config.js` that leaves the version and the precache-relevant
+  config alone (a comment, `offline.timeoutMs`, `offline.legacyCaches`) installs a worker with the same
+  shell cache name: its install crawls into the cache the open pages read — for the whole crawl, so pages
+  that load a file lazily meanwhile may already get a new one, and the announcement is what brings them
+  back to one version. When this worker replaces an active one and the crawl changes a copy of code (not a
+  data file, not a runtime copy) it writes `sw.js?changed` **before** it replaces the first such copy;
+  activation deletes the marker and posts `{ type: 'desk:update' }` to the pages it claims — the same
+  message a new cache name sends. (A marker, not a variable: the browser may stop the worker between
+  install and activate, or during the install — the retry then finds the bytes unchanged, the marker still
+  tells.) Every install first deletes `-next` of its cache name: its crawl is newer than an update the
+  previous worker prepared, and a start in the meantime must not move older copies over newer ones; a
+  worker that a newer one supersedes never moves its `-next` in place either.
+  **A copy that lost files** (fast start): when the update check finds no change but a file listed in
+  `sw.js?files` is missing from the shell cache, or the list itself is (another worker of the origin
+  deleted the cache, and the starts since refilled only what the pages asked for), it crawls again into
+  `-next` — unless a prepared update is waiting, which brings a complete copy itself. This crawl, unlike an
+  update's, also fetches the data files (the install's copy has them for a first visit offline). Is no copy
+  of code in the shell cache different from the crawled one, the server still has the code the pages run:
+  the files the shell lacks (or has only as runtime copies) join it in place — a data file only when it is
+  missing —, `sw.js?files` is renewed, `-next` deleted, nothing announced. Else it is an update: the data
+  files leave `-next`, then marker, `desk:update`, moved in place at the next start.
+  A crawl with network failures keeps nothing, as for an update; the next start tries again. A transient
+  HTTP answer — a server error (5xx), `408` or `429` (a rate limit) — counts as one: an update is never
+  marked complete with the old copy of a changed file, and an install that met one writes no `sw.js?files`.
+  (A final answer — `404`, `410`, `403` … — or one the worker may not keep — `no-store`, `private` — is no
+  network failure: the copy is complete without that file.)
+  **Comments are no references**: the crawl reads JavaScript without its comments (`stripComments()` in
+  `sw.js`; strings, template literals and regular expression literals stay, so a `'//'` in a string
+  starts no comment) — an `import('./x.js')` in a comment is no file to fetch. `tools/build-preload.mjs`
+  uses the same function (a test compares their source). It is a heuristic, not a parser: a `/` after an
+  operand (a name, a number, `)`, `]`, a literal) divides, anywhere else — also after `}` — it starts a
+  regular expression. So a regular expression right after `)` (`if (x) /re/.test(y)`) or after a keyword
+  the scanner does not list (`export default /re/`) is read as division; a `/*` inside it that is glued to
+  that `/` and not closed on its line starts no comment, so such a misread never reaches past its line.
+  Write `if (x) { … }` or keep the expression in a variable when it holds `/*`.
   **Legacy caches**: the names in `config.offline.legacyCaches` (exact, or `prefix*`) belong to a
   service worker the site used before. `sw.js` deletes them on activation, once more about 30 s later
   (the earlier worker may still finish requests and write again) and at every start of the desktop.
   The follow-up never extends an event: a plain timer armed on activation, or the first request at or
-  after that moment, whichever comes first; a worker that a newer one replaced drops it.
+  after that moment, whichever comes first.
+  **Only the worker in charge sweeps**: every sweep of `sw.js` (activation, follow-up, start, a page's
+  request) runs only while that worker is in charge of its registration — no newer worker `installing` or
+  `waiting`, and not replaced (`self.serviceWorker` is not `redundant`; the registration's `active` worker
+  is this one) — and looks again right before each delete. A worker that is superseded never sweeps: after
+  a rollback the newer worker may be the earlier one, at the same URL, and the listed caches are its own
+  again.
   **Extended events hold updates**: while the active worker has an extended event (`waitUntil`), a newer
   worker that called `skipWaiting()` cannot activate. So no `waitUntil` of `sw.js` spans a wait of its
   own such as the legacy follow-up. The one exception is the fast-start update check (P12): it runs inside
   the start's `waitUntil` (`CHECK_DELAY_MS`, then the compare and maybe the crawl into `-next`) and ends
-  after its delay and before each step when `self.registration` has an `installing` or `waiting` worker —
-  so a newer worker waits at most for the delay or the step in progress.
-  `install.js` deletes them about 30 s after `controllerchange`, at every start when this page does not
-  register the worker (`pwa.enabled: false`), and in the `offline` reset. A name of this project's
+  **as soon as** the worker is superseded (as above): the delay ends early, every step and every crawl
+  level looks first, and `updatefound` (or a watch every `CHECK_WATCH_MS`) aborts the requests in flight
+  — their answers and bodies still arriving, and the wait for the navigation preload answer of
+  `index.html` (whose body is then cancelled; an answer that does not come within the per-file timeout is
+  replaced by a request of the check's own); a `-next` it began is deleted, never marked complete. Before
+  the crawl and again before the marker it lets the browser compare `sw.js` (`registration.update()`), so
+  a changed worker installs at once and the check leaves the copy to it. A newer worker therefore waits at
+  most for the requests to settle after their abort.
+  `install.js` asks for them about 30 s after `controllerchange` and at every start when this page does not
+  register the worker (`pwa.enabled: false`): while a worker at this installation's `sw.js` URL controls
+  the page it posts `{ type: 'desk:legacy-sweep' }` to that worker (`sw.js` sweeps as above; an earlier
+  worker back at the same URL ignores it — the page cannot tell them apart), without a controller it
+  deletes them itself; the `offline` reset deletes them directly. A name of this project's
   scheme (`<namespace>:<any folder>:<version>-<hash>`, `-next`, `:pages`) is never matched, so no
   installation of this project loses a cache through this list.
   A file of the shell that the crawl did not fetch but the desktop read at runtime and that is no data
@@ -1779,7 +1890,7 @@ logo, mark or icon.
 |---|---|
 | `npm run serve` (`node tools/serve.mjs --port 8080 --base / --connect https://… --frame https://… --wasm`) | static server with the production headers; directory → `index.html`; dotfiles, `node_modules`, `tools`, `tests` are 404; `--connect`/`--frame` add https origins to `connect-src`/`frame-src`, `--wasm` adds `'wasm-unsafe-eval'` (Pagefind) — §5; `--extra <url-path>=<file>[,…]` serves single files from outside the project tree (test fixtures, a trial config — never in production) |
 | `npm run icons` / `npm run icons:check` | build / verify `src/icons/tabler.js` (sources + `site/icons.json`; Tabler only — site icon sets are not built here) |
-| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed); the generated script also hints the files of `config.iconSets` (it reads the list from the config at run time, so changing the list needs no rebuild; the path rule is generated from `src/core/icon-sets.js` `SET_PATH`); the start language it predicts comes from the source of `matchLanguage()` in `src/core/i18n.js` (§12), copied into the file |
+| `npm run preload` / `npm run preload:check` | build / verify `src/boot/preload.js` (§3): the static import graph of the boot, the core parts and every module and app in `src/`, their `styles` and `i18n` (comments do not count: `stripComments()`, the same function as in `sw.js`, §14) — run after changing an import, a descriptor's `styles`/`i18n` or adding a module or app (a stale file only costs speed); the generated script also hints the files of `config.iconSets` (it reads the list from the config at run time, so changing the list needs no rebuild; the path rule is generated from `src/core/icon-sets.js` `SET_PATH`); the start language it predicts comes from the source of `matchLanguage()` in `src/core/i18n.js` (§12), copied into the file |
 | `npm run browsers` | downloads the headless Chromium that `playwright-core` drives (`check:browser`, `icons:pwa`) — install scripts are off (`.npmrc`), so this is a separate step |
 | `npm run icons:pwa` (`node tools/build-pwa-icons.mjs`) | renders the PNG app icons (`assets/icons/icon-*.png`, `maskable-*.png`, `apple-touch-icon.png`) from `favicon.svg` / `maskable.svg` in headless Chromium; run after changing either SVG and commit the PNGs |
 | `npm run i18n:check [-- <lang>…]` | compare locales with `en`; warns about plural categories a language lacks |

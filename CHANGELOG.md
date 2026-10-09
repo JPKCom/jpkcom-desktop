@@ -10,6 +10,103 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The versi
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-09
+
+Fixes for the service worker and for several desktops on one origin: an update check that stops as soon
+as a newer worker installs, legacy caches deleted only by the worker in charge, the holidays region file
+in the offline copy, an announcement for every update that keeps the cache name, an offline copy that
+repairs itself, and stored keys that stay apart when one namespace is another one's plus `-…`. For
+module authors: the descriptor field `precache` and `store.owns()`/`store.claim()`. Updating a site: see
+the upgrade notes below.
+
+### Upgrade notes
+
+- Upload the new `sw.js` with the rest: the shell cache gets a new name once (new version), visitors are
+  offered one reload. Nothing else is needed for the fixes; `src/boot/preload.js` is unchanged.
+- `site/config.js`: the comment of `namespace` changed (a recommendation) — copy it if you keep your own
+  file.
+- Several desktops on one origin whose namespaces overlap (`jpkdesk` and `jpkdesk-next`): update every
+  one of them to 1.4.0 — a desktop on 1.3.0 or earlier still counts the longer namespace's keys as its
+  own and deletes them with "Reset everything". For new installations pick namespaces where neither is
+  the other plus `-…` (`desk-a`, `desk-b`); a changed namespace starts with empty settings.
+- Site modules that import a file with a computed name (`` import(`./parts/${name}.js`) ``) can list
+  those files in the new descriptor field `precache: [...]` (`docs/ARCHITECTURE.md` §8) so that they are
+  part of the offline copy; without it they are kept the first time they load online, as before.
+- Own code that read every `localStorage` key starting with `<namespace>-` should use `Desk.store.names()`
+  or `Desk.store.owns(key)`; modules that keep keys outside their `storage` declaration can declare them
+  with `Desk.store.claim()` (`docs/ARCHITECTURE.md` §14 "Whose keys").
+
+### Added
+
+- Module descriptor: new field `precache: [...]` (ARCHITECTURE §8) — files a module imports with a
+  computed name, kept in the offline copy by the service worker. The loader ignores it.
+- `store.owns(key)` and `store.claim(name | test)` (ARCHITECTURE §14 "Whose keys"): the storage registry
+  and consent declare their names, and `store.names()`/`usage()` follow the rule. When in doubt a key is
+  kept: a leftover of a removed module named like `reader-lang` can make "Reset everything" keep that
+  module's leftovers.
+- New pure exports `ownKeys(keys, ns, known)` (`src/core/store.js`, the rule behind `owns()`/`names()`)
+  and `stripComments(text)` (`tools/build-preload.mjs`, the same function as in `sw.js`).
+
+### Changed
+
+- The shell cache holds two entries of the worker's own: `sw.js?files` (the list of the last complete
+  copy) and, between installation and activation only, `sw.js?changed`.
+- `install.js` no longer deletes legacy caches itself while a worker at the installation's `sw.js` URL
+  controls the page: it asks that worker (`{ type: 'desk:legacy-sweep' }`), which sweeps only while it is
+  in charge; an earlier worker at the same URL ignores the message. An uncontrolled page still sweeps
+  itself.
+- The docs recommend namespaces where neither is the other plus `-…` (`desk-a`, `desk-b`).
+
+### Fixed
+
+- Service worker: an update check that is already fetching the new copy now stops as soon as a newer
+  worker installs, also in the middle of the crawl — the requests in flight are aborted (also answers whose
+  body is still arriving, and the wait for the browser's preloaded answer for `index.html`), the
+  half-written copy is deleted and never marked complete, and the pages hear nothing. In 1.3.0 a newer
+  worker (an update, or a rollback to an earlier worker at the same URL) waited for the whole crawl — up to
+  a minute on a slow server. When the check finds changed files it also lets the browser look at `sw.js`
+  first (and again before the copy is marked complete), so a new worker installs at once instead of after
+  a crawl it would throw away.
+- Service worker: the caches named in `offline.legacyCaches` are deleted only by the worker that is in
+  charge of its registration — never while a newer worker is installing or waiting, never after another
+  one took over, and checked again right before each delete. In 1.3.0, after a rollback to the earlier
+  worker, the desktop deleted that worker's caches again: at a start of the desktop while the earlier
+  worker was waiting, and from a desktop page still open in another tab about 30 s after the earlier
+  worker took over (it has the same script URL).
+- Service worker: the region file of the public holidays (`config.holidays.region`) is now part of the
+  offline copy — offline the calendar showed no holidays and the console reported "region file could not
+  be loaded". Its import is computed, so the crawl never saw it; the holidays descriptor now lists its
+  region files in the new descriptor field `precache: [...]`.
+- Service worker: a new `sw.js` or `site/config.js` that keeps the cache name (a comment,
+  `offline.timeoutMs`, `offline.legacyCaches`) now tells the open desktop "a new version is ready"
+  whenever its installation changed code the desktop runs — also when the installation was interrupted and
+  retried. In 1.3.0 the message only came when the old worker's update check happened to prepare the copy
+  first.
+- Service worker: a start of the desktop while a new worker with the same cache name installs no longer
+  moves an update the old worker had prepared over the newer files (a mix of old and new code).
+- Service worker: the crawl ignores comments, so it no longer asks for `src/core/window.js` (a 404 on
+  every install and update) because of an example in a comment of `src/core/modules.js`.
+  `tools/build-preload.mjs` reads sources by the same rule.
+- Service worker: an offline copy that lost files — when another service worker of the site deletes every
+  cache it does not know, the starts refill only what the pages ask for — is completed by the next update
+  check (fast start, `offline.fastStart`, the default), and so is an installation that could not reach
+  every file. While the server still has the same code the missing files simply join the copy (no "new
+  version" message).
+- Service worker: a file the server marks `no-store` or `private` no longer counts as a network failure in
+  the crawl (an update that met one was dropped every time).
+- Service worker: a server error or rate limit (5xx, 408, 429) while fetching the copy now counts like a
+  network failure: no update is marked complete with an old copy of a changed file, and an installation
+  that met one is completed by the next check.
+- Storage: a desktop whose namespace is another one's plus `-…` on the same origin (`jpkdesk-next` next to
+  `jpkdesk`) no longer counts as part of the other one. In 1.3.0 "Reset everything" in the desktop
+  `jpkdesk` also deleted every setting and every note of `jpkdesk-next`, its storage figure (Settings and
+  the terminal's `df`) counted them as its own, and their changes in another tab reached it as changes of
+  its own keys. A desktop whose namespace is another one's plus `-consent` (`jpkdesk-consent`) even lost
+  all its data to a reset of only the settings of `jpkdesk`. A key now belongs to a desktop when it is one
+  of the desktop's own names, or when no other desktop shows behind it. A desktop shows when it has stored
+  a name that this desktop knows, such as a setting or a consent. Withdrawing all consents removes consent
+  keys only. Backups were not affected.
+
 ## [1.3.0] — 2026-10-08
 
 Fixes and options from moving a real site onto 1.2: dock pins and desktop icons that follow renamed apps,
@@ -508,7 +605,8 @@ Initial open-source release under the MIT License.
   builder and check, i18n check, site manifest validator, vault sealing tool, PWA icon renderer,
   headless browser check, and a `node --test` suite for the pure parts of every package.
 
-[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/JPKCom/jpkcom-desktop/compare/v1.0.0...v1.1.0

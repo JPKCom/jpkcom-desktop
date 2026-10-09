@@ -328,9 +328,11 @@ the terminal's `man` prints, data files under `site/content/`): `manuals/writing
 - `site/data/fortunes/{en,de}.json`: 44 original sayings each (desktop tips, keyboard shortcuts, web
   development, accessibility, a few light jokes), signature JPKCom, some with "Learn more" links into the
   docs or the contrast demo.
-- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.3.0 released",
-  "JPKCom Desktop 1.2.0 released", "JPKCom Desktop 1.1.0 released", "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and carry a distinct query
-  (`changelog.html?release=1.3.0`), because the notify module de-duplicates by path + query.
+- `site/data/feed.{en,de}.json`: JSON Feed 1.1 — the project changelog ("JPKCom Desktop 1.4.0 released",
+  "JPKCom Desktop 1.3.0 released", "JPKCom Desktop 1.2.0 released", "JPKCom Desktop 1.1.0 released",
+  "JPKCom Desktop 1.0.0 released", "An example site to start from"). Item URLs are relative to the feed and
+  carry a distinct query (`changelog.html?release=1.4.0`), because the notify module de-duplicates by
+  path + query.
 - `site/wallpapers/README.md`: how to add picture wallpapers (`config.wallpaper.images`); none shipped.
 
 ---

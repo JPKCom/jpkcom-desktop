@@ -175,6 +175,9 @@ test('backup: documents of the original desktop lose their key prefix', () => {
 	assert.deepEqual(Object.keys(out.data).sort(), ['jpkdesk-unknown', 'jpkdesk-wallpaper', 'notes', 'theme', 'wallpaper']);
 	assert.deepEqual(out.data.wallpaper, { type: 'color', color: '#000000' }, 'a plain name in the file wins');
 	assert.equal(out.format, 'f');
+	/* keys of an installation whose namespace starts with this one ('jpkdesk-next-…') stay unknown */
+	const other = legacyBackup({ format: 'f', data: { 'jpkdesk-next-notes': { notes: [] }, 'jpkdesk-notes': { notes: [] } } }, 'jpkdesk-', n => known.has(n));
+	assert.deepEqual(Object.keys(other.data).sort(), ['jpkdesk-next-notes', 'notes']);
 	assert.equal(legacyBackup(null, 'x-', () => true), null);
 	assert.equal(legacyBackup({ data: 'x' }, 'x-', () => true).data, 'x');
 });
@@ -471,12 +474,28 @@ test('install: scheduleSweep — triggers, delays and the foreign-worker check',
 	await tick();
 	assert.deepEqual(t.timers, [3000, 30000]);
 	assert.equal(t.store.calls.keys, 0);
-	for (const controller of [{ scriptURL: OWN }, null]) {
-		t = setup({ controller });
-		scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	/* no controller: the page sweeps itself */
+	t = setup({ controller: null });
+	scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	await tick();
+	assert.equal(t.store.calls.keys, 1);
+	assert.deepEqual(t.store.calls.deleted, ['oldsite-pages']);
+	/* a worker at this installation's URL: the page asks it and deletes nothing itself — after a rollback the
+	   earlier worker may be back at the same URL (sw.js sweeps when it is in charge, that one ignores it) */
+	for (const registers of [false, true]) {
+		const posted = [];
+		t = setup({ controller: { scriptURL: OWN, postMessage: msg => posted.push(msg) } });
+		scheduleSweep(['oldsite-pages'], { ...t.opts, registers });
+		t.listeners.container.controllerchange();
 		await tick();
-		assert.equal(t.store.calls.keys, 1, JSON.stringify(controller));
+		assert.equal(t.store.calls.keys, 0, `registers: ${registers}`);
+		assert.deepEqual(posted, registers ? [{ type: 'desk:legacy-sweep' }] : [{ type: 'desk:legacy-sweep' }, { type: 'desk:legacy-sweep' }]);
 	}
+	/* a controller that is gone meanwhile: nothing thrown, nothing deleted */
+	t = setup({ controller: { scriptURL: OWN, postMessage: () => { throw new Error('InvalidStateError'); } } });
+	scheduleSweep(['oldsite-pages'], { ...t.opts, registers: false });
+	await tick();
+	assert.equal(t.store.calls.keys, 0);
 });
 
 test('help: the search row names its shortcut, or says nothing about keys without one', () => {

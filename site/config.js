@@ -23,7 +23,8 @@
 window.DESKTOP_CONFIG = {
 
 	/* Prefix of every localStorage key ('jpkdesk-theme'), IndexedDB name, Cache name and DOM event
-	   ('jpkdesk:lang:change'). Change it when several desktops share one origin. [a-z][a-z0-9-], max 24 */
+	   ('jpkdesk:lang:change'). Change it when several desktops share one origin — best so that neither
+	   is the other plus '-…' ('desk-a', 'desk-b'; see docs/deploy.md). [a-z][a-z0-9-], max 24 */
 	namespace: 'jpkdesk',
 
 	/* More console output: missing translations, skipped manifest entries, placeholder modules */

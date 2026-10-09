@@ -276,7 +276,8 @@ Schaltest du Online-Dienste ein, trag ihre Hosts auch in die Policy in der Workf
 Pages-Websites eines Kontos teilen sich den Origin `https://<user>.github.io` und können deshalb die
 gespeicherten Daten der anderen lesen: Leg dort nur Code ab, dem du vertraust
 ([deploy.md §3](deploy.md#3-at-the-web-root-or-in-a-sub-folder)). Gib jedem Desktop einen eigenen
-`namespace` in `site/config.js`, damit sich ihre Einstellungen und Caches nicht in die Quere kommen.
+`namespace` in `site/config.js`, damit sich ihre Einstellungen und Caches nicht in die Quere kommen — am
+besten so, dass keiner der andere plus `-…` ist (`desk-a` und `desk-b`, nicht `jpkdesk` und `jpkdesk-next`).
 Details: [deploy.md → GitHub Pages](deploy.md#github-pages) (englisch).
 
 ### Auf deinem eigenen Server

@@ -14,11 +14,29 @@
    pages ({ type: 'desk:update' } → "new version, reload"). The next start of
    the desktop moves it in place before the first file is answered, so a page
    never mixes old and new code. A changed sw.js or site/config.js still
-   installs a new worker as before (and tells the pages the same). The check
+   installs a new worker as before, and tells the pages the same: when the cache
+   name changes (a new version, another precache list) and also when it stays —
+   then the install crawls into the cache the open pages read, and announces
+   when it changed a copy of code they run (the CHANGED marker, written before
+   the first changed copy; read at activation). Every install first deletes the
+   '-next' of its cache name (its crawl is newer). The check also repairs: when
+   the copy lost files of its last complete crawl (FILES — another worker
+   deleted the cache, the starts since refilled only what the pages asked for;
+   no FILES after an install with network failures or server errors) it crawls again; while the server
+   still has the code the pages run, the missing files join the copy in place
+   and nothing is announced, else it is an update as above. The check
    runs inside the start's waitUntil (the browser keeps the worker for it), so
-   a newer worker cannot activate before it ends: after its delay and before
-   each step (a batch of compares, the crawl) it ends when one is installing
-   or waiting.
+   a newer worker cannot activate before it ends: it ends as soon as one is
+   installing or waiting or has replaced this one (superseded()) — the delay
+   ends early, every step and every level of the crawl looks first, and the
+   requests in flight are aborted (updatefound, and a watch every
+   CHECK_WATCH_MS) — bodies still arriving too, and the wait for the
+   navigation preload answer (its body is cancelled); a '-next' it began is
+   deleted, never marked complete.
+   Before the crawl, and again before the marker, it lets the browser compare
+   sw.js (registration.update()): a changed worker — a new release, or a
+   rollback to an earlier worker at the same URL — installs at once and the
+   check leaves the copy to it.
    Runtime copies: a file of the shell (not a data file, see below) the crawl
    did not fetch but the desktop read later (a man or cat text outside the data
    folders, an image — not a script or style) is stored with the header
@@ -29,7 +47,8 @@
    Data files — notify.feeds (also outside the root), the fortune files of the
    language chain, site/data/, site/content/ — are never answered from the copy
    first: network first like fastStart: false, offline the last copy. The update
-   check skips them and '-next' never contains them, so a new feed item or an
+   check skips them and a prepared '-next' never contains them (only a repair
+   brings back those the copy lost), so a new feed item or an
    edited content file never offers a new version. Code wins over the data
    folders: SHELL_FILES, site.data, the wallpapers, the site icon sets and the
    files and folders of { id, src } modules and apps stay code wherever they lie (an exact feed or
@@ -64,8 +83,10 @@
    imported (importScripts — script-src 'self' allows it), so the service worker
    knows config.modules, config.apps, config.languages, site.data and friends.
    Starting from index.html, the boot scripts and the index.js of every core part,
-   module and app, it follows static and dynamic imports, the descriptor fields
-   styles: [...], windowStyles: [...] and i18n: [...], stylesheet url()s, and adds locales/<lang>/<ns>.js
+   module and app, it follows static and dynamic imports with a literal specifier
+   (comments do not count), the descriptor fields styles: [...], windowStyles: [...],
+   precache: [...] (files a module imports with a computed specifier) and
+   i18n: [...], stylesheet url()s, and adds locales/<lang>/<ns>.js
    for every offered language — or, for a module that keeps its namespaces in its own
    folder (descriptor field locales, same rule as src/core/modules.js), <that folder>
    <lang>/<ns>.js instead. Each entry is fetched on its own (Promise.allSettled):
@@ -84,7 +105,14 @@
    activation, once more 30 s after it (that worker may still finish requests and
    write to them) and at every start. A name of this scheme, for any folder, is
    never deleted that way. The 30 s never keep an event open (waitUntil): while
-   the active worker has an extended event, a newer one cannot activate.
+   the active worker has an extended event, a newer one cannot activate. Every
+   sweep runs only while this worker is in charge of its registration — no
+   newer worker installing or waiting, not replaced — and looks again before
+   each delete: after a rollback the newer worker may be the earlier one, and
+   the listed caches are its own again. A page asks with
+   { type: 'desk:legacy-sweep' } (src/panels/install.js) instead of deleting
+   them itself, because it cannot tell this worker from an earlier one at the
+   same URL.
 
    config.pwa.enabled === false switches it off for good: a service worker that is
    still registered from before installs, deletes its caches and unregisters itself. */
@@ -92,7 +120,7 @@
 'use strict';
 
 /* Keep equal to package.json "version" and VERSION in src/core/env.js (tests/p12-sw.test.mjs checks it) */
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 
 /* Defaults for what this worker reads from the config — mirror src/core/config.js DEFAULTS
    (tests/p12-sw.test.mjs checks that they match) */
@@ -135,6 +163,7 @@ const INSTALL_TIMEOUT_MS = 20000; // per file during the install
 const CHECK_DELAY_MS = 3000;      // fast start: the update check waits until the desktop has started
 const CHECK_GAP_MS = 60000;       // … and runs at most once in this time
 const CHECK_BATCH = 6;            // files compared at the same time
+const CHECK_WATCH_MS = 250;       // a running check looks this often whether a newer worker appeared
 const LEGACY_FOLLOW_UP_MS = 30000; // legacy caches: once more after the hand-over (never inside waitUntil)
 
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
@@ -397,14 +426,137 @@ function localesDir(value, fileUrl) {
 
 const strings = text => [...text.matchAll(/(['"])([^'"\n]{1,256}?)\1/g)].map(m => m[2]);
 
+/** JavaScript source without its comments: an import named in a comment is no file to fetch. Strings,
+    template literals (with their ${ … } parts) and regular expression literals stay as they are — a '//' or
+    '/*' inside them starts no comment; a block comment keeps its line breaks (line-based rules keep their
+    lines). A '/' after an operand (a name that is no keyword, a number, ')', ']', a literal) divides,
+    anywhere else — also after '}', which ends a block — it starts a regular expression. A heuristic, not a
+    parser: a regular expression right after ')' (if (x) /re/…) or after a keyword not in KEYWORD (export
+    default /re/…) is read as division;
+    a '/*' inside it that is glued to that '/' and not closed on its line starts no comment, so such a misread
+    never reaches past its line. The same function as stripComments() in tools/build-preload.mjs
+    (tests/p12-sw.test.mjs compares their source). */
+function stripComments(text) {
+	const n = text.length;
+	const WORD = /[\p{ID_Continue}$#]/u;
+	const KEYWORD = /^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+	let out = '';
+	let i = 0;
+	const copyEscaped = () => {
+		out += text.slice(i, i + 2);
+		i += 2;
+	};
+	const quoted = q => {
+		out += text[i++];
+		while (i < n && text[i] !== '\n') {
+			if (text[i] === '\\') copyEscaped();
+			else if (text[i] === q) {
+				out += text[i++];
+				return;
+			} else out += text[i++];
+		}
+	};
+	const regex = () => {
+		let inClass = false;
+		out += text[i++];
+		while (i < n && text[i] !== '\n') {
+			const c = text[i];
+			if (c === '\\') {
+				copyEscaped();
+				continue;
+			}
+			out += c;
+			i++;
+			if (c === '[') inClass = true;
+			else if (c === ']') inClass = false;
+			else if (c === '/' && !inClass) break;
+		}
+		while (i < n && WORD.test(text[i])) out += text[i++];
+	};
+	/* code until the end — or, inner: inside the ${ … } of a template literal, until its closing brace */
+	const code = inner => {
+		let depth = 0;
+		let operand = false;
+		let glued = false; // a '/' read as division, no white space since
+		while (i < n) {
+			const c = text[i];
+			const d = text[i + 1];
+			const end = c === '/' && d === '*' ? text.indexOf('*/', i + 2) : -1;
+			if (c === '/' && d === '/') {
+				while (i < n && text[i] !== '\n') i++;
+			} else if (c === '/' && d === '*' && glued && (end < 0 || text.lastIndexOf('\n', end) > i)) {
+				/* glued to a division and not closed on its line: a '/*' inside a regular expression that
+				   was read as division (if (x) /[/*]/…) — no comment, the lines after it stay */
+				out += c;
+				i++;
+				operand = false;
+			} else if (c === '/' && d === '*') {
+				const stop = end < 0 ? n : end + 2;
+				out += text.slice(i, stop).replace(/[^\n]/g, '') || ' ';
+				i = stop;
+			} else if (c === '\'' || c === '"') {
+				quoted(c);
+				operand = true;
+			} else if (c === '`') {
+				template();
+				operand = true;
+			} else if (c === '/' && !operand) {
+				regex();
+				operand = true;
+			} else if (WORD.test(c)) {
+				let j = i;
+				while (j < n && WORD.test(text[j])) j++;
+				const word = text.slice(i, j);
+				out += word;
+				i = j;
+				operand = !KEYWORD.test(word);
+			} else {
+				if (c === '{') depth++;
+				else if (c === '}') {
+					if (inner && depth === 0) return;
+					depth--;
+				}
+				out += c;
+				i++;
+				if (/\s/.test(c)) glued = false;
+				else {
+					if (c === '/') glued = true;
+					operand = c === ')' || c === ']';
+				}
+			}
+		}
+	};
+	const template = () => {
+		out += text[i++];
+		while (i < n) {
+			if (text[i] === '\\') copyEscaped();
+			else if (text[i] === '`') {
+				out += text[i++];
+				return;
+			} else if (text[i] === '$' && text[i + 1] === '{') {
+				out += '${';
+				i += 2;
+				code(true);
+				if (i < n) out += text[i++];
+			} else out += text[i++];
+		}
+	};
+	code(false);
+	return out;
+}
+
 /** References inside a JavaScript file: { urls: [absolute], namespaces: [ns], sources: [[ns, folder URL]] }
-    (a file that declares locales: '<folder>/' keeps its namespaces there, not in the core locales/) */
-function scanJs(text, fileUrl) {
+    (a file that declares locales: '<folder>/' keeps its namespaces there, not in the core locales/).
+    Comments do not count (stripComments). Followed: static and dynamic imports with a literal specifier, and
+    the descriptor fields styles, windowStyles and precache (files it imports with a computed specifier,
+    import(`./regions/${id}.js`) — no literal names them) */
+function scanJs(source, fileUrl) {
+	const text = stripComments(source);
 	const specs = [];
 	for (const m of text.matchAll(/\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(['"])([^'"\n]+?)\1/g)) specs.push(m[2]);
 	for (const m of text.matchAll(/\bimport\s*\(\s*(['"])([^'"\n]+?)\1\s*\)/g)) specs.push(m[2]);
 	const urls = specs.filter(s => /^(?:\.{1,2}\/|\/(?!\/))/.test(s)).map(s => local(s, fileUrl));
-	for (const m of text.matchAll(/\b(?:windowS|s)tyles\s*:\s*\[([^\]]*)\]/g)) urls.push(...strings(m[1]).map(s => local(s, fileUrl)));
+	for (const m of text.matchAll(/\b(?:windowStyles|styles|precache)\s*:\s*\[([^\]]*)\]/g)) urls.push(...strings(m[1]).map(s => local(s, fileUrl)));
 	const namespaces = [];
 	for (const m of text.matchAll(/\bi18n\s*:\s*\[([^\]]*)\]/g)) namespaces.push(...strings(m[1]).filter(s => ID.test(s)));
 	const own = text.match(/\blocales\s*:\s*(['"])([^'"\n]{1,256}?)\1/);
@@ -445,13 +597,84 @@ const shellKey = url => {
 	return u.origin + u.pathname;
 };
 
-const withTimeout = (ms, fn) => {
+/** fn(signal) — a fetch — with a signal that aborts when the answer takes longer than ms, and at once when
+    outer (the running check's signal) aborts. use(res): reads the answer while outer still reaches the
+    request — an abort then also ends its body (a browser errors the body of an aborted fetch); the timeout
+    covers the answer, not its body. → use's result, or the answer */
+const withTimeout = async (ms, fn, outer = null, use = null) => {
 	const ctl = new AbortController();
 	const timer = setTimeout(() => ctl.abort(), ms);
-	return fn(ctl.signal).finally(() => clearTimeout(timer));
+	const stop = () => ctl.abort();
+	if (outer) {
+		if (outer.aborted) ctl.abort();
+		else outer.addEventListener('abort', stop, { once: true });
+	}
+	try {
+		const res = await fn(ctl.signal).finally(() => clearTimeout(timer));
+		return use ? await use(res) : res;
+	} finally {
+		clearTimeout(timer);
+		if (outer) outer.removeEventListener('abort', stop);
+	}
 };
 
+/* What a crawl or check that ended because a newer worker appeared rejects with */
+const supersededError = () => Object.assign(new Error('a newer service worker took over'), { name: 'AbortError' });
+
+/** promise — or an AbortError as soon as signal aborts (whatever promise stands for goes on; nobody waits) */
+const untilAbort = (promise, signal) => new Promise((resolve, reject) => {
+	if (signal.aborted) return reject(supersededError());
+	const stop = () => reject(supersededError());
+	signal.addEventListener('abort', stop, { once: true });
+	promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+});
+
+/** An answer nobody reads: its body is cancelled (ends the download) */
+const discard = res => {
+	try {
+		if (res && res.body && !res.bodyUsed && !res.body.locked) res.body.cancel().catch(() => {});
+	} catch { /* nothing to cancel */ }
+};
+
+/** The bytes of an answer. Once signal aborts, the read is cancelled — which also ends the download, and
+    holds nobody even where the body of an answer that is not a fetch's (the navigation preload) never ends —
+    and rejects (AbortError). */
+async function readBytes(res, signal) {
+	if (signal.aborted) {
+		discard(res);
+		throw supersededError();
+	}
+	if (!res.body || typeof res.body.getReader !== 'function') return untilAbort(res.arrayBuffer(), signal);
+	const reader = res.body.getReader();
+	const cancel = () => reader.cancel().catch(() => {});
+	signal.addEventListener('abort', cancel, { once: true });
+	const chunks = [];
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (signal.aborted) throw supersededError();
+			if (done) break;
+			chunks.push(value);
+			size += value.byteLength;
+		}
+	} finally {
+		signal.removeEventListener('abort', cancel);
+	}
+	const bytes = new Uint8Array(size);
+	let at = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, at);
+		at += chunk.byteLength;
+	}
+	return bytes.buffer;
+}
+
 const cacheable = res => !!res && res.ok && res.status === 200 && res.type === 'basic';
+
+/** An HTTP status that says "not now" rather than "not there": a server error, a timeout, a rate limit.
+    The crawl counts it like a network failure — a copy without that file is not complete. */
+const transient = status => status >= 500 || status === 408 || status === 429;
 
 /** May this answer be written to Cache Storage? Not when the server says no-store or private
     (logged-in areas, personal fragments other scripts of the site fetch as text/html) */
@@ -469,40 +692,73 @@ const runtimeCopy = res => {
 };
 const isRuntimeCopy = res => !!res && res.headers.get(RUNTIME_HEADER) === 'runtime';
 
-/** Fetches one file into the cache; returns its text when it may hold further references */
-async function precacheOne(cache, url) {
-	const res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(url, { cache: 'no-cache', signal })));
-	if (!cacheable(res)) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { status: res.status });
-	if (!keep(res)) throw new Error(`${url}: Cache-Control forbids keeping a copy`);
-	const type = res.headers.get('Content-Type') || '';
-	const text = /html|css|javascript|ecmascript/.test(type) || /\.(?:m?js|css|html)$|\/$/.test(new URL(url).pathname)
-		? await res.clone().text() : null;
-	await cache.put(shellKey(url), clean(res));
-	return text === null ? { urls: [], namespaces: [] } : scan(text, url, type);
+/** Fetches one file into the cache; returns its text when it may hold further references.
+    outer: the running update check's signal (aborts the request — also while its body is still read and
+    stored — when a newer worker appears); note(key, res): called before the answer replaces a copy */
+function precacheOne(cache, url, outer = null, note = null) {
+	return withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(url, { cache: 'no-cache', signal })), outer, async res => {
+		if (!cacheable(res)) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { status: res.status });
+		/* the server answered for good (404, 403 …, or a copy it forbids): the copy is complete without it;
+		   a transient answer (5xx, 408, 429) counts like a network failure (transient(), precache()) */
+		if (!keep(res)) throw Object.assign(new Error(`${url}: Cache-Control forbids keeping a copy`), { status: res.status });
+		const type = res.headers.get('Content-Type') || '';
+		const text = /html|css|javascript|ecmascript/.test(type) || /\.(?:m?js|css|html)$|\/$/.test(new URL(url).pathname)
+			? await res.clone().text() : null;
+		if (note) await note(shellKey(url), res);
+		await cache.put(shellKey(url), clean(res));
+		return text === null ? { urls: [], namespaces: [] } : scan(text, url, type);
+	});
 }
 
 /** Crawls from the roots, level by level; every file is fetched once, failures are skipped.
     data: false leaves data files out — neither as roots nor when the crawl meets one (a prepared update).
-    → { files, failed, offline } — offline: how many failed without an answer (network, timeout) */
-async function precache(cfg, cacheName, { data = true } = {}) {
+    signal, stop (the update check's crawl into '-next'): before each level and after it, stop() says whether
+    a newer worker appeared; then — or once signal aborts, which also aborts the requests in flight — the
+    crawl ends and rejects (AbortError) after the requests of its level settled, so nothing writes later.
+    compare (the install of a worker that replaces an active one, into the cache that worker's pages read):
+    note every copy of code — not data, not a runtime copy — whose bytes the crawl changes; the CHANGED
+    marker goes into that cache before the first such copy is replaced.
+    → { files, failed, offline, kept, changed } — offline: how many failed without a final answer (network,
+    timeout, or a transient HTTP status: 5xx, 408, 429); kept: the keys of the code files it stored (the list of a complete copy, FILES); changed: the
+    copies compare found changed */
+async function precache(cfg, cacheName, { data = true, signal = null, stop = null, compare = false } = {}) {
 	const cache = await caches.open(cacheName);
 	const seen = new Set();
 	const namespaces = new Set();
 	const sources = new Map();
 	const failed = [];
+	const kept = [];
+	const changed = [];
 	let offline = 0;
+	const note = compare ? async (key, res) => {
+		if (isDataUrl(key, cfg)) return;
+		const copy = await cache.match(key);
+		if (!copy || isRuntimeCopy(copy)) return;
+		if (sameBytes(await res.clone().arrayBuffer(), await copy.arrayBuffer())) return;
+		/* the marker before the first copy changes: an install that dies after it still gets announced */
+		if (!changed.length) await cache.put(CHANGED(), new Response(''));
+		changed.push(key);
+	} : null;
+	const ended = () => {
+		if (stop && stop()) return true;
+		return !!signal && signal.aborted;
+	};
 	const run = async list => {
 		let level = list.filter(u => !seen.has(shellKey(u)));
 		while (level.length && seen.size < MAX_FILES) {
+			if (ended()) throw supersededError();
 			level = level.slice(0, MAX_FILES - seen.size);
 			level.forEach(u => seen.add(shellKey(u)));
-			const results = await Promise.allSettled(level.map(u => precacheOne(cache, u)));
+			const results = await Promise.allSettled(level.map(u => precacheOne(cache, u, signal, note)));
+			if (ended()) throw supersededError();
 			const next = [];
 			results.forEach((r, i) => {
 				if (r.status === 'rejected') {
-					if (!r.reason?.status) offline++;
+					const status = r.reason?.status;
+					if (!status || transient(status)) offline++;
 					return failed.push(level[i]);
 				}
+				if (!isDataUrl(level[i], cfg)) kept.push(shellKey(level[i]));
 				r.value.namespaces.forEach(ns => namespaces.add(ns));
 				for (const [ns, dir] of r.value.sources ?? []) sources.set(`${dir}\n${ns}`, [ns, dir]);
 				for (const u of r.value.urls) if (isShellUrl(u, cfg) && (data || !isDataUrl(u, cfg)) && !seen.has(shellKey(u))) next.push(u);
@@ -512,8 +768,9 @@ async function precache(cfg, cacheName, { data = true } = {}) {
 	};
 	await run(precacheRoots(cfg, { data }));
 	await run(localeUrls(cfg, [...namespaces], [...sources.values()]));
+	if (ended()) throw supersededError();
 	if (failed.length) console.info(`[sw] ${seen.size - failed.length} files kept offline; not available: ${failed.length}`, failed);
-	return { files: seen.size - failed.length, failed, offline };
+	return { files: seen.size - failed.length, failed, offline, kept, changed };
 }
 
 /* ---------- Request routing ---------- */
@@ -649,8 +906,32 @@ function revalidating(req) {
 /* ---------- Fast start: offline copy first, updates in the background ---------- */
 
 /* The key of the marker the update check writes last into the '-next' cache: only a complete
-   copy is moved in place (a worker stopped halfway leaves none) */
+   copy is moved in place (a worker stopped halfway leaves none). Its body is the list of the crawl's code
+   files, which moves into the shell cache as FILES. */
 const COMPLETE = () => new URL('sw.js?complete', ROOT_URL).href;
+/* In the shell cache: the code files of the last complete crawl (the install's when no file failed without
+   an answer, or a moved update's) as a JSON list. A listed file that is gone, or no list at all, means the copy lost entries — another worker
+   deleted the cache, and the starts since refilled only what the pages asked for: the update check
+   crawls again (runCheck). */
+const FILES = () => new URL('sw.js?files', ROOT_URL).href;
+/* In the shell cache, from install to activate: this worker replaced an active one with the same cache
+   name, and its install changed copies of code the open pages run — activation tells them. A marker, not
+   a variable, written before the first such copy is replaced: the browser may stop the worker between the
+   two events, or in the middle of the install (its retry finds nothing changed any more). */
+const CHANGED = () => new URL('sw.js?changed', ROOT_URL).href;
+/* A marker entry (sw.js itself is never kept, so its URL with a query is no file of the desktop) */
+const isMarker = key => new URL(key).pathname === new URL('sw.js', ROOT_URL).pathname;
+const listOf = keys => new Response(JSON.stringify(keys), { headers: { 'Content-Type': 'application/json' } });
+/** The list of a COMPLETE or FILES marker, or null when there is none or it is not one */
+async function readList(res) {
+	if (!res) return null;
+	try {
+		const list = JSON.parse(await res.text());
+		return Array.isArray(list) && list.every(k => typeof k === 'string') ? list : null;
+	} catch {
+		return null;
+	}
+}
 
 const sameBytes = (a, b) => {
 	if (a.byteLength !== b.byteLength) return false;
@@ -663,13 +944,16 @@ const sameBytes = (a, b) => {
 /** A prepared, complete update ('-next') replaces the files of the shell cache; an incomplete one is dropped */
 async function applyUpdate(names) {
 	if (!(await caches.has(names.next))) return false;
-	if (checking) return false;
+	/* a check still writing it, or a newer worker installing (its crawl is newer than this '-next') */
+	if (checking || superseded()) return false;
 	const next = await caches.open(names.next);
 	const complete = !!(await next.match(COMPLETE()));
 	if (complete) {
 		const shell = await caches.open(names.shell);
 		const keys = (await next.keys()).filter(k => k.url !== COMPLETE());
 		await Promise.all(keys.map(async k => shell.put(k, await next.match(k))));
+		const list = await readList(await next.match(COMPLETE()));
+		if (list) await shell.put(FILES(), listOf(list));
 	}
 	await caches.delete(names.next);
 	return complete;
@@ -681,90 +965,307 @@ async function announceUpdate() {
 	for (const page of pages) page.postMessage({ type: 'desk:update' });
 }
 
+/* ---------- Which worker is in charge ---------- */
+
+/* This worker's own ServiceWorker object: self.serviceWorker where the engine has it; else the
+   registration's active worker as this worker saw it while activating or handling a fetch event (only the
+   active worker receives those). One worker is one object in this realm, so === compares. */
+let ownWorker = null;
+function noteOwnWorker() {
+	const reg = self.registration;
+	if (!self.serviceWorker && !ownWorker && reg && reg.active) ownWorker = reg.active;
+}
+const ownServiceWorker = () => self.serviceWorker || ownWorker;
+
+/** Is this worker no longer the one in charge of its registration? A newer worker is installing or
+    waiting, or one has already replaced it (this worker is redundant, or the registration's active worker
+    is another one — after a rollback that one may be an earlier, unrelated worker at the same URL).
+    The update check runs inside the start's waitUntil, and a newer worker that called skipWaiting()
+    activates only once this one has no extended events: the check ends at once (the newer worker brings
+    its own copy; the next start checks again). The legacy sweeps never run then (the newer worker may use
+    the caches the list names). */
+function superseded() {
+	const reg = self.registration;
+	if (!reg) return false;
+	const mine = ownServiceWorker();
+	if ((reg.installing && reg.installing !== mine) || (reg.waiting && reg.waiting !== mine)) return true;
+	if (!mine) return false;
+	if (mine.state && mine.state !== 'activating' && mine.state !== 'activated') return true;
+	return !!reg.active && reg.active !== mine;
+}
+
+const inCharge = () => !superseded();
+
+/* ---------- The update check ---------- */
+
+let checking = null;
+let lastCheck = -Infinity;
+let checkCtl = null;   // AbortController of the running check: aborted once a newer worker appears
+
+/* A newer worker starts installing: the running check ends at once — its requests in flight are aborted,
+   so nothing it does holds that worker's activation (a rollback to an earlier worker waited ~60 s) */
+try {
+	self.registration?.addEventListener?.('updatefound', () => {
+		if (checkCtl) checkCtl.abort();
+	});
+} catch { /* no events on this engine: the watch below covers it */ }
+
+/** While a check runs: aborts it as soon as superseded() — also between updatefound events, for engines
+    that do not send them to the worker. Returns the function that ends the watch. */
+function watchCheck(ctl) {
+	checkCtl = ctl;
+	let timer = null;
+	const tick = () => {
+		if (superseded()) ctl.abort();
+		else timer = setTimeout(tick, CHECK_WATCH_MS);
+	};
+	timer = setTimeout(tick, CHECK_WATCH_MS);
+	return () => {
+		clearTimeout(timer);
+		if (checkCtl === ctl) checkCtl = null;
+	};
+}
+
+/** ms, or less when signal aborts first */
+const pause = (ms, signal) => new Promise(resolve => {
+	let timer = null;
+	const done = () => {
+		clearTimeout(timer);
+		signal.removeEventListener('abort', done);
+		resolve();
+	};
+	timer = setTimeout(done, ms);
+	signal.addEventListener('abort', done, { once: true });
+});
+
+/** Asks the browser to compare sw.js and its imported scripts with the server now (registration.update()).
+    A changed sw.js (a new release, a rollback to an earlier worker at the same URL) installs that worker at
+    once, and superseded() ends the check instead of crawling for a copy nobody will use. Never longer than
+    INSTALL_TIMEOUT_MS; a failure changes nothing. */
+async function recheckWorker(signal) {
+	const reg = self.registration;
+	if (!reg || typeof reg.update !== 'function' || signal.aborted) return;
+	let timer = null;
+	let end = null;
+	try {
+		await Promise.race([
+			reg.update(),
+			new Promise(resolve => {
+				end = resolve;
+				timer = setTimeout(resolve, INSTALL_TIMEOUT_MS);
+				signal.addEventListener('abort', resolve, { once: true });
+			})
+		]);
+	} catch { /* offline, or the browser declined: the check goes on */ } finally {
+		clearTimeout(timer);
+		if (end) signal.removeEventListener('abort', end);
+	}
+}
+
+/** Has the shell cache lost files of its last complete crawl? (FILES: a listed file is gone, or there is
+    no list — the cache was emptied and refilled by the pages' requests only) */
+async function incomplete(shell) {
+	const list = await readList(await shell.match(FILES()));
+	if (!list) return true;
+	const have = new Set((await shell.keys()).map(r => r.url));
+	return list.some(key => !have.has(key));
+}
+
+/** Does a crawled copy ('-next') hold other bytes than a copy of code in the shell cache? (data files and
+    runtime copies do not count — data is always the server's, the check refreshes runtime copies in place) */
+async function differs(shell, next, cfg) {
+	for (const req of await next.keys()) {
+		if (isMarker(req.url) || isDataUrl(req.url, cfg)) continue;
+		const copy = await shell.match(req.url);
+		if (!copy || isRuntimeCopy(copy)) continue;
+		const fresh = await next.match(req.url);
+		if (!sameBytes(await fresh.arrayBuffer(), await copy.arrayBuffer())) return true;
+	}
+	return false;
+}
+
+/** A repair: the files of a crawl the shell cache lacks (or has only as a runtime copy) join it — data
+    files only when missing; its list becomes the shell's FILES */
+async function fillIn(shell, next, kept) {
+	for (const req of await next.keys()) {
+		if (isMarker(req.url)) continue;
+		const copy = await shell.match(req.url);
+		if (!copy || isRuntimeCopy(copy)) await shell.put(req.url, await next.match(req.url));
+	}
+	await shell.put(FILES(), listOf(kept));
+}
+
 /**
  * Compares every code file of the shell cache (and of a prepared update) with the server — data
  * files never count (isDataUrl) and never join '-next'. When
- * anything changed, the whole desktop is fetched again into '-next' (the install's crawl, so
- * new files join), the marker is written last and the pages hear about it. Offline, a timeout
- * or a crawl that could not reach every file: nothing is kept, the next start tries again.
+ * anything changed, the browser first looks at sw.js again (recheckWorker), then the whole desktop is
+ * fetched again into '-next' (the install's crawl, so new files join), the marker is written last and the
+ * pages hear about it. Offline, a timeout or a crawl that could not reach every file: nothing is kept,
+ * the next start tries again.
  * Runtime copies (X-Desk-Copy: runtime) are refreshed in place instead and never count as a change.
- * fresh: the navigation preload answer for index.html (saves one request).
+ * A newer worker (superseded()): the check ends at once — before and after every step, every crawl
+ * level, and in the middle of one (its requests are aborted, bodies still arriving too); a '-next' it
+ * started is deleted, never marked complete.
+ * fresh: the navigation preload answer for index.html (saves one request; waited for until the abort or
+ *   INSTALL_TIMEOUT_MS, then index.html is fetched instead).
+ * ctl: the AbortController of a check scheduleCheck() runs; without it the check makes and watches its own.
  */
-async function checkForUpdate(cfg, names, fresh = null) {
+async function checkForUpdate(cfg, names, fresh = null, ctl = null) {
+	if (ctl) return runCheck(cfg, names, fresh, ctl);
+	const own = new AbortController();
+	const unwatch = watchCheck(own);
+	try {
+		return await runCheck(cfg, names, fresh, own);
+	} finally {
+		unwatch();
+	}
+}
+
+async function runCheck(cfg, names, fresh, ctl) {
+	const { signal } = ctl;
+	/* superseded meanwhile? Then the check is over (and its requests in flight are aborted) */
+	const over = () => {
+		if (!signal.aborted && superseded()) ctl.abort();
+		return signal.aborted;
+	};
+	/* The server's answer for key → { res, now (its bytes; null when it may not be kept) }: the answer within
+	   INSTALL_TIMEOUT_MS, its body until the check ends — a newer worker ends both */
+	const load = key => withTimeout(INSTALL_TIMEOUT_MS, s => fetch(new Request(key, { cache: 'no-cache', signal: s })), signal,
+		async res => {
+			if (keep(res)) return { res, now: await readBytes(res, signal) };
+			discard(res);
+			return { res, now: null };
+		});
+	/* The navigation preload answer for index.html (fresh) the same way: never after a newer worker appeared
+	   (an answer that comes later is discarded); not there within INSTALL_TIMEOUT_MS → null, the check fetches
+	   index.html itself */
+	const preloaded = async () => {
+		let timer = null;
+		const late = new Promise(resolve => { timer = setTimeout(resolve, INSTALL_TIMEOUT_MS, null); });
+		let res = null;
+		try {
+			res = await untilAbort(Promise.race([fresh.catch(() => null), late]), signal);
+		} catch (err) {
+			fresh.then(discard, () => {});
+			throw err;
+		} finally {
+			clearTimeout(timer);
+		}
+		if (!res) {
+			fresh.then(discard, () => {});
+			return null;
+		}
+		if (keep(res)) return { res, now: await readBytes(res, signal) };
+		discard(res);
+		return { res, now: null };
+	};
+	if (over()) return false;
 	const shell = await caches.open(names.shell);
 	const prepared = (await caches.has(names.next)) ? await caches.open(names.next) : null;
 	/* data files are never compared (network first, never part of an update) */
-	const all = (await shell.keys()).map(r => r.url).filter(u => !isDataUrl(u, cfg));
+	const all = (await shell.keys()).map(r => r.url).filter(u => !isMarker(u) && !isDataUrl(u, cfg));
 	const marked = await Promise.all(all.map(async key => isRuntimeCopy(await shell.match(key))));
 	const keys = all.filter((_, i) => !marked[i]);
 	const runtime = all.filter((_, i) => marked[i]);
 	/* A runtime copy: gone (404/410) or not to be kept → deleted; changed → replaced; no answer → kept */
 	const refresh = async key => {
-		const res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(key, { cache: 'no-cache', signal })));
+		const { res, now } = await load(key);
 		if (res.status === 404 || res.status === 410 || (cacheable(res) && !keep(res))) {
 			await shell.delete(key);
 			return;
 		}
-		if (!keep(res)) return;
+		if (!now) return;
 		const copy = await shell.match(key);
-		const [now, before] = await Promise.all([res.arrayBuffer(), copy ? copy.arrayBuffer() : null]);
+		const before = copy ? await copy.arrayBuffer() : null;
 		if (!before || !sameBytes(now, before)) {
 			await shell.put(key, runtimeCopy(new Response(now, { status: res.status, statusText: res.statusText, headers: res.headers })));
 		}
 	};
-	for (let i = 0; i < runtime.length; i += CHECK_BATCH) {
+	for (let i = 0; i < runtime.length && !over(); i += CHECK_BATCH) {
 		await Promise.allSettled(runtime.slice(i, i + CHECK_BATCH).map(refresh));
 	}
 	let changed = false;
 	const compare = async key => {
-		let res = key === ROOT_URL && fresh ? await fresh.catch(() => null) : null;
-		if (!res) res = await withTimeout(INSTALL_TIMEOUT_MS, signal => fetch(new Request(key, { cache: 'no-cache', signal })));
+		const { now } = (key === ROOT_URL && fresh && (await preloaded())) || (await load(key));
 		/* gone or not to be kept: the copy stays (a removed file is no reason to fetch everything) */
-		if (!keep(res)) return;
+		if (!now) return;
 		const copy = (prepared && (await prepared.match(key))) || (await shell.match(key));
-		const [now, before] = await Promise.all([res.arrayBuffer(), copy ? copy.arrayBuffer() : null]);
+		const before = copy ? await copy.arrayBuffer() : null;
 		if (!before || !sameBytes(now, before)) changed = true;
 	};
-	for (let i = 0; i < keys.length && !changed && !superseded(); i += CHECK_BATCH) {
+	for (let i = 0; i < keys.length && !changed && !over(); i += CHECK_BATCH) {
 		const results = await Promise.allSettled(keys.slice(i, i + CHECK_BATCH).map(compare));
 		if (results.some(r => r.status === 'rejected')) return false;
 	}
 	/* a newer worker appeared meanwhile: no crawl (it would hold that worker; its activation replaces '-next') */
-	if (!changed || superseded()) return false;
+	if (over()) return false;
+	/* nothing changed: is the copy still complete (FILES)? When not — and no prepared update brings a
+	   complete one — the same crawl repairs it */
+	const repair = !changed && !prepared && (await incomplete(shell));
+	if ((!changed && !repair) || over()) return false;
+	/* files changed: sw.js too? Then that worker installs now, and the copy is its business */
+	if (changed) await recheckWorker(signal);
+	if (over()) return false;
 	await caches.delete(names.next);
-	const { offline } = await precache(cfg, names.next, { data: false });
-	if (offline) {
+	let result;
+	try {
+		/* an update leaves data files out; a repair brings back those the copy lost as well (the install's
+		   copy has them for a first visit offline) — they never stay in a '-next' that is marked complete */
+		result = await precache(cfg, names.next, { data: !changed, signal, stop: over });
+	} catch (err) {
+		await caches.delete(names.next);
+		if (signal.aborted) return false;
+		throw err;
+	}
+	/* a crawl with network failures (or a server error, a rate limit), or a newer worker: nothing is kept */
+	if (result.offline || over()) {
 		await caches.delete(names.next);
 		return false;
 	}
-	await (await caches.open(names.next)).put(COMPLETE(), new Response('', { headers: { 'Content-Type': 'text/plain' } }));
+	const next = await caches.open(names.next);
+	/* A repair: when the server still has the code the pages run (no copy differs), the files the copy lost
+	   join it in place — no new version, nothing to tell. Else it is an update after all. */
+	if (!changed && !(await differs(shell, next, cfg))) {
+		await fillIn(shell, next, result.kept);
+		await caches.delete(names.next);
+		console.info(`[sw] the offline copy was incomplete — ${result.kept.length} files kept again`);
+		return false;
+	}
+	/* an update after all: no data file in a prepared update (§14) */
+	for (const req of await next.keys()) if (isDataUrl(req.url, cfg)) await next.delete(req.url);
+	/* sw.js changed during the crawl? Then that worker takes over, and nothing is kept */
+	await recheckWorker(signal);
+	if (over()) {
+		await caches.delete(names.next);
+		return false;
+	}
+	await next.put(COMPLETE(), listOf(result.kept));
+	if (over()) {
+		await caches.delete(names.next);
+		return false;
+	}
 	await announceUpdate();
 	return true;
 }
 
-let checking = null;
-let lastCheck = -Infinity;
-
-/** A newer worker of this registration is installing or waiting. The update check runs inside the start's
-    waitUntil, and a newer worker that called skipWaiting() activates only once this one has no extended
-    events: the check stops there (the newer worker brings its own copy; the next start checks again). */
-function superseded() {
-	const reg = self.registration;
-	return !!(reg && (reg.installing || reg.waiting));
-}
-
-/** After a start: one check, a little later, not more often than CHECK_GAP_MS */
+/** After a start: one check, a little later, not more often than CHECK_GAP_MS. The delay ends early, and
+    the check is skipped, when a newer worker appears meanwhile. */
 function scheduleCheck(fresh) {
-	if (checking || Date.now() - lastCheck < CHECK_GAP_MS) return fresh ? fresh.catch(() => {}) : Promise.resolve();
+	if (checking || Date.now() - lastCheck < CHECK_GAP_MS) return fresh ? fresh.then(discard, () => {}) : Promise.resolve();
 	lastCheck = Date.now();
-	checking = new Promise(resolve => setTimeout(resolve, CHECK_DELAY_MS))
+	const ctl = new AbortController();
+	const unwatch = watchCheck(ctl);
+	checking = pause(CHECK_DELAY_MS, ctl.signal)
 		.then(() => {
-			if (!superseded()) return checkForUpdate(CONFIG, NAMES, fresh);
-			if (fresh) fresh.catch(() => {});
+			if (!ctl.signal.aborted && !superseded()) return checkForUpdate(CONFIG, NAMES, fresh, ctl);
+			if (fresh) fresh.then(discard, () => {});
 			return false;
 		})
 		.catch(err => console.info('[sw] update check failed', err))
-		.finally(() => { checking = null; });
+		.finally(() => {
+			unwatch();
+			checking = null;
+		});
 	return checking;
 }
 
@@ -796,8 +1297,11 @@ const NAMES = cacheNames(CONFIG);
    The follow-up never extends an event: a newer worker that called skipWaiting() activates only once
    the active one has no extended events, so a waitUntil() spanning the 30 s held every update (and a
    rollback) that long. It runs once, from a plain timer or from the first fetch event at or after the
-   moment, whichever comes first; a stopped worker loses the timer, a replaced one drops it, and the
-   next start of the desktop sweeps in any case. */
+   moment, whichever comes first; a stopped worker loses the timer, and the next start of the desktop
+   sweeps in any case (so does a page that asks for it: 'desk:legacy-sweep', see the message handler).
+   Every sweep runs only while this worker is in charge of its registration (inCharge(): no newer worker
+   installing or waiting, not replaced) and looks again right before each delete: after a rollback the
+   newer worker may be the earlier one the list names, and these are its caches again. */
 let legacyDue = 0;        // Date.now() from which the follow-up is due; 0 = none pending
 let legacyTimer = null;
 
@@ -811,14 +1315,8 @@ function armLegacyFollowUp() {
 	}, LEGACY_FOLLOW_UP_MS);
 }
 
-/** Is this worker still the active one? A worker a newer one replaced is 'redundant'.
-    Without self.serviceWorker (older engines): yes, as before. */
-function stillActive() {
-	const me = self.serviceWorker;
-	return !me || me.state === 'activating' || me.state === 'activated';
-}
-
-/** Runs a pending follow-up once; the sweep's promise, or null when none was due or the worker was replaced */
+/** Runs a pending follow-up once; the sweep's promise, or null when none was due or a newer worker is
+    there (installing, waiting or active: it is dropped, not postponed) */
 function legacyFollowUp() {
 	if (!legacyDue) return null;
 	legacyDue = 0;
@@ -826,24 +1324,49 @@ function legacyFollowUp() {
 		clearTimeout(legacyTimer);
 		legacyTimer = null;
 	}
-	return stillActive() ? sweepLegacy().catch(() => {}) : null;
+	return inCharge() ? sweepLegacy().catch(() => {}) : null;
 }
 
+/** Deletes the legacy caches — only while this worker is in charge, checked again before each delete */
 async function sweepLegacy() {
-	const gone = (await caches.keys()).filter(NAMES.legacy);
-	await Promise.all(gone.map(k => caches.delete(k)));
+	if (!inCharge()) return [];
+	const found = (await caches.keys()).filter(NAMES.legacy);
+	const gone = [];
+	for (const name of found) {
+		if (!inCharge()) break;
+		if (await caches.delete(name)) gone.push(name);
+	}
 	if (gone.length) console.info('[sw] removed the caches of an earlier service worker:', gone);
 	return gone;
 }
 
+/** The install's crawl into the shell cache, then its list (FILES). A worker that replaces an active one
+    under the same cache name (a change of sw.js or site/config.js that leaves the precache list and the
+    version alone — a comment, offline.timeoutMs, legacyCaches) crawls into the very cache the open pages
+    read: when that changes a copy of code, the CHANGED marker (written before that copy is replaced)
+    tells activation to announce it. */
+async function installCopy() {
+	const replacing = !!(self.registration && self.registration.active);
+	/* this crawl is newer than any '-next' under this name: the worker it replaces must not move one in
+	   place meanwhile (a start would put older copies over the new ones) */
+	await caches.delete(NAMES.next);
+	const result = await precache(CONFIG, NAMES.shell, { compare: replacing });
+	const shell = await caches.open(NAMES.shell);
+	/* the list of a complete crawl only: after a network failure (or a server error, a rate limit) there is
+	   none (an older one goes too) — the first update check then crawls again and fills the copy in */
+	if (result.offline) await shell.delete(FILES());
+	else await shell.put(FILES(), listOf(result.kept));
+}
+
 self.addEventListener('install', event => {
 	event.waitUntil((async () => {
-		if (CONFIG.enabled) await precache(CONFIG, NAMES.shell);
+		if (CONFIG.enabled) await installCopy();
 		await self.skipWaiting();
 	})());
 });
 
 self.addEventListener('activate', event => {
+	noteOwnWorker();
 	event.waitUntil((async () => {
 		const current = CONFIG.enabled ? [NAMES.shell, NAMES.pages] : [];
 		const keys = await caches.keys();
@@ -861,14 +1384,26 @@ self.addEventListener('activate', event => {
 		if (preloadSupported()) {
 			try { await self.registration.navigationPreload.enable(); } catch { /* not supported */ }
 		}
-		/* Pages a worker of an older generation started run old files: a reload brings the new ones */
+		/* Pages a worker of an older generation started run old files: a reload brings the new ones. The
+		   same when the install changed their files under the same cache name (CHANGED) */
 		const replaced = keys.some(k => NAMES.own.test(k) && !current.includes(k) && k !== NAMES.next && !k.endsWith(':pages'));
+		const changed = keys.includes(NAMES.shell) && (await (await caches.open(NAMES.shell)).delete(CHANGED()));
 		await self.clients.claim();
-		if (replaced) await announceUpdate();
+		if (replaced || changed) await announceUpdate();
 	})());
 });
 
+/* A page asks for the legacy sweep (src/panels/install.js, ~30 s after 'controllerchange'): this worker
+   sweeps when it is in charge. A page cannot tell this worker from an earlier one at the same URL (a
+   rollback) — that one ignores the message, so its caches stay. */
+self.addEventListener('message', event => {
+	if (!event.data || event.data.type !== 'desk:legacy-sweep' || !CONFIG.legacy.length) return;
+	const swept = sweepLegacy().catch(() => {});
+	if (typeof event.waitUntil === 'function') event.waitUntil(swept);
+});
+
 self.addEventListener('fetch', event => {
+	noteOwnWorker();
 	/* Legacy caches: the follow-up, when its timer has not run yet although the moment has come — before
 	   classify, so it also runs for requests this worker leaves alone and for a switched-off worker that
 	   still controls its pages. Only the sweep itself (milliseconds) extends this event. */

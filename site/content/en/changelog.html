@@ -13,6 +13,15 @@
 <article>
 <h1>Changelog</h1>
 <p class="lead">What changed in which version of JPKCom Desktop.</p>
+<h2 id="v1-4-0">1.4.0</h2>
+<p>Fixes for the offline copy and for several desktops on one site.</p>
+<ul>
+<li>A new version no longer waits while the old one is still fetching an update, and going back to an earlier service worker keeps its caches.</li>
+<li>The public holidays now show offline too, and a changed <code>sw.js</code> or <code>site/config.js</code> that keeps the cache name offers a reload whenever it changed code the open desktop runs.</li>
+<li>With the fast start from the offline copy (the default), a copy that lost files, or could not fetch them all, is completed by the next update check — a server error or rate limit no longer leaves an update with an old file in it.</li>
+<li>Two desktops on one site whose namespaces overlap (<code>jpkdesk</code> and <code>jpkdesk-next</code>) keep their settings apart — resetting one no longer clears the other.</li>
+</ul>
+
 <h2 id="v1-3-0">1.3.0</h2>
 <p>Fine-tuning from moving a real site onto the desktop.</p>
 <ul>

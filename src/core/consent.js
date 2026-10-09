@@ -21,6 +21,20 @@ import { sheet } from './dialog.js';
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 const services = new Map();
 
+/* A consent key: 'consent-<valid id>' holding 'on' (set() never stores anything else) */
+const isConsent = name => name.startsWith('consent-') && ID.test(name.slice(8)) && store.get(name) === 'on';
+
+/* '<ns>-consent-<id>' is a name of this desktop when the service is registered here and the key holds
+   'on' (or was just removed: a 'storage' event). Not every valid id: a desktop whose namespace is
+   '<ns>-consent' writes '<ns>-consent-lang', '<ns>-consent-notes' …, and those must show it as another
+   installation (store.js ownKeys(), §14 "Whose keys"). A consent of a service no longer here is an
+   undeclared leftover, still this desktop's unless such an installation shows. */
+store.claim(name => {
+	if (!name.startsWith('consent-') || !services.has(name.slice(8))) return false;
+	const v = store.get(name);
+	return v === 'on' || v === null;
+});
+
 /**
  * Registers a service. Modules declare them in their descriptor (consent: [...]);
  * the loader calls this. hosts: one host or a list, e.g. 'api.open-meteo.com'.
@@ -108,10 +122,10 @@ export const list = () => [...services.values()].filter(s => enabled(s.id));
 /** Every host of every offered service (for a CSP connect-src hint) */
 export const hosts = () => [...new Set(list().flatMap(s => s.hosts))];
 
-/** Withdraws every consent (reset "settings") */
+/** Withdraws every consent (reset "settings"): this desktop's consent keys only (store.names(), §14) */
 export function revokeAll() {
 	for (const name of store.names()) {
-		if (name.startsWith('consent-')) store.remove(name);
+		if (isConsent(name)) store.remove(name);
 	}
 	emit('consent:change', { id: null, granted: false });
 }

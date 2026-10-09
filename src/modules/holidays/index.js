@@ -10,7 +10,9 @@
      addRegion(def) → boolean     a region from a site module (format: ./core.js)
      region()       → { id, name } | null      regions() → ids     heading() → list title
 
-   Region files shipped in ./regions/ (loaded on demand): REGION_FILES below.
+   Region files shipped in ./regions/ (loaded on demand): REGION_FILES below — and each of them in the
+   descriptor's precache list: the import is computed, so the offline copy of the service worker knows
+   them only from there (tests/p06-holidays.test.mjs keeps both lists and the folder equal).
    A site region: { id: 'mine', src: 'site/modules/mine/index.js' } in config.modules whose
    setup() calls desk.holidays.addRegion({ id: 'xx-yy', … }) — with config.holidays.region = 'xx-yy'
    (list it after 'holidays' or give it requires: ['holidays']).
@@ -22,7 +24,7 @@
 import Desk from '../../core/api.js';
 import { cleanRegion, holidaysOf, byDay, dayKey } from './core.js';
 
-/** Region files in ./regions/<id>.js */
+/** Region files in ./regions/<id>.js (also in precache: [...] below) */
 const REGION_FILES = ['de-by'];
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -124,6 +126,8 @@ export default {
 	kind: 'module',
 	i18n: ['holidays'],
 	styles: ['holidays.css'],
+	/* every region file: loadRegionFile() imports ./regions/<id>.js with a computed name (§8 precache) */
+	precache: ['regions/de-by.js'],
 
 	configKey: 'holidays',
 	validateConfig(section, warn) {

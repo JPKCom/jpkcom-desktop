@@ -206,7 +206,8 @@ window.DESKTOP_CONFIG = {
 
 Weather places are `{ id, name, lat, lon, tz }` entries in `weather.places`. Notification feeds are
 `notify.feeds: { en: 'site/data/feed.en.json', de: 'site/data/feed.de.json' }`. Several desktops on one
-origin need different `namespace` values.
+origin need different `namespace` values — best ones of which neither is the other plus `-…` (`desk-a`,
+`desk-b`, not `jpkdesk` and `jpkdesk-next`; [docs/deploy.md §3](docs/deploy.md#3-at-the-web-root-or-in-a-sub-folder)).
 
 ### `site/apps.js`: apps, collections, menus, files
 

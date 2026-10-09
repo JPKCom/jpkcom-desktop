@@ -265,7 +265,8 @@ published `index.html` as a `<meta>` tag. That tag cannot set `frame-ancestors`,
 policy in the workflow file too. All Pages sites of one account share the origin
 `https://<user>.github.io`, so each can read the others' stored data: host only code you trust there
 ([deploy.md §3](deploy.md#3-at-the-web-root-or-in-a-sub-folder)). Give each desktop its own `namespace`
-in `site/config.js` so that their settings and caches do not collide. Details: [deploy.md → GitHub Pages](deploy.md#github-pages).
+in `site/config.js` so that their settings and caches do not collide — best one that is not another's
+plus `-…` (`desk-a` and `desk-b`, not `jpkdesk` and `jpkdesk-next`). Details: [deploy.md → GitHub Pages](deploy.md#github-pages).
 
 ### On your own server
 

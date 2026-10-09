@@ -117,7 +117,7 @@ Built-in sections and rows (`order`):
 | `dock` (30) | `icons` 10 (`desktop.setHidden/hidden/enabled`), `docksize` 20 (`dock.size/setSize/sizes`), `magnify` 30 (`dock.magnify/setMagnify`), `dockreset` 40 (`dock.reset`, `dock.isCustom`) |
 | `online` (40) | `consent` 10 — one switch per `consent.list()` service; intro text only when the section has rows; hidden when empty |
 | `data` (50) | `storage` 10 (`store.usage()` + `fmtBytes`), `backup` 20, `trash` 30 |
-| `reset` (90) | `reset` 10 — every group `storage.resetGroups()` shows now, with its state (a group with `visible()` that answers no and holds no data has no row, ARCHITECTURE §14); "Select all" and the confirmation cover only the shown groups, a pick whose group went hidden is dropped, and an open confirmation closes whenever the shown groups change (it never turns a confirmed part into everything, or the reverse); "Reset everything" (every shown group picked) resets every registered group, hidden ones included, removes every key of the namespace and calls `vault.forget?.()` — its confirmation names no group |
+| `reset` (90) | `reset` 10 — every group `storage.resetGroups()` shows now, with its state (a group with `visible()` that answers no and holds no data has no row, ARCHITECTURE §14); "Select all" and the confirmation cover only the shown groups, a pick whose group went hidden is dropped, and an open confirmation closes whenever the shown groups change (it never turns a confirmed part into everything, or the reverse); "Reset everything" (every shown group picked) resets every registered group, hidden ones included, removes every key of this desktop (`store.names()`: never the keys of another installation whose namespace starts with this one, ARCHITECTURE §14 "Whose keys"; a leftover of a removed module named `<x>-<declared name>` makes `<ns>-<x>` look like one, so it and the other `<x>-…` leftovers stay — §14 limit 4) and calls `vault.forget?.()` — its confirmation names no group |
 
 Rows whose service is missing are left out, so the section list follows what is loaded.
 
@@ -172,7 +172,11 @@ With a non-empty list `install.js` also sweeps those legacy caches (`scheduleSwe
 `controllerchange` (the hand-over to a new worker), and 3 s after `load` on each start when this page does
 not register the worker (`pwa.enabled: false`, no manifest link, insecure context). It skips the sweep
 while a worker at another script URL than this installation's `sw.js` controls the page, because that
-worker would re-create the caches at once.
+worker would re-create the caches at once. While a worker at `sw.js`'s URL controls the page, the page
+does not delete them itself either: it posts `{ type: 'desk:legacy-sweep' }` to that worker, and `sw.js`
+sweeps only while it is in charge of its registration (P12). After a rollback the controller may be the
+earlier worker back at the same URL — it ignores the message and keeps its caches. Only an uncontrolled
+page deletes them itself.
 `docksize`, `magnify`, `icons`, `seconds` belong to the shell (P2); the rows here go through its services.
 
 ## i18n namespaces

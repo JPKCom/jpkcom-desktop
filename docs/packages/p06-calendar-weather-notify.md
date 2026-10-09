@@ -60,7 +60,9 @@ Sections reuse `.cal-head`, `.cal-btn`, `.cal-sub` from `calendar.css`.
   weekday rules (`[month, weekday, nth, key, { from, to }]`: "4th Thursday of November", "last Monday of May",
   "Wednesday before 23 November"). Rule options: `since`, `until`, `note`, `name`. Months count from 1.
 - `config.holidays.region` (default `null` = none). Region files in `src/modules/holidays/regions/` (listed in
-  `REGION_FILES`, loaded on demand); `de-by` (Bavaria, with the Augsburg Peace Festival note "Augsburg only" and
+  `REGION_FILES`, loaded on demand with a computed `import()`, and in the descriptor's `precache: [...]` so the
+  service worker keeps them offline — ARCHITECTURE §8; `tests/p06-holidays.test.mjs` keeps both lists equal to
+  the folder; a new region file goes into both); `de-by` (Bavaria, with the Augsburg Peace Festival note "Augsburg only" and
   the Catholic-municipalities note on Assumption Day) ships as the example. A site region: a site module calls
   `desk.holidays.addRegion({ id, name, fixed, easter, weekday })` (list it after `holidays`); an unknown region
   is reported once at `'modules:ready'`.

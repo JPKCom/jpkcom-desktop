@@ -23,6 +23,9 @@
                                        path rule is SET_PATH of src/core/icon-sets.js, written into
                                        the generated file from its source)
 
+   Sources are read without their comments (stripComments(), the same function as in
+   sw.js): an import or a styles: [...] quoted in a comment is no file to hint.
+
    Site modules in site/modules/<id>/index.js are read the same way and matched by
    their src ({ id, src: 'site/modules/<id>/index.js' }); a site module elsewhere
    gets a hint for its entry file only. Added or changed a site module? Run
@@ -52,9 +55,124 @@ const rel = file => relative(ROOT, file).split('\\').join('/');
 const read = path => readFileSync(join(ROOT, path), 'utf8');
 const strings = text => [...text.matchAll(/(['"])([^'"\n]{1,256}?)\1/g)].map(m => m[2]);
 
+/** JavaScript source without its comments: an import named in a comment is no file to hint. Strings,
+    template literals (with their ${ … } parts) and regular expression literals stay as they are; a block
+    comment keeps its line breaks (the line-anchored rule below keeps its lines). A heuristic, not a parser:
+    its limits (a regular expression right after ')') are described in sw.js. The same function as
+    stripComments() in sw.js — the crawl of the offline copy reads the source by the same rule
+    (tests/p12-sw.test.mjs compares their source). */
+export function stripComments(text) {
+	const n = text.length;
+	const WORD = /[\p{ID_Continue}$#]/u;
+	const KEYWORD = /^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+	let out = '';
+	let i = 0;
+	const copyEscaped = () => {
+		out += text.slice(i, i + 2);
+		i += 2;
+	};
+	const quoted = q => {
+		out += text[i++];
+		while (i < n && text[i] !== '\n') {
+			if (text[i] === '\\') copyEscaped();
+			else if (text[i] === q) {
+				out += text[i++];
+				return;
+			} else out += text[i++];
+		}
+	};
+	const regex = () => {
+		let inClass = false;
+		out += text[i++];
+		while (i < n && text[i] !== '\n') {
+			const c = text[i];
+			if (c === '\\') {
+				copyEscaped();
+				continue;
+			}
+			out += c;
+			i++;
+			if (c === '[') inClass = true;
+			else if (c === ']') inClass = false;
+			else if (c === '/' && !inClass) break;
+		}
+		while (i < n && WORD.test(text[i])) out += text[i++];
+	};
+	/* code until the end — or, inner: inside the ${ … } of a template literal, until its closing brace */
+	const code = inner => {
+		let depth = 0;
+		let operand = false;
+		let glued = false; // a '/' read as division, no white space since
+		while (i < n) {
+			const c = text[i];
+			const d = text[i + 1];
+			const end = c === '/' && d === '*' ? text.indexOf('*/', i + 2) : -1;
+			if (c === '/' && d === '/') {
+				while (i < n && text[i] !== '\n') i++;
+			} else if (c === '/' && d === '*' && glued && (end < 0 || text.lastIndexOf('\n', end) > i)) {
+				/* glued to a division and not closed on its line: a '/*' inside a regular expression that
+				   was read as division (if (x) /[/*]/…) — no comment, the lines after it stay */
+				out += c;
+				i++;
+				operand = false;
+			} else if (c === '/' && d === '*') {
+				const stop = end < 0 ? n : end + 2;
+				out += text.slice(i, stop).replace(/[^\n]/g, '') || ' ';
+				i = stop;
+			} else if (c === '\'' || c === '"') {
+				quoted(c);
+				operand = true;
+			} else if (c === '`') {
+				template();
+				operand = true;
+			} else if (c === '/' && !operand) {
+				regex();
+				operand = true;
+			} else if (WORD.test(c)) {
+				let j = i;
+				while (j < n && WORD.test(text[j])) j++;
+				const word = text.slice(i, j);
+				out += word;
+				i = j;
+				operand = !KEYWORD.test(word);
+			} else {
+				if (c === '{') depth++;
+				else if (c === '}') {
+					if (inner && depth === 0) return;
+					depth--;
+				}
+				out += c;
+				i++;
+				if (/\s/.test(c)) glued = false;
+				else {
+					if (c === '/') glued = true;
+					operand = c === ')' || c === ']';
+				}
+			}
+		}
+	};
+	const template = () => {
+		out += text[i++];
+		while (i < n) {
+			if (text[i] === '\\') copyEscaped();
+			else if (text[i] === '`') {
+				out += text[i++];
+				return;
+			} else if (text[i] === '$' && text[i + 1] === '{') {
+				out += '${';
+				i += 2;
+				code(true);
+				if (i < n) out += text[i++];
+			} else out += text[i++];
+		}
+	};
+	code(false);
+	return out;
+}
+
 /** Static imports and re-exports of a file (relative specifiers only), as root-relative paths */
 function staticImports(path) {
-	const text = read(path);
+	const text = stripComments(read(path));
 	const out = [];
 	for (const m of text.matchAll(/^[ \t]*(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(['"])(\.{1,2}\/[^'"\n]+?)\1/gm)) {
 		out.push(posix.normalize(posix.join(posix.dirname(path), m[2])));
@@ -73,7 +191,7 @@ function closure(entry, seen = new Set()) {
 
 /** A descriptor's styles: [...] (relative to it) and i18n: [...]; own: the folder of its own locales (field locales) */
 function descriptorParts(entry) {
-	const text = read(entry);
+	const text = stripComments(read(entry));
 	const dir = posix.dirname(entry);
 	const css = [];
 	for (const m of text.matchAll(/(?<![A-Za-z])styles\s*:\s*\[([^\]]*)\]/g)) {

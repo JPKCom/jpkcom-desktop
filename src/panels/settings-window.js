@@ -199,7 +199,8 @@ async function runReset() {
 	for (const w of wm?.list?.() ?? []) wm.close(w, { force: true });
 	/* Everything also reaches the groups hidden now (their onReset, e.g. a forgotten login) */
 	await storage.reset(plan.ids);
-	/* Everything means every key of the desktop, also ones no group knows (yet) */
+	/* Everything means every key of the desktop, also ones no group knows (yet) — never the keys of
+	   another installation whose namespace starts with this one (store.names(), §14) */
 	if (plan.everything) {
 		for (const name of store.names()) store.remove(name);
 		try {

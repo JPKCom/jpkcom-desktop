@@ -20,7 +20,9 @@
    "Offline copies", ~30 s after 'controllerchange' (the earlier worker may still finish
    requests and write to them after the hand-over), and 3 s after each start when this page
    does not register the worker (pwa.enabled false …) — sw.js sweeps at the start otherwise.
-   Never while a worker at another script URL controls the page: it would write them again. */
+   Never while a worker at another script URL controls the page: it would write them again. While a
+   worker at sw.js's URL controls it, the page asks that worker ({ type: 'desk:legacy-sweep' }) instead of
+   deleting: after a rollback it may be the earlier worker at the same URL, which ignores the message. */
 
 import Desk from '../core/api.js';
 import { legacyMatcher } from '../core/config.js';
@@ -131,8 +133,10 @@ export async function sweepLegacy(list = legacyList, store = globalThis.caches) 
  *   START_SWEEP_MS after 'load' — only when this page does not register the worker (registers: false),
  *     because then no worker of this installation sweeps at the start
  * A sweep is skipped while a worker at another script URL than this installation's sw.js controls the
- * page (it would re-create the caches at once). Everything injectable for tests. Returns whether anything
- * was scheduled.
+ * page (it would re-create the caches at once). While a worker at this URL controls it, the page does not
+ * delete them itself: it posts { type: 'desk:legacy-sweep' } to that worker (sw.js sweeps when it is in
+ * charge; an earlier worker the site rolled back to at the same URL ignores it). Only an uncontrolled page
+ * sweeps itself. Everything injectable for tests. Returns whether anything was scheduled.
  */
 export function scheduleSweep(list = legacyList, {
 	registers = true,
@@ -144,9 +148,19 @@ export function scheduleSweep(list = legacyList, {
 } = {}) {
 	if (!list.length || !store) return false;
 	const sweep = () => {
-		const url = container?.controller?.scriptURL;
+		const controller = container?.controller ?? null;
+		const url = controller?.scriptURL;
 		if (url && url !== ownUrl) {
 			if (Desk.config.debug) console.info('[install] legacy caches kept: another service worker controls this page', url);
+			return;
+		}
+		if (controller) {
+			/* A worker at this installation's URL — but after a rollback that may be the earlier worker, back
+			   at the same URL, and these are its caches again: the page cannot tell. So it asks the worker;
+			   sw.js sweeps only while it is in charge of its registration, any other worker ignores it. */
+			try {
+				controller.postMessage({ type: 'desk:legacy-sweep' });
+			} catch { /* the worker is gone: nothing to ask */ }
 			return;
 		}
 		sweepLegacy(list, store).catch(() => {});

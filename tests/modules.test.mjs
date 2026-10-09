@@ -84,6 +84,11 @@ test('modules: load() keeps window code out of the boot; loadImpl() joins it wit
 	assert.equal(registry.impl('lazy-x'), a);
 });
 
+test('modules: precache (read by the service worker) is no contribution point', async () => {
+	await modules.loadAll([{ kind: 'module', refs: [ref('pre-x', `export default { id: 'pre-x', precache: ['regions/a.js'] }`)] }], {});
+	assert.deepEqual(modules.contributions('precache'), []);
+});
+
 test('modules: hooksOf() takes a default export or an object and needs mount() or render()', () => {
 	const mount = () => {};
 	assert.equal(hooksOf({ default: { mount } }, 'x').mount, mount);

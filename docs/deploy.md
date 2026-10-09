@@ -97,7 +97,14 @@ holds `index.html` (`https://example.org/` or `https://example.org/desktop/`).
   site passes through untouched ([§11](#11-offline-use-and-installation-pwa)).
 - **Several desktops on one origin** (for example `/desktop/` and `/demo/`) need different
   `namespace` values in their `site/config.js`, so that their stored settings, caches and events do not
-  collide. Cache names already include the folder.
+  collide. Cache names already include the folder. Best are namespaces of which neither is the other plus
+  `-…` (`desk-a` and `desk-b`, not `jpkdesk` and `jpkdesk-next`). From 1.4.0 on, a desktop tells its stored
+  keys from those of such a longer namespace as soon as that one has stored a key it knows too (a setting,
+  a consent), and leaves them out of its reset and storage figures (`docs/ARCHITECTURE.md` §14 "Whose
+  keys"); earlier versions do not. That rule keeps a key when in doubt: a leftover of a module that was
+  removed from the site and stored a name such as `reader-lang` (`<module>-<a name the desktop knows>`)
+  looks like a longer namespace `<namespace>-reader`, and it and the module's other leftovers then stay
+  through "Reset everything" (clear them in the browser's site data if needed).
 - Paths in `site/config.js` and `site/apps.js` are relative to the installation folder; absolute paths
   (`/docs/…`) point to other content of the same site.
 
@@ -489,6 +496,14 @@ Some mobile browsers take the home-screen icon not from the manifest but from
   with your server — conditional requests, mostly `304 Not Modified`. When something changed it fetches a
   complete new copy in the background and the open desktop offers "reload"; the next start uses the new
   copy as a whole, never a mix of old and new code (data is always current). A visitor therefore sees an update one reload later than without a worker.
+  When the check finds a change it first lets the browser look at `sw.js` again; a new `sw.js` (a new
+  release, or a rollback to another worker) installs at once, and the check stops — also in the middle
+  of fetching the copy — so the new worker never waits for it and no half copy is kept.
+  The same check repairs the copy: when files of it are gone — another service worker of your site (an
+  old one, or one in another folder) deleted every cache it did not know — it fetches the complete copy
+  again; when your server still has the same code, the missing files simply join it and nothing is
+  announced. An installation that could not reach every file (a flaky connection) is completed the same
+  way at the next start.
 - *Network first* (`offline.fastStart: false`, and always for data files and Reader pages). Online you get
   the deployed files; offline — or when the network takes longer than `offline.timeoutMs` (default 4000 ms)
   while a copy exists — the last good copy answers. A late network answer still refreshes the copy.
@@ -503,14 +518,19 @@ Some mobile browsers take the home-screen icon not from the manifest but from
   navigation preload request, so there is no extra request).
 - *Precache:* at installation it reads `site/config.js` (`importScripts`), starts at `index.html`, the
   boot scripts and the `index.js` of every core part, module and app in the configuration, and follows
-  their imports (also the window code they load on demand), `styles: [...]`, `windowStyles: [...]`,
-  `i18n: [...]`, stylesheet `url()`s, plus the strings of every offered
-  language. Each file is fetched on its own; a missing file never breaks the installation. Whatever this
-  misses (for example files a module loads with a computed name) is kept the first time the page loads it.
+  their imports (also the window code they load on demand; an import inside a comment does not count),
+  `styles: [...]`, `windowStyles: [...]`, `precache: [...]`, `i18n: [...]`, stylesheet `url()`s, plus the
+  strings of every offered language. Each file is fetched on its own; a missing file never breaks the
+  installation. A file a module loads with a computed name must be listed in its descriptor's
+  `precache: [...]` (the holidays module lists its region files) — otherwise it is kept the first time
+  the page loads it online, and missing offline until then.
 - *Updates:* browsers check `sw.js` **and** `site/config.js` for changes on every visit. A changed module
   list, language list or namespace installs a new service worker, which builds a fresh copy and deletes
   this installation's older caches — and only those (`<namespace>:<folder>:<version>`, `<namespace>:<folder>:pages`;
   for its own folder under any namespace, so changing `namespace` leaves no orphaned copies behind).
+  Any other change of either file — a comment, `offline.timeoutMs`, `offline.legacyCaches` — also
+  installs a new worker, which refreshes the existing copy in place; when that changed files an open
+  desktop runs, the desktop offers "reload" as well.
 - *Switching it off:* set `pwa: { enabled: false }`. The desktop stops registering the worker, and a
   worker that visitors still have from before deletes its caches and unregisters itself on their next
   visit. Visitors can also remove the offline copies themselves: Settings → Reset → "Offline copies".
@@ -533,7 +553,10 @@ Some mobile browsers take the home-screen icon not from the manifest but from
   `*`). They are deleted when the new worker takes over, again about 30 s later (the old worker may still
   finish requests and write to them), at every start of the desktop, and by Settings → Reset → "Offline
   copies". As long as an old worker at another script URL still controls the page, the desktop does
-  not delete them, because that worker would only write them again. List only names your old code
+  not delete them, because that worker would only write them again. Only the desktop's worker that is
+  in charge deletes them: once a newer worker installs, waits or takes over, it stops — so going back to
+  the old worker (the old files, the old `sw.js` at the same URL) leaves its caches alone, and an open
+  desktop page only asks its worker, which an old worker ignores. List only names your old code
   created: a prefix matches every cache of the origin that starts with it, other apps' caches included.
   Caches of this desktop (any folder, any namespace) are never touched this way. The old worker may
   hold copies of files this desktop never caches, such as the sealed vault file; listing its caches
